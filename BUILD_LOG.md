@@ -320,3 +320,21 @@ is sound; no change made (a naive `&`-rejection would break legitimate
 
 **Verification:** 186 passed, 20 skipped (full suite); ruff clean on touched
 files.
+
+## 2026-09-26 — Polish round 2 gate (all green)
+
+- `git diff --check`: clean; `compileall`: clean; ruff clean on touched files.
+- Full suite: **186 passed, 20 skipped**, 1 benign warning.
+- `python -m build`: ok; `twine check dist/*`: PASSED (wheel + sdist).
+- Sdist contains docs/validation.md, docs/OVERVIEW.md,
+  skills/okfsmith-build/references/parsing-tiers.md.
+- Wheel artifact scan: no secrets, no `extractall`; `api_key=` hits are
+  env-var pass-through to the OpenAI client (no hardcoded secret);
+  `pymupdf` hit is the deliberate "NOT used (AGPL)" comment.
+- Clean-venv sdist install: `okfsmith --version` → 0.1.0; base install
+  ingested a 2-section `.md` → 2 concepts, `validate` conformant.
+
+Round-2 reviewer scores (evidence-backed): QA 8/10 (was 8), SEO/AI-SEO
+6.5/10 (was 6.0 — skill-pack grammar fixes landed), Security 7/10 (was 8;
+reviewer claimed a residual XSS bypass via entity URLs — independently
+re-verified as non-exploitable, see above; gate stands).
