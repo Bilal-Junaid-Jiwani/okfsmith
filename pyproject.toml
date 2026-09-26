@@ -26,6 +26,14 @@ dependencies = [
     "typer>=0.12",
     "pyyaml>=6",
     "rich>=13",
+    # Tier-1 PDF parsing: liteparse (run-llama, Apache-2.0, prebuilt wheels).
+    # Verified installable on PyPI 2026-09-26 (2.14.7). Fully offline:
+    # constructed with ocr_enabled=False, never calls paid OCR APIs.
+    # PyMuPDF deliberately avoided (AGPL).
+    "liteparse>=2",
+    # Office/misc formats (MIT). The docx/pptx/xlsx extras are needed for
+    # DOCX/PPTX/XLSX support (mammoth, python-pptx, openpyxl).
+    "markitdown[docx,pptx,xlsx]>=0.1",
 ]
 
 [project.scripts]
