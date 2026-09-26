@@ -446,3 +446,52 @@ init → ingest (4 concepts) → validate conformant → graph JSON with dead_li
   (tree byte-identical to local v0.2.0 base). Remote master is now
   `084ca67`; remote tree verified byte-identical to local `c1de381`.
 - No version bump, no PyPI publish (release is a separate decision).
+
+## 2026-09-26 — "Any model, any API key" (15 provider presets + --api-base)
+
+- User asked (Roman Urdu) for API-key support for any model: Groq, Mistral,
+  DeepSeek, OpenRouter, Together, xAI, Gemini, OpenAI, Ollama "or any
+  custom OpenAI-compatible endpoint". Follow-ups added: 5 more presets
+  (perplexity, fireworks, deepinfra, anyscale, lmstudio) and `agentrouter`
+  (`https://agentrouter.org/v1`, `AGENTROUTER_API_KEY` env).
+- `PROVIDER_PRESETS` (15): openrouter, groq, mistral, deepseek, together,
+  fireworks, deepinfra, anyscale, perplexity, xai, gemini, openai,
+  agentrouter, lmstudio, ollama. Presets store the canonical full base URL
+  (backend appends only `/chat/completions`); odd shapes handled exactly —
+  Perplexity has no `/v1`, Fireworks nests under `/inference/v1`, DeepInfra
+  under `/v1/openai`, Gemini under `/v1beta/openai`. Custom bases via
+  `--api-base`/`OKFSMITH_API_BASE` are normalized (`_normalize_custom_base`:
+  bare hosts gain `/v1`, full bases never doubled).
+- Flags on `ingest` and `chat`: `--provider`, `--api-base`, `--api-key`;
+  all rejected with `--no-llm` (exit 2). Precedence: flags → `OKFSMITH_*` →
+  legacy `OPENAI_API_KEY`/`OPENAI_BASE_URL` (+ `OKFSMITH_BASE_URL` alias) →
+  preset → Ollama default. `AGENTROUTER_API_KEY` honored only when the
+  provider is agentrouter (provider-scoped, never leaks into others).
+  `--api-key` prints a one-time shell-history warning. Unknown provider →
+  loud `LLMError` listing valid names (never silent extractive fallback).
+- OpenRouter is the flagship: one key → hundreds of models via
+  `vendor/model` IDs (README/docs examples use
+  `--provider openrouter --model anthropic/claude-sonnet-4`).
+- `--api-base` documented as covering literally anything else (Azure
+  OpenAI, self-hosted vLLM, llama.cpp server, any compat proxy); Anthropic's
+  native API noted as not OpenAI-compatible (needs compat proxy or the
+  openrouter preset).
+- Secrets: keys never logged/displayed/persisted — `redact_key`/`key_status`,
+  banner/`/model`/`doctor` show only `set (hidden)`/`not set`; HTTP error
+  bodies still include endpoint text (no key is ever in the URL).
+- `okfsmith doctor` now reports resolved provider, base URL, model, key
+  status (with source) without network probing; unknown provider → clean
+  FAIL row.
+- Gate: ruff clean, **268 passed, 20 skipped** (222 pre-existing + 46 new in
+  `tests/test_llm_any_model.py`, mocked httpx, dummy `test-key-123` only).
+- Docs: README "Use any model (API key)" section, docs/llm.md backends
+  rewrite, docs/commands.md synopses, man page, CHANGELOG [Unreleased].
+- Commits on `feature/any-model-api-key`, merged to master (fast-forward):
+  `b91bd07` (whole feature, incl. agentrouter follow-up). No version bump,
+  no PyPI publish.
+- GitHub: remote master had moved to `12106f03` (user pushed `ef7104e` from
+  their machine; tree == local `ef7104e`). Plain HTTPS push 401s from this
+  env, so the commit was replicated via the Git Data API on top of
+  `12106f03` (blobs verified against local SHAs, rebuilt trees verified
+  byte-identical to local tree `18f2005d`). Remote master is now
+  `613d48b0`; remote tree verified byte-identical to local `b91bd07`.
