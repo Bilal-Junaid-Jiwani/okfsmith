@@ -288,3 +288,35 @@ arg rename). Now shows the bundle path; regression test asserts no
 "Bundle object at" leaks.
 
 **Verification:** 185 passed, 20 skipped (full suite); CLI tests 57 passed.
+
+## 2026-09-26 — Polish round 2 continued (repr-leak sweep, hints, typo)
+
+**Bundle repr leaks eliminated:** `init`'s success message, `list`'s table
+title, and `read`'s missing-concept error all interpolated the `Bundle`
+object's repr (`<okfsmith.core.bundle.Bundle object at 0x...>`) instead of
+the bundle path. Each now captures `bundle_path` before `Bundle.load()` and
+uses it in user-facing messages. Sweep regression test
+(`test_no_bundle_repr_leaks_in_user_output`) asserts no "Bundle object at"
+in init/list/read output.
+
+**Missing-extra guidance:** the `slice-not-installed` error hint and
+`doctor`'s MISSING rows now cover pip, pipx, and uvx
+(`_install_extra_hint`), not pip only.
+
+**Typo:** `ingest --help` said "directorie(s)" — fixed.
+
+**Security re-verification (safeHref):** a round-2 security review claimed a
+residual XSS bypass via HTML-entity URLs (e.g. `[x](java&#115;cript:...)`
+producing `<a href="java&amp;#115;...">`). Independently verified with node
+(14 probes) + Python html.parser + urlsplit: esc() runs before link
+extraction so every `&` becomes `&amp;`; browsers decode entities in href
+attributes in a SINGLE pass, yielding literal `&#115;` text; the resulting
+URL has an EMPTY scheme (urlsplit confirms) and parses as an inert relative
+URL — no script execution possible. `javascript:`/`data:`/`vbscript:`/
+`//evil` remain blocked; `http(s)`/`mailto`/`#frag`/relative pass. All other
+innerHTML insertion sites use esc(); dynamic text uses textContent. The gate
+is sound; no change made (a naive `&`-rejection would break legitimate
+`?a=1&b=2` query-string URLs).
+
+**Verification:** 186 passed, 20 skipped (full suite); ruff clean on touched
+files.
