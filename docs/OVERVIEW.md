@@ -17,7 +17,7 @@ raw documents (PDFs, markdown, wiki dumps, Notion exports)
 │ 2. PARSE                                     │
 │ Tier 1: LiteParse (PDFs) + MarkItDown        │
 │ local & free · Tier 2: Docling sidecar       │
-│ Tier 3: cloud OCR (scans only, opt-in)       │
+│ Tier 3: OCR/vision tier (flagged needs_ocr, v1 only) │
 └──────────────────────────────────────────────┘
                         │
                         ▼
@@ -67,7 +67,9 @@ raw documents (PDFs, markdown, wiki dumps, Notion exports)
 
 **1. Ingest.** The entry point for raw sources: `okfsmith ingest BUNDLE SOURCE...` fingerprints each source with SHA-256 (already-ingested files are skipped), parses it (PDF via LiteParse, `.md`/`.txt` via the stdlib reader, Office formats via the optional `office` extra), sections it, and extracts one draft concept per section (`--no-llm`) or LLM-extracted claims with `[^source-id]` citations. Provenance (origin path, digest, capture time) is recorded in the bundle log.
 
-**2. Parse.** Raw documents become clean, ordered text. Tier 1 is free, local, and keyless: LiteParse handles PDFs, MarkItDown handles everything else, and born-digital documents never leave the machine. Tier 2 (an optional Docling sidecar) and Tier 3 (cloud OCR — opt-in, for scanned pages only) cover the hard cases. PyMuPDF is deliberately excluded from the stack (AGPL).
+**2. Parse.** Raw documents become clean, ordered text. Tier 1 is free, local, and keyless: LiteParse handles PDFs, MarkItDown handles everything else, and born-digital documents never leave the machine. Tier 2 (an optional Docling sidecar) covers the hard cases; Tier 3 flags
+scan-only pages as `needs_ocr` for an external OCR/vision pass — v1 performs
+no cloud OCR itself. PyMuPDF is deliberately excluded from the stack (AGPL).
 
 **3. Section.** Parsed text is split into coherent sections along the document's own structure (headings, pages), and each chunk keeps its lineage: document title, section path, and a short document summary. That lineage is what the extraction stage stamps into every concept as its contextual situating prefix — the reason each concept knows precisely which part of which document it came from.
 

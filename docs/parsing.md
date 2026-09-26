@@ -11,7 +11,7 @@ by file type, in tiers.
 | 1 — local, always available | **LiteParse** for PDFs (text-based; constructed with `ocr_enabled=False`, never calls paid OCR APIs); **stdlib reader** for `.md` / `.txt` | default for `.pdf`, `.md`, `.txt` |
 | 1 — local, optional extra | **MarkItDown** for Office files (`okfsmith[office]`): `.docx`, `.pptx`, `.xlsx`, plus `.html`, `.csv`, images | Office formats |
 | 2 — sidecar | **Docling** (`okfsmith[ocr]`) for scanned/image PDFs | image-only pages are flagged (`needs_ocr`) and reported as OCR escalation candidates |
-| 3 — opt-in | cloud OCR | scans only, explicit opt-in |
+| 3 — classification only | **OCR/vision tier** (no provider in v1) | scans/images flagged `needs_ocr` and reported; nothing leaves the machine |
 
 PyMuPDF is deliberately **not** used (AGPL license).
 

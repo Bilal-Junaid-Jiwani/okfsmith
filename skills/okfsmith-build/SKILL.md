@@ -79,7 +79,7 @@ them to `machine-confirmed`; a human stamping `verified:` promotes them to
 | Clean markdown only, no extraction needed | consider `okf-cli` instead (simpler) |
 | Existing bundle, check conformance | `okfsmith validate` or `scripts/validate.py` |
 | Existing bundle, serve to agents | `okfsmith mcp ./kb` (see `references/mcp-recipes.md`) |
-| Scanned-image PDFs | escalate parsing per `references/parsing-tiers.md` (Tier 3 is opt-in) |
+| Scanned-image PDFs | escalate parsing per `references/parsing-tiers.md` (Tier 3 flags `needs_ocr`; no cloud OCR in v1) |
 | Repo of source code → knowledge graph | not okfsmith — use a code-graph tool |
 
 ## Gotchas
@@ -110,8 +110,9 @@ them to `machine-confirmed`; a human stamping `verified:` promotes them to
   the computation. Receipts are runtime artifacts, never bundle content.
 - **Attribution is keyed, not positional.** Footnote labels (`[^ga4-schema]`)
   join to `sources[].id`; never cite by list position.
-- **No network, no secrets.** Tier 1 parsing is local. Tier 3 cloud OCR is
-  opt-in and scans-only. LLM extraction defaults to a local Ollama model;
+- **No network, no secrets.** Tier 1 parsing is local; v1 performs no cloud
+  OCR (scan-only pages are flagged `needs_ocr`). LLM extraction defaults to
+  a local Ollama model;
   hosted models need explicit API keys via environment variables.
 
 ## References (one level deep)
