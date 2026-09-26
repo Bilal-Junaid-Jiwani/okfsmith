@@ -628,3 +628,22 @@ Post-build integration and QA pass, all verified in headless Firefox:
 - v0.3.0 contents: interactive `okfsmith chat` REPL, 15 any-model provider
   presets + `--api-base`, Qwen/Claude/Antigravity-style chat startup UI,
   full docs website (`docs/`, live on GitHub Pages).
+
+## 2026-09-26 — Docs: topbar layout fix + v0.3.0 release notes (user-requested)
+
+- User sent a screenshot of the live docs asking to fix the header and add
+  the new updates to the docs.
+- Header fixes (`docs/assets/css/docs.css`): `header.topbar` was missing its
+  flex layout (the flex rules lived on the unused `.topbar-inner` class), so
+  the logo was clipped at the viewport edge with no padding and the search
+  box / CTA were not pushed right. Now: `display:flex; align-items:center;
+  padding-inline:2rem` on `.topbar`, `margin-left:auto` on
+  `.search-trigger`; removed dead `.topbar-inner`/`.topbar-brand`/`.logo`/
+  `.docs-divider` rules; mobile topbar padding tuned. Verified with
+  headless-Chrome screenshots (desktop 1440px + mobile 390px).
+- Content: docs changelog `Unreleased` -> `[0.3.0] — 2026-09-26` (chat REPL,
+  15 provider presets, new chat startup UI, docs-site launch); version
+  strings bumped 0.2.0 -> 0.3.0 in chat/cli/install guides; rebuilt via
+  `docs/build.py` (13 pages, 233 internal links resolve, JS syntax OK).
+- Pushed via Git Data API: remote master `f9f3a8a1`, tree byte-identical to
+  local `2a9c2ea`. GitHub Pages rebuilt (`built`) from the new commit.
