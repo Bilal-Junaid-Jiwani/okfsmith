@@ -2,7 +2,7 @@ name: ci
 
 on:
   push:
-    branches: [main, "polish/**"]
+    branches: [master, main, "polish/**"]
   pull_request:
 
 jobs:
@@ -29,11 +29,13 @@ jobs:
       - name: CLI smoke
         run: |
           okfsmith --version
-          okfsmith init /tmp/smoke-kb
+          okfsmith init "$RUNNER_TEMP/smoke-kb"
           python -c "
-          open('/tmp/smoke-doc.md','w').write('# A\n\n'+'x '*700+'\n\n# B\n\n'+'y '*700+'\n')"
-          okfsmith ingest /tmp/smoke-kb /tmp/smoke-doc.md --no-llm --quiet
-          okfsmith validate /tmp/smoke-kb
+          import os
+          d = os.environ['RUNNER_TEMP']
+          open(os.path.join(d, 'smoke-doc.md'),'w').write('# A\n\n'+'x '*700+'\n\n# B\n\n'+'y '*700+'\n')"
+          okfsmith ingest "$RUNNER_TEMP/smoke-kb" "$RUNNER_TEMP/smoke-doc.md" --no-llm --quiet
+          okfsmith validate "$RUNNER_TEMP/smoke-kb"
       - name: Build + twine check
         run: |
           pip install build twine
@@ -61,4 +63,7 @@ jobs:
         run: |
           test -z "$(git grep -n "extractall(" -- src/ || true)"
           test -z "$(git grep -n "yaml\.load(" -- src/ || true)"
-          test -z "$(git grep -n -i "pymupdf\|from fitz\|import fitz" -- src/ pyproject.toml || true)"
+          # Forbid real PyMuPDF/fitz imports and dependency pins — the
+          # "deliberately NOT used (AGPL)" comments are allowed.
+          test -z "$(git grep -n -E "^[^#]*\b(import fitz|from fitz|import pymupdf|from pymupdf)" -- src/ || true)"
+          test -z "$(git grep -n -i -E "^[^#]*pymupdf" -- pyproject.toml || true)"
