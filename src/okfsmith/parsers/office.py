@@ -13,7 +13,7 @@ Special cases handled here instead of plain MarkItDown:
     escalated to the OCR/vision tier by the router. No textless stub is
     emitted as content.
 
-Requires the package extra: markitdown[docx,pptx,xlsx].
+Requires the ``office`` extra: ``pip install "okfsmith[office]"``.
 """
 
 from __future__ import annotations
@@ -24,6 +24,8 @@ import logging
 import tempfile
 import zipfile
 from pathlib import Path
+
+from .ziputil import safe_extract
 
 log = logging.getLogger(__name__)
 
@@ -37,8 +39,8 @@ def _markitdown():
         from markitdown import MarkItDown
     except ImportError as exc:
         raise RuntimeError(
-            "markitdown is not installed; install okfsmith with its office "
-            "dependencies to parse this file type"
+            "markitdown is not installed; install okfsmith with the office "
+            'extra (`pip install "okfsmith[office]"`) to parse this file type'
         ) from exc
     return MarkItDown()
 
@@ -134,7 +136,7 @@ def _parse_zip(path: Path, _depth: int = 0) -> "ParsedDocument":
     pages: list = []
     with tempfile.TemporaryDirectory(prefix="okfsmith-zip-") as tmp:
         with zipfile.ZipFile(path) as zf:
-            zf.extractall(tmp)
+            safe_extract(zf, tmp)
         members = sorted(
             p for p in Path(tmp).rglob("*") if p.is_file() and not p.name.startswith(".")
         )
