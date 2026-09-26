@@ -1,0 +1,19 @@
+{
+  "fixture": "warn-actor-missing-by",
+  "description": "`generated` lacks REQUIRED `by`, and a `verified` entry lacks `by`. SPEC \u00a75.2: advisory W009 in both cases.",
+  "errors": [],
+  "warnings": [
+    {
+      "code": "W009",
+      "file": "trust.md",
+      "message": "`generated` is missing REQUIRED `by`",
+      "spec": "\u00a75.2"
+    },
+    {
+      "code": "W009",
+      "file": "trust.md",
+      "message": "`verified` entry #1 is missing `by`",
+      "spec": "\u00a75.2"
+    }
+  ]
+}

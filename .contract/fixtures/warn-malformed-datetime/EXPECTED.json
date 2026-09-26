@@ -1,0 +1,25 @@
+{
+  "fixture": "warn-malformed-datetime",
+  "description": "Timestamp-valued keys not ISO 8601 with an explicit UTC offset. SPEC \u00a75 intro: advisory W011.",
+  "errors": [],
+  "warnings": [
+    {
+      "code": "W011",
+      "file": "times.md",
+      "message": "malformed datetime for `generated.at`: 'not-a-date' (expected ISO 8601 with explicit UTC offset)",
+      "spec": "\u00a75"
+    },
+    {
+      "code": "W011",
+      "file": "times.md",
+      "message": "malformed datetime for `verified[1].at`: 'June 25th, 2026' (expected ISO 8601 with explicit UTC offset)",
+      "spec": "\u00a75"
+    },
+    {
+      "code": "W011",
+      "file": "times.md",
+      "message": "malformed datetime for `stale_after`: 'soon' (expected ISO 8601 with explicit UTC offset)",
+      "spec": "\u00a75"
+    }
+  ]
+}

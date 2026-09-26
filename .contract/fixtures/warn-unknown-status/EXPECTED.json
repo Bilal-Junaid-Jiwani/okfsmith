@@ -1,0 +1,13 @@
+{
+  "fixture": "warn-unknown-status",
+  "description": "`status: archived` is not draft | stable | deprecated. SPEC \u00a75.4: advisory W014.",
+  "errors": [],
+  "warnings": [
+    {
+      "code": "W014",
+      "file": "weird.md",
+      "message": "unknown `status` 'archived'; expected draft | stable | deprecated",
+      "spec": "\u00a75.4"
+    }
+  ]
+}

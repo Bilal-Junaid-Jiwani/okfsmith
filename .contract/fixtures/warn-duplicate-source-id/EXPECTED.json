@@ -1,0 +1,13 @@
+{
+  "fixture": "warn-duplicate-source-id",
+  "description": "Two `sources` entries share `id: dup`. SPEC \u00a75.1: the footnote join key must be unique; advisory W015.",
+  "errors": [],
+  "warnings": [
+    {
+      "code": "W015",
+      "file": "dup.md",
+      "message": "duplicate `sources[].id` 'dup'",
+      "spec": "\u00a75.1"
+    }
+  ]
+}

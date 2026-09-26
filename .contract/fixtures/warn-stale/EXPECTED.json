@@ -1,0 +1,13 @@
+{
+  "fixture": "warn-stale",
+  "description": "`stale_after` is in the past (`now >= stale_after`, UTC). SPEC \u00a75.5: stale content is informational W006, never an error.",
+  "errors": [],
+  "warnings": [
+    {
+      "code": "W006",
+      "file": "old.md",
+      "message": "content is stale: `stale_after` 2020-01-01T00:00:00+00:00 has passed",
+      "spec": "\u00a75.5"
+    }
+  ]
+}

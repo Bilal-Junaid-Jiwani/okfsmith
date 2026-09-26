@@ -1,0 +1,13 @@
+{
+  "fixture": "warn-attested-missing-runtime",
+  "description": "`type: Attested Computation` without REQUIRED `runtime`. SPEC \u00a710.2: advisory W010 (not one of the \u00a711 hard rules).",
+  "errors": [],
+  "warnings": [
+    {
+      "code": "W010",
+      "file": "computation.md",
+      "message": "`type` is 'Attested Computation' but REQUIRED `runtime` is missing",
+      "spec": "\u00a710.2"
+    }
+  ]
+}
