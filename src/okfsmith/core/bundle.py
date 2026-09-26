@@ -82,6 +82,12 @@ class Bundle:
         for md in sorted(bundle.root.rglob(f"*{_SUFFIX}")):
             if md.name in RESERVED_FILES:
                 continue
+            # Security (audit-3 finding 3): never follow symlinks when
+            # loading a bundle. A shared bundle containing
+            # ``evil.md -> /etc/passwd`` must not have host files parsed
+            # into concepts (and later into viz.html / MCP output).
+            if md.is_symlink():
+                continue
             rel = md.relative_to(bundle.root)
             concept_id = rel.with_suffix("").as_posix()
             data, body = _fm.parse_frontmatter(md.read_text(encoding="utf-8"))
@@ -90,7 +96,9 @@ class Bundle:
             )
         for filename, attr in (("index.md", "index_text"), ("log.md", "log_text")):
             candidate = bundle.root / filename
-            if candidate.is_file():
+            # Same symlink rule as concepts: never read through a symlink
+            # (audit-3 finding 3).
+            if candidate.is_file() and not candidate.is_symlink():
                 setattr(bundle, attr, candidate.read_text(encoding="utf-8"))
         return bundle
 

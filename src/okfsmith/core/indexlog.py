@@ -15,6 +15,7 @@ No network calls; stdlib only.
 
 from __future__ import annotations
 
+import posixpath
 import re
 from pathlib import Path
 
@@ -29,7 +30,14 @@ _HEADING_RE = re.compile(r"^## (\d{4}-\d{2}-\d{2})\s*$", re.MULTILINE)
 
 
 def _norm_subdir(subdir: str) -> str:
-    return subdir.strip().strip("/")
+    cleaned = subdir.strip().strip("/")
+    # Security (audit-3 finding 6): reject ``..`` so a library caller (or a
+    # future CLI flag) cannot make ensure_index/append_log write outside the
+    # bundle root.
+    normalized = posixpath.normpath(cleaned) if cleaned else ""
+    if normalized == ".." or normalized.startswith("../"):
+        raise ValueError(f"invalid subdir {subdir!r}: must stay inside the bundle")
+    return normalized if normalized != "." else ""
 
 
 def _title_for(concept_id: str, frontmatter: dict) -> str:

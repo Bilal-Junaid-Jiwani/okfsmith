@@ -50,7 +50,19 @@ def resolve_link(root: Path, source_path: Path, target: str) -> tuple[str, str |
     if not clean or clean.startswith("#") or _EXTERNAL_RE.match(clean):
         return "external", None
     base = root / clean.lstrip("/") if clean.startswith("/") else source_path.parent / clean
-    candidates = [base, base.parent / (base.name + ".md")]
+    # Security (audit-3 finding 1): links may walk up out of the bundle
+    # (e.g. ``[x](../../evil.md)``). Resolve and contain: anything outside
+    # the bundle root is dead, never a ValueError crash (DoS) and never an
+    # existence oracle for host files.
+    try:
+        resolved_base = base.resolve()
+    except OSError:
+        return "dead", None
+    try:
+        resolved_base.relative_to(root)
+    except ValueError:
+        return "dead", None
+    candidates = [resolved_base, resolved_base.parent / (resolved_base.name + ".md")]
     for candidate in candidates:
         if candidate.is_file():
             if candidate.suffix.lower() == ".md":
@@ -59,7 +71,7 @@ def resolve_link(root: Path, source_path: Path, target: str) -> tuple[str, str |
             return "dead", None
         if candidate.is_dir():
             return "dir", None
-    if base.is_dir():
+    if resolved_base.is_dir():
         return "dir", None
     return "dead", None
 
@@ -112,7 +124,12 @@ def orphans(bundle: Bundle) -> list[str]:
             elif kind == "dir":
                 # A directory entry reaches every concept beneath it.
                 clean = _strip_fragment_query(target).lstrip("/")
-                prefix = (index_path.parent / clean).relative_to(bundle.root).as_posix()
+                try:
+                    prefix = (index_path.parent / clean).resolve().relative_to(
+                        bundle.root
+                    ).as_posix()
+                except (ValueError, OSError):
+                    continue
                 for concept in bundle.iter_concepts():
                     if concept.id == prefix or concept.id.startswith(prefix + "/"):
                         indexed.add(concept.id)
@@ -126,7 +143,7 @@ def mermaid_flowchart(graph: dict) -> str:
 
     lines = ["flowchart LR"]
     for node in graph["nodes"]:
-        label = f'{node["id"]} — {node["title"]}'.replace('"', "'")
+        label = f'{node["id"]} — {node["title"]}'.replace('"', "'").replace("]", ")")
         lines.append(f'    {node_id(node["id"])}["{label}"]')
     for edge in graph["edges"]:
         lines.append(f'    {node_id(edge["from"])} --> {node_id(edge["to"])}')

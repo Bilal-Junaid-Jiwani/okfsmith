@@ -295,6 +295,26 @@ def _richness(frontmatter: dict, body: str) -> tuple:
     )
 
 
+def _tag_list(value: object) -> list[str]:
+    """Normalize a frontmatter ``tags`` value to a list of strings.
+
+    A bare string becomes ``[value]`` (not a set of characters); anything
+    else is stringified element-wise; ``None`` becomes ``[]``.
+    """
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, (list, tuple, set)):
+        return [str(t) for t in value]
+    return [str(value)]
+
+
+def _one_line(value: object) -> str:
+    """Collapse whitespace so log messages stay one entry per line."""
+    return " ".join(str(value).split())
+
+
 def _merge_concepts(
     bundle: Bundle, existing: Concept, new_frontmatter: dict, new_body: str, section: SectionInput
 ) -> Concept:
@@ -342,21 +362,24 @@ def _merge_concepts(
             seen.add(key)
     if new_list:
         merged_fm["verified"] = new_list
-    merged_fm["tags"] = sorted(
-        set(merged_fm.get("tags") or []) | set(existing.frontmatter.get("tags") or [])
-    )
+    # Security/robustness (audit-3 finding 10): normalize tag values before
+    # unioning — a string ``tags: "abc"`` must not become a set of characters,
+    # and mixed-type tags must not raise TypeError on re-ingest.
+    merged_fm["tags"] = sorted(set(_tag_list(merged_fm.get("tags"))) | set(_tag_list(existing.frontmatter.get("tags"))))
     # The digest of the newest ingest is the freshest re-ingest guard.
     merged_fm["source_digest"] = new_frontmatter.get(
         "source_digest", existing.frontmatter.get("source_digest")
     )
 
     updated = bundle.write_concept(existing.id, merged_fm, merged_body)
+    # Security (audit-3 finding 7): section titles may be attacker-influenced
+    # (LLM output) — collapse newlines so the log keeps one entry per line.
     indexlog.append_log(
         bundle,
         "",
         "Update",
-        f'merged duplicate concept from section "{section.title}" into '
-        f'"{existing.id}" ({outcome})',
+        f'merged duplicate concept from section "{_one_line(section.title)}" into '
+        f'"{_one_line(existing.id)}" ({outcome})',
     )
     return updated
 

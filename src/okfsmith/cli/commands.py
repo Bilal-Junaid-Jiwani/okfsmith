@@ -15,6 +15,7 @@ from typing import Any
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
 
 from okfsmith import links as _links
@@ -252,7 +253,10 @@ def ingest(
             raise
         except Exception as exc:  # noqa: BLE001 — per-file failure, keep going
             failures.append(path)
-            table.add_row(str(path), digest, "0", f"[red]failed: {exc}[/red]")
+            # Security (audit-3 finding 4): exception text derives from
+            # untrusted input (filenames, content). Escape it so rich
+            # markup in the message cannot inject styles or crash the CLI.
+            table.add_row(str(path), digest, "0", f"[red]failed: {escape(str(exc))}[/red]")
     console.print(table)
 
     if created_total:

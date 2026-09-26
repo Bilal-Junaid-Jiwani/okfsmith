@@ -14,6 +14,16 @@ from okfsmith.core.bundle import Bundle, Concept
 from okfsmith.core.spec import utc_now_iso
 
 
+def _one_line(value: str) -> str:
+    """Collapse whitespace so log messages stay one entry per line.
+
+    Security (audit-3 finding 7): reviewer/section names may carry attacker-
+    influenced text (e.g. LLM output); embedded newlines could forge entries
+    in the append-only log.md.
+    """
+    return " ".join(str(value).split())
+
+
 def mark_reviewed(bundle: Bundle, concept_id: str, reviewer: str) -> Concept:
     """Mark *concept_id* as reviewed by *reviewer* (human-reviewed tier).
 
@@ -29,7 +39,9 @@ def mark_reviewed(bundle: Bundle, concept_id: str, reviewer: str) -> Concept:
         raise ValueError("reviewer must be a non-empty identifier")
     concept = bundle.get(concept_id)
     if concept is None:
-        raise KeyError(f"no concept {concept_id!r} in bundle at {bundle.root}")
+        # No absolute bundle path: paths in exceptions tend to surface in
+        # logs/traces (audit-3 finding 8).
+        raise KeyError(f"no concept {concept_id!r} in bundle")
 
     frontmatter = dict(concept.frontmatter)
     verified = frontmatter.get("verified")
@@ -47,6 +59,7 @@ def mark_reviewed(bundle: Bundle, concept_id: str, reviewer: str) -> Concept:
         bundle,
         "",
         "Update",
-        f'human review by "{reviewer}": "{concept_id}" marked human-reviewed',
+        f'human review by "{_one_line(reviewer)}": '
+        f'"{_one_line(concept_id)}" marked human-reviewed',
     )
     return updated

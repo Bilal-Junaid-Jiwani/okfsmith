@@ -18,6 +18,8 @@ import tempfile
 import zipfile
 from pathlib import Path
 
+from .ziputil import safe_extract
+
 log = logging.getLogger(__name__)
 
 _NOTION_URL_RE = re.compile(r"https?://(?:www\.)?notion\.so/[^\s)>\]]+")
@@ -90,7 +92,7 @@ def parse_notion_export(zip_path: str | Path) -> list["ParsedDocument"]:
     docs: list = []
     with tempfile.TemporaryDirectory(prefix="okfsmith-notion-") as tmp:
         with zipfile.ZipFile(p) as zf:
-            zf.extractall(tmp)
+            safe_extract(zf, tmp)
         root = Path(tmp)
         md_files = sorted(
             f
