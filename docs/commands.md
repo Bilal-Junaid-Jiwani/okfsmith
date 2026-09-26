@@ -12,6 +12,7 @@ okfsmith list BUNDLE [--format text|json] [--tier TIER]
 okfsmith read BUNDLE CONCEPT_ID [--format text|json]
 okfsmith graph BUNDLE [--format text|json|mermaid|html] [--output FILE]
 okfsmith mcp BUNDLE [--transport stdio|sse|streamable-http]
+okfsmith chat [BUNDLE] [--model NAME] [--no-llm]
 okfsmith doctor
 ```
 
@@ -110,6 +111,25 @@ okfsmith doctor
 Reports Python version, core dependencies, optional extras (with the exact
 install command for anything missing), Ollama reachability, and temp-dir
 writability.
+
+## chat — interactive Q&A
+
+```bash
+okfsmith chat ./kb                 # REPL; Ollama if reachable, else extractive
+okfsmith chat ./kb --no-llm        # extractive mode: concept excerpts, no LLM
+okfsmith chat ./kb --model qwen3:8b
+printf '/list\n/exit\n' | okfsmith chat ./kb   # scriptable via stdin
+```
+
+Ask questions in plain language; answers carry `[concept-id]` citations and a
+Sources footer. Follow-ups ("tell me more", "uska source kya hai") resolve
+against the recent conversation. Slash commands: `/help`, `/ingest <path>`
+(`--recursive` supported), `/list`, `/read <id>`, `/search <keywords>`,
+`/validate`, `/graph`, `/doctor`, `/model [name]`, `/clear`, `/exit` (`/quit`
+too). Line history persists at `~/.okfsmith/history`; Ctrl-C cancels the
+current input, Ctrl-D quits. BUNDLE defaults to the current directory when it
+is a bundle. Hallucinated citations are stripped — every cited concept is a
+real bundle concept.
 
 ## Exit codes
 

@@ -76,12 +76,51 @@ knowledge usually lives, and that's what okfsmith ingests first:
 | `okfsmith read BUNDLE ID` | print one concept |
 | `okfsmith graph BUNDLE` | links: text / json / mermaid / html |
 | `okfsmith mcp BUNDLE` | serve over MCP |
+| `okfsmith chat BUNDLE` | interactive Q&A over the bundle (REPL) |
 | `okfsmith doctor` | check dependencies, extras, Ollama |
 
 The bundle is always the first positional argument. Expected failures print
 `error [CODE]:` with a hint and never a traceback; usage errors exit 2.
 
 Full reference with examples: [docs/commands.md](docs/commands.md).
+
+## Interactive chat
+
+`okfsmith chat` opens a Claude Code / Gemini CLI style REPL over your bundle:
+ask questions in plain language, get answers with `[concept-id]` citations.
+With local Ollama running (or `OPENAI_API_KEY` set) answers are synthesized
+and grounded; otherwise the chat stays useful in extractive mode, showing the
+keyword-matched concepts themselves. It never answers from thin air — no
+relevant concepts, no invented answer.
+
+```text
+$ okfsmith chat ./kb
+╭─ 💬 chat ─────────────────────────╮
+│ okfsmith chat v0.2.0               │
+│ Bundle: ./kb (24 concepts)        │
+│ Backend: openai-compatible · qwen3:8b │
+╰───────────────────────────────────╯
+kb › how do I authenticate?
+Use a Bearer token in the Authorization header [api/auth].
+
+*Sources: [api/auth]*
+kb › aur iska source kya hai
+The dashboard, under Settings › API Keys [api/auth].
+
+*Sources: [api/auth]*
+kb › /read api/auth
+---
+type: Guide
+title: Authentication
+...
+kb › /exit
+Goodbye — your bundle is untouched.
+```
+
+Slash commands: `/help` `/ingest` `/list` `/read` `/search` `/validate`
+`/graph` `/doctor` `/model` `/clear` `/exit`. Line history persists at
+`~/.okfsmith/history`; Ctrl-C cancels input, Ctrl-D quits. Flags:
+`--model` to pick the model, `--no-llm` to force extractive mode.
 
 ## Install options
 

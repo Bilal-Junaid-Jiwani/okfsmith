@@ -45,6 +45,7 @@ console = Console()
 PANEL_BUNDLE = "Bundle"
 PANEL_KNOWLEDGE = "Knowledge"
 PANEL_SERVE = "Serve"
+PANEL_INTERACTIVE = "Interactive"
 
 class ValidateFormat(str, Enum):
     """Constrained ``--format`` values for validate/list/read (exit 2 on misuse)."""
@@ -1040,3 +1041,56 @@ def doctor() -> None:
         style = {"OK": "green", "MISSING": "yellow", "WARN": "yellow", "FAIL": "red"}[status]
         table.add_row(escape(name), f"[{style}]{status}[/{style}]", escape(detail))
     console.print(table)
+
+
+# ---------------------------------------------------------------------------
+# chat
+# ---------------------------------------------------------------------------
+
+
+@app.command(rich_help_panel=PANEL_INTERACTIVE)
+@_cli
+def chat(
+    bundle: Path | None = typer.Argument(
+        None,
+        help="Bundle directory to chat with (default: the current directory, "
+        "if it is a bundle).",
+    ),
+    model: str | None = typer.Option(
+        None, "--model", help="Model to use for generative answers."
+    ),
+    no_llm: bool = typer.Option(
+        False,
+        "--no-llm",
+        help="Extractive mode: answer from keyword-matched concept excerpts, "
+        "no LLM involved.",
+    ),
+) -> None:
+    """Chat with a bundle in natural language (Claude Code / Gemini CLI style).
+
+    Ask questions; okfsmith retrieves the relevant concepts and answers with
+    ``[concept-id]`` citations. With no reachable LLM it stays useful in
+    extractive mode. Slash commands expose bundle operations inline —
+    type ``/help`` inside the chat to see them.
+
+    \b
+    Examples:
+        okfsmith chat ./kb
+        okfsmith chat ./kb --no-llm
+        okfsmith chat ./kb --model qwen3:8b
+        printf '/list\\n/exit\\n' | okfsmith chat ./kb
+    """
+    if model is not None and no_llm:
+        raise typer.BadParameter(
+            "--model cannot be combined with --no-llm: no LLM is used in that mode."
+        )
+    # Lazy import: okfsmith.cli.chat imports this module for the slash-command
+    # implementations, so importing it at top level would be circular.
+    # _require_bundle_dir raises CliError; the @_cli wrapper turns it into
+    # the standard `error [CODE]` + hint and exits.
+    root = _require_bundle_dir(bundle or Path("."))
+    from okfsmith.cli import chat as _chat_engine
+
+    code = _chat_engine.run_chat(root, model=model, no_llm=no_llm)
+    if code:
+        raise typer.Exit(code=code)

@@ -3,6 +3,21 @@
 All notable changes to okfsmith. Format follows Keep a Changelog; versions
 follow SemVer.
 
+## [Unreleased]
+
+### Added
+- `okfsmith chat BUNDLE`: interactive Claude Code / Gemini CLI style REPL over
+  a bundle — natural-language questions answered with `[concept-id]` citations,
+  multi-turn follow-ups resolved against recent context, slash commands
+  (`/help`, `/ingest`, `/list`, `/read`, `/search`, `/validate`, `/graph`,
+  `/doctor`, `/model`, `/clear`, `/exit`), persistent line history at
+  `~/.okfsmith/history`. Generative answers via Ollama (default) or
+  `OPENAI_API_KEY`; falls back to extractive mode when no LLM is reachable
+  (`--no-llm` forces it). Hallucinated citations are stripped — every cited
+  concept is a real bundle concept.
+- `rank_concepts()` in `okfsmith.mcp_server.server`: shared retrieval ranking
+  used by both the MCP `search` tool and the chat REPL.
+
 ## [0.2.0] — 2026-09-26
 
 ### Added

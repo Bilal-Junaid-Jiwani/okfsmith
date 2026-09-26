@@ -70,6 +70,16 @@ extra.
 .B doctor
 Check dependencies, optional extras, Ollama reachability, and temp-dir
 writability.
+.TP
+.B chat \\fR[\\fIBUNDLE\\fR] [\\-\\-model \\fINAME\\fR] [\\-\\-no\\-llm]
+Interactive Q&A over the bundle (REPL): plain-language questions answered
+with concept-id citations, plus slash commands
+.RI ( /help ,
+/ingest, /list, /read, /search, /validate, /graph, /doctor, /model, /clear,
+/exit ).
+Generative answers via Ollama (or
+.IR OPENAI_API_KEY );
+falls back to extractive mode when no LLM is reachable.
 .SH EXIT STATUS
 .TP
 .B 0
