@@ -215,11 +215,17 @@ def _require_bundle_dir(path: Path) -> Path:
     return path
 
 
+_RESERVED_NAMES = frozenset({"index.md", "log.md"})
+
+
 def _collect_inputs(source: Path, recursive: bool) -> list[Path]:
     if source.is_file():
         return [source]
     iterator = source.rglob("*") if recursive else source.iterdir()
-    return sorted(p for p in iterator if p.is_file())
+    # Reserved bundle files are infrastructure, never knowledge sources.
+    return sorted(
+        p for p in iterator if p.is_file() and p.name not in _RESERVED_NAMES
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -230,11 +236,11 @@ def _collect_inputs(source: Path, recursive: bool) -> list[Path]:
 @app.command(rich_help_panel=PANEL_BUNDLE)
 @_cli
 def init(
-    directory: Path = typer.Argument(
+    bundle: Path = typer.Argument(
         ..., help="Directory to scaffold the bundle in."
     ),
     force: bool = typer.Option(
-        False, "--force", help="Scaffold even if the directory exists and is non-empty."
+        False, "--force", help="Scaffold even if the bundle exists and is non-empty."
     ),
     yes: bool = typer.Option(
         False,
@@ -243,38 +249,38 @@ def init(
         help="Answer 'yes' to the --force confirmation prompt (non-interactive use).",
     ),
 ) -> None:
-    """Create a new, empty OKF bundle in DIRECTORY.
+    """Create a new, empty OKF bundle in BUNDLE.
 
     \b
     Examples:
         okfsmith init ./kb
         okfsmith init ./kb --force --yes   # non-interactive re-scaffold
     """
-    if directory.exists() and any(directory.iterdir()) and not force:
+    if bundle.exists() and any(bundle.iterdir()) and not force:
         fail(
-            "directory-not-empty",
-            f"'{directory}' exists and is not empty.",
-            "Use --force to scaffold anyway (asks for confirmation), or pick another directory.",
+            "bundle-not-empty",
+            f"'{bundle}' exists and is not empty.",
+            "Use --force to scaffold anyway (asks for confirmation), or pick another bundle.",
         )
-    if directory.exists() and any(directory.iterdir()) and force and not yes:
+    if bundle.exists() and any(bundle.iterdir()) and force and not yes:
         typer.echo(
-            f"warning: '{directory}' is not empty; --force will scaffold over it.",
+            f"warning: '{bundle}' is not empty; --force will scaffold over it.",
             err=True,
         )
         if not typer.confirm("Continue?", default=False):
             typer.echo("aborted.", err=True)
             raise typer.Exit(code=1)
-    directory.mkdir(parents=True, exist_ok=True)
-    bundle = Bundle(directory)
+    bundle.mkdir(parents=True, exist_ok=True)
+    bundle = Bundle(bundle)
     index_path = indexlog.ensure_index(bundle)
     log_path = indexlog.append_log(
         bundle, kind="Creation", message="Bundle created with `okfsmith init`."
     )
-    typer.echo(f"Initialized OKF bundle in {directory}")
+    typer.echo(f"Initialized OKF bundle in {bundle}")
     typer.echo(f"  index: {index_path}")
     typer.echo(f"  log:   {log_path}")
     typer.echo("Next: add sources with 'okfsmith ingest "
-               f"{directory} <file-or-dir> --no-llm'.")
+               f"{bundle} <file-or-dir> --no-llm'.")
 
 
 # ---------------------------------------------------------------------------
@@ -561,7 +567,7 @@ def _ingest_dry_run(
 @app.command(rich_help_panel=PANEL_KNOWLEDGE)
 @_cli
 def validate(
-    directory: Path = typer.Argument(..., help="Bundle directory to validate."),
+    bundle: Path = typer.Argument(..., help="Bundle directory to validate."),
     strict: bool = typer.Option(
         False, "--strict", help="Treat warnings as failures."
     ),
@@ -579,16 +585,16 @@ def validate(
     """
     as_json = output_format == "json"
     try:
-        _require_bundle_dir(directory)
+        _require_bundle_dir(bundle)
     except CliError as exc:
         _handle_cli_error(exc, as_json)
     # check(bundle_path) -> ValidationReport with .errors / .warnings as
     # Finding objects; serialize each via Finding.as_dict().
     check = _lazy_attr("okfsmith.validate", "check")
-    result = check(directory)
+    result = check(bundle)
     errors = [finding.as_dict() for finding in result.errors]
     warnings = [finding.as_dict() for finding in result.warnings]
-    n_concepts = sum(1 for _ in Bundle.load(directory).iter_concepts())
+    n_concepts = sum(1 for _ in Bundle.load(bundle).iter_concepts())
 
     if as_json:
         status = "invalid" if errors or (strict and warnings) else "conformant"
@@ -639,7 +645,7 @@ def _print_report(errors: list[dict], warnings: list[dict]) -> None:
 @app.command(name="list", rich_help_panel=PANEL_KNOWLEDGE)
 @_cli
 def list_concepts(
-    directory: Path = typer.Argument(..., help="Bundle directory to list."),
+    bundle: Path = typer.Argument(..., help="Bundle directory to list."),
     type_filter: str | None = typer.Option(
         None, "--type", help="Only show concepts of this type."
     ),
@@ -661,13 +667,13 @@ def list_concepts(
     as_json = output_format == "json"
     if tier_filter is not None and tier_filter.casefold() not in TRUST_TIERS:
         raise typer.BadParameter(
-            f"invalid --tier '{tier_filter}' (choose from: {', '.join(TRUST_TIERS)})"
+            f"--tier '{tier_filter}' is not one of: {', '.join(TRUST_TIERS)}"
         )
     try:
-        _require_bundle_dir(directory)
+        _require_bundle_dir(bundle)
     except CliError as exc:
         _handle_cli_error(exc, as_json)
-    bundle = Bundle.load(directory)
+    bundle = Bundle.load(bundle)
     rows = []
     for concept in bundle.iter_concepts():
         ctype = str(concept.frontmatter.get("type") or "")
@@ -685,7 +691,7 @@ def list_concepts(
     if as_json:
         _dump_json({"concepts": rows, "count": len(rows)})
         return
-    table = Table(title=f"Concepts in {directory}")
+    table = Table(title=f"Concepts in {bundle}")
     table.add_column("ID")
     table.add_column("Type")
     table.add_column("Title")
@@ -704,7 +710,7 @@ def list_concepts(
 @app.command(rich_help_panel=PANEL_KNOWLEDGE)
 @_cli
 def read(
-    directory: Path = typer.Argument(..., help="Bundle directory."),
+    bundle: Path = typer.Argument(..., help="Bundle directory."),
     concept_id: str = typer.Argument(..., help="Concept id, e.g. finance/revenue."),
     output_format: ValidateFormat = typer.Option(
         ValidateFormat.text, "--format", help="Output format: text or json."
@@ -719,22 +725,23 @@ def read(
     """
     as_json = output_format == "json"
     try:
-        _require_bundle_dir(directory)
+        _require_bundle_dir(bundle)
     except CliError as exc:
         _handle_cli_error(exc, as_json)
-    bundle = Bundle.load(directory)
+    bundle_path = bundle
+    bundle = Bundle.load(bundle_path)
     concept = bundle.get(concept_id)
     if concept is None:
         if as_json:
             _fail_json(
                 "concept-not-found",
-                f"concept '{concept_id}' not found in '{directory}'.",
-                f"Run 'okfsmith list {directory}' to see available ids.",
+                f"concept '{concept_id}' not found in '{bundle_path}'.",
+                f"Run 'okfsmith list {bundle_path}' to see available ids.",
             )
         fail(
             "concept-not-found",
-            f"concept '{concept_id}' not found in '{directory}'.",
-            f"Run 'okfsmith list {directory}' to see available ids.",
+            f"concept '{concept_id}' not found in '{bundle_path}'.",
+            f"Run 'okfsmith list {bundle_path}' to see available ids.",
         )
     assert concept is not None  # for type checkers; fail() raises
     if as_json:
@@ -755,7 +762,7 @@ def read(
 @app.command(rich_help_panel=PANEL_KNOWLEDGE)
 @_cli
 def graph(
-    directory: Path = typer.Argument(..., help="Bundle directory."),
+    bundle: Path = typer.Argument(..., help="Bundle directory."),
     output_format: GraphFormat = typer.Option(
         GraphFormat.text, "--format",
         help="Output format: text, json, mermaid, or html.",
@@ -775,12 +782,13 @@ def graph(
     """
     as_json = output_format == "json"
     try:
-        _require_bundle_dir(directory)
+        _require_bundle_dir(bundle)
     except CliError as exc:
         _handle_cli_error(exc, as_json)
     if output_format == "html" and output is not None and output.exists() and not output.is_file():
         fail("invalid-output", f"--output '{output}' is not a file path.")
-    bundle = Bundle.load(directory)
+    bundle_path = bundle
+    bundle = Bundle.load(bundle_path)
     data = _links.build_graph(bundle)
 
     if output_format == "json":
@@ -795,8 +803,8 @@ def graph(
     elif output_format == "html":
         # render_html(root, output) -> Path
         render_html = _lazy_attr("okfsmith.viz", "render_html")
-        out_path = output or (Path(directory) / "viz.html")
-        written = render_html(Path(directory), out_path)
+        out_path = output or (bundle_path / "viz.html")
+        written = render_html(bundle_path, out_path)
         typer.echo(f"Wrote {written}")
     elif output_format == "text":
         _print_graph_text(bundle, data)

@@ -816,3 +816,30 @@ def test_error_codes_are_stable():
     result = runner.invoke(app, ["validate", "/does/not/exist"])
     assert result.exit_code == 1
     assert "error [bundle-not-found]" in result.output
+
+
+def test_ingest_skips_reserved_files_in_directory_scan(tmp_path):
+    """index.md / log.md are bundle infrastructure, never knowledge sources."""
+    from okfsmith.cli.commands import _collect_inputs
+
+    src = tmp_path / "docs"
+    src.mkdir()
+    (src / "index.md").write_text("# index")
+    (src / "log.md").write_text("# log")
+    (src / "notes.md").write_text("# notes")
+    collected = _collect_inputs(src, recursive=False)
+    assert collected == [src / "notes.md"]
+
+    # ... but an explicitly named file is still honored (explicit > heuristic).
+    assert _collect_inputs(src / "index.md", recursive=False) == [src / "index.md"]
+
+
+def test_read_missing_concept_error_shows_path_not_repr(tmp_path):
+    """Error messages must show the bundle path, never a repr() of internals."""
+    bdir = tmp_path / "kb"
+    result = runner.invoke(app, ["init", str(bdir)])
+    assert result.exit_code == 0, result.output
+    result = runner.invoke(app, ["read", str(bdir), "nope/missing"])
+    assert result.exit_code == 1
+    assert f"not found in '{bdir}'" in result.output
+    assert "Bundle object at" not in result.output

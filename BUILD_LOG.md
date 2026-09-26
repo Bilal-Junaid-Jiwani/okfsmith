@@ -270,3 +270,21 @@ docs corrected for Click 8.5.
 **Verification:** 183 passed, 20 skipped; ruff clean on touched files;
 `python -m build` + `twine check` PASSED; sdist contains completions/man/docs;
 clean-venv install smoke green (init/ingest/validate/graph-html).
+
+## 2026-09-26 — Polish round 2 (UX/consistency audit)
+
+**CLI consistency:** the bundle positional is now named `bundle` in every
+command, so usage lines read `{bundle}` everywhere (was a mix of `{bundle}`
+and `{directory}`); `--tier` error no longer stutters ("Invalid value:
+--tier 'bogus' is not one of: ..."); `init` help says BUNDLE.
+
+**Ingest hygiene:** directory scans now skip the reserved `index.md`/`log.md`
+(an ingested bundle no longer tries to turn its own manifest into concepts);
+explicitly named files are still honored. Test added.
+
+**Bug fixed (found by UX walk-through):** `read` of a missing concept printed
+the `Bundle` object's repr in the error message and hint (regression from the
+arg rename). Now shows the bundle path; regression test asserts no
+"Bundle object at" leaks.
+
+**Verification:** 185 passed, 20 skipped (full suite); CLI tests 57 passed.
