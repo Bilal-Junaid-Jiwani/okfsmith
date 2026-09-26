@@ -28,19 +28,25 @@ from .ziputil import safe_extract
 log = logging.getLogger(__name__)
 
 _NOTION_URL_RE = re.compile(r"https?://(?:www\.)?notion\.so/[^\s)>\]]+")
+# Sentence punctuation a regex will swallow into a URL: strip it back off.
+_TRAILING_URL_PUNCT = ".,;:!?'\""
 _HASH_SUFFIX_RE = re.compile(r"\s+[0-9a-f]{32}$")
 
 
 def looks_like_notion_export(zip_path: str | Path) -> bool:
-    """Heuristic: zip with Notion-style page markdowns and ``_files`` dirs."""
+    """Heuristic: zip containing Notion-style page markdowns.
+
+    ``_files/`` asset directories are optional: a text-only export (no
+    attachments) has none, so markdown members alone make this a Notion
+    export. (H5: text-only exports were previously misrouted and dropped.)
+    """
     try:
         with zipfile.ZipFile(zip_path) as zf:
             names = zf.namelist()
     except zipfile.BadZipFile:
         return False
     md_files = [n for n in names if n.lower().endswith(".md")]
-    files_dirs = [n for n in names if "_files/" in n or n.endswith("_files")]
-    return bool(md_files) and bool(files_dirs)
+    return bool(md_files)
 
 
 def notion_page_title(md_name: str) -> str:
@@ -50,16 +56,27 @@ def notion_page_title(md_name: str) -> str:
 
 
 def notion_resource_url(md_text: str) -> str | None:
-    """Original notion.so URL, if the export metadata carries one."""
+    """Original notion.so URL, if the export metadata carries one.
+
+    Trailing sentence punctuation (`,`, `.`, `!`, …) is stripped so the
+    recorded ``resource`` URL is the URL itself, not the URL plus the
+    sentence around it. (L19)
+    """
     m = _NOTION_URL_RE.search(md_text or "")
-    return m.group(0) if m else None
+    if not m:
+        return None
+    return m.group(0).rstrip(_TRAILING_URL_PUNCT) or None
 
 
 def _page_from_markdown_file(md_path: Path, title: str) -> ParsedDocument:
     from . import Page, ParsedDocument
     from .office import markdown_tables
+    from .text import _decode  # M10 adjacency: same encoding pipeline as text
 
-    text = md_path.read_text(encoding="utf-8", errors="replace").strip()
+    # Never errors="replace": undecodable bytes are either decoded properly
+    # (UTF-16/UTF-8-BOM/windows-1252 fallback) or rejected as binary (the
+    # caller warn-skips BinaryContentError like any other parse failure).
+    text = _decode(md_path.read_bytes(), md_path).strip()
     url = notion_resource_url(text)
     page = Page(number=1, text=text, tables=markdown_tables(text))
     meta: dict = {
@@ -80,18 +97,30 @@ def _page_from_markdown_file(md_path: Path, title: str) -> ParsedDocument:
 
 
 def _page_from_csv_file(csv_path: Path, title: str) -> ParsedDocument:
-    from . import office  # reuse the deterministic CSV parser via public API
+    from . import (
+        ParsedDocument,
+        office,  # reuse the deterministic CSV parser via public API
+    )
 
     doc = office.parse_office(csv_path)
-    doc.meta.update({"parser": "notion", "notion": True, "notion_title": title})
-    return doc
+    pages = []
+    for i, pg in enumerate(doc.pages, start=1):
+        if not (pg.text or "").strip():
+            continue  # empty CSV contributes no pages (and never needs_ocr)
+        pg.number = i
+        pg.needs_ocr = False  # CSV is text content; nothing to OCR (L19)
+        pages.append(pg)
+    meta = dict(doc.meta)
+    meta.update({"parser": "notion", "notion": True, "notion_title": title})
+    return ParsedDocument(pages=pages, meta=meta)
 
 
 def parse_notion_export(zip_path: str | Path) -> list[ParsedDocument]:
     """Unzip a Notion export; return one ParsedDocument per Notion page.
 
-    Markdown pages and per-database CSVs each become a ParsedDocument.
-    ``_files/`` asset directories are recorded in meta, not parsed.
+    Markdown pages, plain-text members, and per-database CSVs each become
+    a ParsedDocument. ``_files/`` asset directories are recorded in meta,
+    not parsed.
     """
     p = Path(zip_path)
     docs: list = []
@@ -109,16 +138,32 @@ def parse_notion_export(zip_path: str | Path) -> list[ParsedDocument]:
             for f in root.rglob("*.csv")
             if "_files" not in f.parts and not f.name.startswith(".")
         )
+        # H5 adjacency: the broadened looks_like_notion_export routes any
+        # zip with .md members here, so plain-text members must not be
+        # silently dropped either.
+        txt_files = sorted(
+            f
+            for f in root.rglob("*.txt")
+            if "_files" not in f.parts and not f.name.startswith(".")
+        )
         for md in md_files:
             title = notion_page_title(md.name)
             try:
                 docs.append(_page_from_markdown_file(md, title))
             except Exception as exc:
                 log.warning("notion page %s skipped: %s", md.name, exc)
+        for tf in txt_files:
+            title = Path(tf.name).stem.strip() or tf.name
+            try:
+                docs.append(_page_from_markdown_file(tf, title))
+            except Exception as exc:
+                log.warning("notion text %s skipped: %s", tf.name, exc)
         for cf in csv_files:
             title = notion_page_title(cf.name)
             try:
-                docs.append(_page_from_csv_file(cf, title))
+                doc = _page_from_csv_file(cf, title)
+                if doc.pages:
+                    docs.append(doc)
             except Exception as exc:
                 log.warning("notion csv %s skipped: %s", cf.name, exc)
     return docs
@@ -133,6 +178,8 @@ def parse_notion_zip_as_document(zip_path: str | Path) -> ParsedDocument:
     pages: list = []
     index: list[dict] = []
     for doc in per_page:
+        if not doc.pages:
+            continue
         pg = doc.pages[0]
         pg.number = len(pages) + 1
         pages.append(pg)
