@@ -672,3 +672,10 @@ Post-build integration and QA pass, all verified in headless Firefox:
 - Repo settings: homepage URL set to the docs site via GitHub API
   (shows next to the repo description).
 - Pushed via Git Data API, tree byte-identical.
+
+## 2026-09-26 — Branch protection enabled on master (user-requested)
+
+- GitHub showed "Your master branch isn't protected" warning.
+- Enabled via API: force pushes blocked, branch deletion blocked.
+- Deliberately NOT requiring PR reviews or status checks, so the
+  established direct-push release workflow keeps working.
