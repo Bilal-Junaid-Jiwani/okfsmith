@@ -9,8 +9,6 @@ survive; 500+ nodes render without crashing.
 import re
 from pathlib import Path
 
-import pytest
-
 from okfsmith.core.bundle import Bundle
 from okfsmith.viz import render_html
 
@@ -143,3 +141,71 @@ def test_500_nodes_renders_without_crashing(tmp_path):
     # 500 live edges + 500 dead edges
     assert text.count('"dead":false') == n
     assert text.count('"dead":true') == n
+
+
+# ---------------------------------------------------------------------------
+# Panel-D regression tests (UX review fixes, round 1)
+# ---------------------------------------------------------------------------
+
+
+def test_empty_overlay_hidden_rule_present(tmp_path):
+    """The #empty flex overlay must not override [hidden] (ship-blocker)."""
+    out = render_html(FIXTURES / "valid", tmp_path / "viz.html")
+    text = out.read_text(encoding="utf-8")
+    assert "#empty[hidden]" in text
+    assert re.search(r"#empty\[hidden\]\s*\{\s*display:\s*none", text)
+
+
+def test_legend_declares_two_honest_channels(tmp_path):
+    out = render_html(FIXTURES / "valid", tmp_path / "viz.html")
+    text = out.read_text(encoding="utf-8")
+    assert "Trust is shown by <b>shape</b>" in text
+    assert "concept type by <b>color</b>" in text
+
+
+def test_canvas_keyboard_accessible(tmp_path):
+    out = render_html(FIXTURES / "valid", tmp_path / "viz.html")
+    text = out.read_text(encoding="utf-8")
+    assert 'tabindex="0"' in text
+    assert 'role="img"' in text
+    assert "aria-label=" in text
+    assert '"Escape"' in text  # Esc closes the detail panel
+    assert "focus-visible" in text
+
+
+def test_screen_reader_concept_list_present(tmp_path):
+    out = render_html(FIXTURES / "valid", tmp_path / "viz.html")
+    text = out.read_text(encoding="utf-8")
+    assert 'id="sr-list"' in text
+    assert "sr-only" in text
+
+
+def test_detail_panel_shows_connections(tmp_path):
+    out = render_html(FIXTURES / "valid", tmp_path / "viz.html")
+    text = out.read_text(encoding="utf-8")
+    assert "linked from" in text
+    assert "links to" in text
+    assert "backlinks" in text
+
+
+def test_reset_view_and_match_count_present(tmp_path):
+    out = render_html(FIXTURES / "valid", tmp_path / "viz.html")
+    text = out.read_text(encoding="utf-8")
+    assert 'id="reset-view"' in text
+    assert 'id="matchcount"' in text
+
+
+def test_loading_and_error_states_present(tmp_path):
+    out = render_html(FIXTURES / "valid", tmp_path / "viz.html")
+    text = out.read_text(encoding="utf-8")
+    assert 'id="loading"' in text
+    assert 'id="error"' in text
+    assert "Laying out the graph" in text
+
+
+def test_colorblind_safe_palette_used(tmp_path):
+    out = render_html(FIXTURES / "valid", tmp_path / "viz.html")
+    text = out.read_text(encoding="utf-8")
+    # Okabe–Ito palette markers; the old hue-hash coloring is gone.
+    assert "#E69F00" in text
+    assert "hueFor" not in text

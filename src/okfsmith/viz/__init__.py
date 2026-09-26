@@ -7,15 +7,27 @@ file works fully offline).
 
 Features:
 
-- nodes colored by concept ``type``; shape/badge by trust tier
-  (``unverified`` / ``machine-confirmed`` / ``human-reviewed``, per
-  :func:`okfsmith.core.spec.trust_tier`)
+- two honest visual channels: concept ``type`` by color (Okabe–Ito
+  colorblind-safe palette), trust tier by neutral shape
+  (``unverified`` hollow circle / ``machine-confirmed`` filled square /
+  ``human-reviewed`` filled circle + ring) — trust never depends on color
 - edges extracted from markdown links in concept bodies; links whose target
   is not a concept in the bundle are drawn as red dashed dead-link edges
   leading to a ghost node
-- click a node for a detail panel (frontmatter table + body as text)
-- search box matching id / title / tags
-- "show orphans" toggle hides concepts with no links
+- click a node for a detail panel: badges, minimal-markdown description,
+  clickable outlinks/backlinks ("connections"), metadata table, body
+- keyboard access: the canvas is focusable; arrow keys pan, ``+``/``-``
+  zoom, ``0`` resets the view, ``Enter`` selects the first search match,
+  ``Esc`` closes the detail panel
+- screen-reader text alternative: a plain concept list after the canvas,
+  plus a descriptive ``aria-label`` on the canvas itself
+- search box matching id / title / tags, with live match count
+- "show orphans" toggle hides concepts with no links; "reset view" button
+  restores the fitted view and clears search/selection
+- selecting a node emphasizes its 1-hop neighborhood (others fade)
+- true empty state (hidden via ``#empty[hidden]``, never an overlay leak),
+  loading state for large graphs (chunked layout), and an error overlay
+  if the viewer itself fails
 
 Python side is stdlib-only; the embedded JavaScript is dependency-free.
 """
@@ -214,6 +226,14 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
                 overflow-wrap: anywhere; max-height: 320px; overflow: auto; }
   #detail button { margin-top: 10px; background: #2a2e38; color: #e6e8ec; border: 0;
                    border-radius: 6px; padding: 6px 12px; cursor: pointer; }
+  #detail .linkbtns { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 8px; }
+  #detail .linkbtn { margin-top: 0; font-size: 12px; padding: 4px 10px;
+                    background: #232833; }
+  #detail .linkbtn:hover { background: #2f3644; }
+  #detail .body { font-size: 13px; color: #c6cbd4; overflow-wrap: anywhere; }
+  #detail .body code { background: #0f1115; padding: 1px 6px; border-radius: 4px;
+                       font-size: 12px; }
+  #detail .desc code { background: #0f1115; padding: 1px 6px; border-radius: 4px; }
   #legend { position: absolute; left: 12px; bottom: 12px; background: #171a21ee;
             border: 1px solid #2a2e38; border-radius: 8px; padding: 8px 12px;
             font-size: 11px; color: #9aa0ae; max-width: 300px; }
@@ -224,10 +244,29 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
   #legend .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
   #empty { position: absolute; inset: 0; display: flex; align-items: center;
            justify-content: center; text-align: center; padding: 24px; }
+  /* The [hidden] attribute loses to `display:flex` above (author styles beat
+     the UA stylesheet), so the empty overlay would stay visible — and swallow
+     pointer events — on populated graphs. This rule restores hiding. */
+  #empty[hidden] { display: none; }
   #empty .card { max-width: 420px; background: #171a21; border: 1px solid #2a2e38;
                  border-radius: 12px; padding: 28px; }
   #empty h2 { margin-top: 0; }
   #empty p { color: #9aa0ae; font-size: 14px; }
+  #loading[hidden], #error[hidden] { display: none; }
+  #loading, #error { position: absolute; inset: 0; display: flex; align-items: center;
+           justify-content: center; text-align: center; padding: 24px;
+           background: #0f1115cc; z-index: 5; }
+  #loading .card, #error .card { max-width: 420px; background: #171a21;
+           border: 1px solid #2a2e38; border-radius: 12px; padding: 28px; }
+  #error .card { border-color: #ff7b72; }
+  #error h2 { color: #ff7b72; margin-top: 0; }
+  #graph:focus-visible { outline: 2px solid #58a6ff; outline-offset: -2px; }
+  .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+             overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+  #matchcount { font-size: 11px; color: #9aa0ae; white-space: nowrap; }
+  header button { background: #2a2e38; color: #e6e8ec; border: 0; border-radius: 6px;
+                  padding: 6px 12px; cursor: pointer; font-size: 12px; }
+  header button:hover { background: #3a4150; }
   #hint { position: absolute; left: 12px; top: 12px; font-size: 11px; color: #6b7280;
           background: #171a21cc; padding: 4px 10px; border-radius: 6px;
           border: 1px solid #2a2e38; }
@@ -238,13 +277,27 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
   <h1>__TITLE__</h1>
   <span class="stats">__STATS__</span>
   <input id="search" type="search" placeholder="Search id, title, tags&hellip;" aria-label="Search concepts">
+  <span id="matchcount" role="status" aria-live="polite"></span>
   <label class="toggle"><input id="orphans" type="checkbox" checked> show orphans</label>
+  <button id="reset-view" type="button">reset view</button>
 </header>
 <main>
-  <canvas id="graph"></canvas>
-  <div id="hint">drag to move &middot; scroll to zoom &middot; click a node for details</div>
+  <canvas id="graph" tabindex="0" role="img" aria-label="__ARIA_LABEL__"></canvas>
+  <div id="hint">drag to move &middot; scroll to zoom &middot; click a node for details &middot; arrow keys pan when focused</div>
   <aside id="detail" aria-label="Concept details"></aside>
   <div id="legend" aria-label="Legend"></div>
+  <div id="loading" hidden>
+    <div class="card">
+      <h2>Laying out the graph&hellip;</h2>
+      <p id="loading-msg">Positioning concepts.</p>
+    </div>
+  </div>
+  <div id="error" hidden>
+    <div class="card">
+      <h2>Couldn&rsquo;t render the graph</h2>
+      <p id="error-msg">An unexpected error stopped the viewer. The bundle data itself is untouched.</p>
+    </div>
+  </div>
   <div id="empty" hidden>
     <div class="card">
       <h2>Nothing to visualize yet</h2>
@@ -252,6 +305,7 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
       (with YAML frontmatter) to the bundle directory and re-render.</p>
     </div>
   </div>
+  <ul id="sr-list" class="sr-only" aria-label="Concepts in this bundle"></ul>
 </main>
 <script>
 "use strict";
@@ -290,6 +344,14 @@ for (const e of BUNDLE.edges) {
 }
 const orphanIds = new Set(nodes.filter(n => !n.ghost && n.deg === 0).map(n => n.id));
 
+/* Backlink/outlink index for the detail panel ("connections"). */
+const outlinks = new Map(), backlinks = new Map();
+for (const n of nodes) { outlinks.set(n.id, []); backlinks.set(n.id, []); }
+for (const e of edges) {
+  outlinks.get(e.a.id).push(e);
+  backlinks.get(e.b.id).push(e);
+}
+
 if (nodes.length === 0) {
   document.getElementById("empty").hidden = false;
   canvas.style.display = "none";
@@ -303,12 +365,23 @@ function esc(s) {
 function fmtVal(v) {
   return (v !== null && typeof v === "object") ? JSON.stringify(v) : String(v);
 }
-function hueFor(s) {
-  let h = 0;
-  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
-  return h % 360;
+/* Okabe–Ito palette: distinguishable for most forms of color blindness.
+   Concept *type* is encoded by color; *trust* is encoded by shape, so the
+   two channels never depend on each other. */
+const PALETTE = ["#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2",
+                 "#D55E00", "#CC79A7", "#999999"];
+const TYPE_INDEX = new Map(
+  [...new Set(BUNDLE.nodes.map(n => n.type))].sort().map((t, i) => [t, i]));
+function typeColor(t) { return PALETTE[(TYPE_INDEX.get(t) || 0) % PALETTE.length]; }
+/* Minimal markdown renderer for descriptions/bodies: escape first, then
+   apply a small safe subset (bold, italic, inline code, links). */
+function md(s) {
+  return esc(s)
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\\*\\*([^*]+)\\*\\*/g, "<strong>$1</strong>")
+    .replace(/(^|[\\s(])\\*([^*\\s][^*]*)\\*/g, "$1<em>$2</em>")
+    .replace(/\\[([^\\]]+)\\]\\(([^)\\s]+)\\)/g, '<a href="$2" rel="noopener">$1</a>');
 }
-function typeColor(t) { return "hsl(" + hueFor(String(t)) + ", 62%, 52%)"; }
 function nodeRadius(n) { return 6 + Math.min(9, n.deg); }   // degree-scaled
 
 /* ---------------- camera ---------------- */
@@ -392,10 +465,15 @@ let hovered = null, selected = null, dragged = null;
 function nodeVisible(n) {
   return orphanBox.checked || !orphanIds.has(n.id) || n === selected;
 }
+/* Neighborhood emphasis: when a node is selected, non-neighbors fade. */
+function isDimmed(n) {
+  if (!n.match) return true;
+  return !!(neighborIds && !neighborIds.has(n.id));
+}
 function drawNode(n) {
   const p = w2s(n.x, n.y), r = nodeRadius(n);
   ctx.save();
-  if (!n.match) ctx.globalAlpha = 0.12;             // search dimming
+  if (isDimmed(n)) ctx.globalAlpha = 0.12;          // search dimming / neighborhood fade
   if (n.ghost) {                                    // dead-link target: red diamond
     ctx.strokeStyle = "#ff7b72"; ctx.lineWidth = 2;
     ctx.beginPath();
@@ -427,7 +505,7 @@ function drawNode(n) {
 function drawLabel(n) {
   const p = w2s(n.x, n.y);
   ctx.save();
-  if (!n.match) ctx.globalAlpha = 0.25;
+  if (isDimmed(n)) ctx.globalAlpha = 0.25;
   ctx.font = "11px system-ui, sans-serif";
   ctx.fillStyle = "#dfe3ea";
   ctx.strokeStyle = "#0f1115"; ctx.lineWidth = 3;
@@ -443,7 +521,7 @@ function draw() {
     if (!nodeVisible(e.a) || !nodeVisible(e.b)) continue;
     const a = w2s(e.a.x, e.a.y), b = w2s(e.b.x, e.b.y);
     ctx.save();
-    if (!e.a.match || !e.b.match) ctx.globalAlpha = 0.08;
+    if (isDimmed(e.a) || isDimmed(e.b)) ctx.globalAlpha = 0.08;
     if (e.dead) {                                   // dead links: red dashed
       ctx.strokeStyle = "#ff7b72"; ctx.lineWidth = 1.5;
       ctx.setLineDash([6, 4]);
@@ -463,22 +541,24 @@ function draw() {
 }
 
 /* ---------------- legend ---------------- */
+/* Two honest channels: trust tier is encoded by neutral SHAPE (grayscale),
+   concept type is encoded by COLOR (Okabe–Ito palette). Neither channel
+   depends on the other, and trust never relies on color alone. */
 (function buildLegend() {
   const trustRows = [
-    ["unverified", "hollow circle"],
-    ["machine-confirmed", "filled square"],
-    ["human-reviewed", "filled circle + gold ring"],
+    ["unverified", "hollow circle",
+     '<circle cx="8" cy="8" r="5" fill="none" stroke="#8b93a3" stroke-width="2"/>'],
+    ["machine-confirmed", "filled square",
+     '<rect x="3" y="3" width="10" height="10" rx="2" fill="#8b93a3"/>'],
+    ["human-reviewed", "filled circle + ring",
+     '<circle cx="8" cy="8" r="5" fill="#8b93a3"/>'
+     + '<circle cx="8" cy="8" r="7" fill="none" stroke="#8b93a3" stroke-width="2"/>'],
   ];
-  let h = "";
-  for (const [tier, shape] of trustRows) {
-    h += '<div class="row"><svg width="16" height="16">'
-      + (tier === "unverified"
-          ? '<circle cx="8" cy="8" r="5" fill="none" stroke="#8b93a3" stroke-width="2"/>'
-          : tier === "machine-confirmed"
-          ? '<rect x="3" y="3" width="10" height="10" rx="2" fill="#58a6ff"/>'
-          : '<circle cx="8" cy="8" r="5" fill="#58a6ff"/>'
-            + '<circle cx="8" cy="8" r="7" fill="none" stroke="#d4a017" stroke-width="2"/>')
-      + "</svg><span><b>" + tier + "</b> &mdash; " + shape + "</span></div>";
+  let h = '<div class="row"><span>Trust is shown by <b>shape</b>; '
+    + 'concept type by <b>color</b>.</span></div>';
+  for (const [tier, shape, svg] of trustRows) {
+    h += '<div class="row"><svg width="16" height="16">' + svg + "</svg>"
+      + "<span><b>" + tier + "</b> &mdash; " + shape + "</span></div>";
   }
   h += '<div class="row"><svg width="16" height="16">'
     + '<line x1="1" y1="8" x2="15" y2="8" stroke="#ff7b72" stroke-width="2"'
@@ -493,12 +573,31 @@ function draw() {
 })();
 
 /* ---------------- detail panel ---------------- */
+let neighborIds = null;   // 1-hop neighborhood of the selected node (emphasis)
+function linkButton(edge, other) {
+  // Buttons (not anchors): clicking selects the connected concept in-graph.
+  return '<button type="button" class="linkbtn" data-target="' + esc(other.id) + '">'
+    + esc(other.title || other.id) + (edge.dead ? " ⚠" : "") + "</button>";
+}
 function select(n, center) {
   selected = n;
   if (center) { view.cx = n.x; view.cy = n.y; }
+  neighborIds = new Set([n.id]);
+  for (const e of outlinks.get(n.id)) neighborIds.add(e.b.id);
+  for (const e of backlinks.get(n.id)) neighborIds.add(e.a.id);
   const fm = n.frontmatter || {};
-  const rows = Object.keys(fm).map(k =>
+  // Skip keys already surfaced as badges/heading: no redundant metadata.
+  const skip = new Set(["type", "title", "trust", "description"]);
+  const rows = Object.keys(fm).filter(k => !skip.has(k)).map(k =>
     "<tr><th>" + esc(k) + "</th><td>" + esc(fmtVal(fm[k])) + "</td></tr>").join("");
+  const outs = outlinks.get(n.id).filter(e => !e.dead);
+  const deadOuts = outlinks.get(n.id).filter(e => e.dead);
+  const backs = backlinks.get(n.id);
+  const linkSection = (label, list, otherOf) =>
+    list.length
+      ? '<h3>' + label + ' (' + list.length + ')</h3><div class="linkbtns">'
+        + list.map(e => linkButton(e, otherOf(e))).join("") + "</div>"
+      : "";
   panel.innerHTML =
     "<h2>" + esc(n.title) + "</h2>"
     + '<div class="meta"><code>' + esc(n.id) + "</code></div>"
@@ -507,14 +606,30 @@ function select(n, center) {
     + '<span class="badge trust-' + esc(n.trust) + '">' + esc(n.trust) + "</span>"
     + (n.ghost ? '<span class="badge dead">dead-link target</span>' : "")
     + "</div>"
-    + (n.description ? '<p class="desc">' + esc(n.description) + "</p>" : "")
-    + (rows ? "<table>" + rows + "</table>" : "")
-    + (n.body ? "<h3>body</h3><pre>" + esc(n.body) + "</pre>" : "")
+    + (n.description ? '<p class="desc">' + md(n.description) + "</p>" : "")
+    + linkSection("links to", outs, e => e.b)
+    + (deadOuts.length
+        ? '<h3>dead links (' + deadOuts.length + ')</h3><div class="linkbtns">'
+          + deadOuts.map(e => linkButton(e, e.b)).join("") + "</div>"
+        : "")
+    + linkSection("linked from", backs, e => e.a)
+    + (rows ? "<h3>metadata</h3><table>" + rows + "</table>" : "")
+    + (n.body ? '<h3>body</h3><div class="body">' + md(n.body) + "</div>" : "")
     + '<button id="close-panel" type="button">close</button>';
   panel.classList.add("open");
-  document.getElementById("close-panel").onclick = () => {
-    panel.classList.remove("open"); selected = null; draw();
-  };
+  panel.querySelectorAll(".linkbtn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const target = byId.get(btn.getAttribute("data-target"));
+      if (target) select(target, true);
+    });
+  });
+  document.getElementById("close-panel").onclick = () => closePanel();
+  draw();
+}
+function closePanel() {
+  panel.classList.remove("open");
+  selected = null;
+  neighborIds = null;
   draw();
 }
 
@@ -567,8 +682,32 @@ canvas.addEventListener("pointerup", ev => {
   canvas.style.cursor = "grab";
   if (wasClick) {
     if (n) select(n, false);
-    else { panel.classList.remove("open"); selected = null; draw(); }
+    else closePanel();
   }
+});
+/* Keyboard access: the canvas is focusable (tabindex=0). Arrow keys pan,
+   + / - zoom, 0 resets the view, Enter selects the first search match,
+   Escape closes the detail panel. */
+canvas.addEventListener("keydown", ev => {
+  const step = 60 / view.scale;
+  let handled = true;
+  if (ev.key === "ArrowLeft") view.cx -= step;
+  else if (ev.key === "ArrowRight") view.cx += step;
+  else if (ev.key === "ArrowUp") view.cy -= step;
+  else if (ev.key === "ArrowDown") view.cy += step;
+  else if (ev.key === "+" || ev.key === "=") view.scale = Math.min(8, view.scale * 1.2);
+  else if (ev.key === "-" || ev.key === "_") view.scale = Math.max(0.15, view.scale / 1.2);
+  else if (ev.key === "0") { fitView(); }
+  else if (ev.key === "Enter") {
+    const hit = nodes.find(n => n.match && !n.ghost && nodeVisible(n));
+    if (hit) select(hit, true);
+  }
+  else if (ev.key === "Escape") closePanel();
+  else handled = false;
+  if (handled) { ev.preventDefault(); draw(); }
+});
+document.addEventListener("keydown", ev => {
+  if (ev.key === "Escape" && panel.classList.contains("open")) closePanel();
 });
 canvas.addEventListener("wheel", ev => {
   ev.preventDefault();
@@ -582,11 +721,17 @@ canvas.addEventListener("wheel", ev => {
 }, { passive: false });
 
 /* ---------------- search + orphan toggle ---------------- */
+const matchCount = document.getElementById("matchcount");
+function updateMatchCount() {
+  const hits = nodes.filter(n => n.match && !n.ghost).length;
+  matchCount.textContent = searchBox.value.trim() ? hits + " match" + (hits === 1 ? "" : "es") : "";
+}
 searchBox.addEventListener("input", () => {
   const q = searchBox.value.trim().toLowerCase();
   for (const n of nodes) {
     n.match = !q || (n.id + "\\n" + n.title + "\\n" + (n.tags || []).join(" ")).toLowerCase().includes(q);
   }
+  updateMatchCount();
   draw();
 });
 searchBox.addEventListener("keydown", ev => {
@@ -598,11 +743,70 @@ searchBox.addEventListener("keydown", ev => {
 orphanBox.addEventListener("change", draw);
 
 /* ---------------- boot ---------------- */
+function showError(msg) {
+  document.getElementById("loading").hidden = true;
+  document.getElementById("error-msg").textContent = msg;
+  document.getElementById("error").hidden = false;
+  canvas.style.display = "none";
+}
+window.addEventListener("error", ev => {
+  showError("An unexpected error stopped the viewer (" + (ev.message || "unknown")
+    + "). The bundle data itself is untouched.");
+});
 window.addEventListener("resize", () => { resize(); draw(); });
+document.getElementById("reset-view").addEventListener("click", () => {
+  searchBox.value = "";
+  for (const n of nodes) n.match = true;
+  updateMatchCount();
+  closePanel();
+  fitView();
+  draw();
+});
+/* Screen-reader text alternative: a plain list of every concept. */
+(function buildSrList() {
+  const ul = document.getElementById("sr-list");
+  const frag = document.createDocumentFragment();
+  for (const n of nodes) {
+    if (n.ghost) continue;
+    const li = document.createElement("li");
+    li.textContent = n.title + " (" + n.id + ", " + n.type + ", " + n.trust + ")";
+    frag.appendChild(li);
+  }
+  ul.appendChild(frag);
+})();
 resize();
-layout();
-fitView();
-draw();
+if (nodes.length === 0) {
+  /* empty state handled above; nothing to lay out */
+  draw();
+} else if (nodes.length > 400) {
+  /* Large graphs: show a loading state and lay out in chunks so the page
+     stays responsive instead of freezing on one long task. */
+  const loading = document.getElementById("loading");
+  const loadingMsg = document.getElementById("loading-msg");
+  loading.hidden = false;
+  nodes.forEach((nd, i) => {
+    const r = 26 * Math.sqrt(i), a = i * 2.39996;
+    nd.x = r * Math.cos(a); nd.y = r * Math.sin(a);
+  });
+  const maxTicks = 150;
+  let t = 0;
+  (function chunk() {
+    const end = Math.min(maxTicks, t + 15);
+    for (; t < end; t++) { if (tick() < 0.05) { t = maxTicks; break; } }
+    if (t < maxTicks) {
+      loadingMsg.textContent = "Positioning concepts… (" + t + "/" + maxTicks + " passes)";
+      setTimeout(chunk, 0);
+    } else {
+      loading.hidden = true;
+      fitView();
+      draw();
+    }
+  })();
+} else {
+  layout();
+  fitView();
+  draw();
+}
 </script>
 </body>
 </html>
@@ -625,16 +829,26 @@ def render_html(bundle_root: str | Path, output: str | Path) -> Path:
     data_json = data_json.replace("</", "<\\/")
 
     dead = sum(1 for e in model["edges"] if e["dead"])
+    n_nodes = len(model["nodes"])
+    n_edges = len(model["edges"])
     stats = (
-        f"{len(model['nodes'])} concepts &middot; {len(model['edges'])} links"
+        f"{n_nodes} concepts &middot; {n_edges} links"
         + (f" &middot; {dead} dead link{'s' if dead != 1 else ''}" if dead else "")
     )
     title = html.escape(Path(bundle_root).name or "bundle")
+    aria_label = (
+        f"Knowledge graph of {n_nodes} concepts and {n_edges} links. "
+        "Trust tier is shown by node shape; concept type by color. "
+        "The full concept list follows the canvas as text."
+        if n_nodes
+        else "Empty knowledge graph: this bundle has no concepts."
+    )
 
     page = (
         _HTML_TEMPLATE.replace("__BUNDLE_JSON__", data_json)
         .replace("__TITLE__", title)
         .replace("__STATS__", stats)
+        .replace("__ARIA_LABEL__", html.escape(aria_label, quote=True))
     )
 
     out = Path(output)
