@@ -13,6 +13,11 @@ APIs) and quiet=True. Tables come from liteparse's layout blocks
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from . import ParsedDocument
+
 import logging
 from pathlib import Path
 
@@ -27,7 +32,7 @@ except ImportError:  # pragma: no cover - handled gracefully at runtime
     _LITEPARSE_AVAILABLE = False
 
 
-def _parser() -> "LiteParse":
+def _parser() -> LiteParse:
     if not _LITEPARSE_AVAILABLE:
         raise RuntimeError(
             "liteparse is not installed; install the 'okfsmith' package with "
@@ -53,14 +58,14 @@ def _blocks_to_tables(page) -> list[list[list[str]]]:
     return tables
 
 
-def parse_pdf(path: str | Path) -> "ParsedDocument":
+def parse_pdf(path: str | Path) -> ParsedDocument:
     """Parse a PDF into per-page text + tables.
 
     Pages with no text layer (no text items, no blocks, empty text) get
     needs_ocr=True so the router can escalate them to the OCR tier instead
     of emitting a textless stub.
     """
-    from . import ParsedDocument, Page
+    from . import Page, ParsedDocument
 
     p = Path(path)
     parser = _parser()

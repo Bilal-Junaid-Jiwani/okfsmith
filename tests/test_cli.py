@@ -930,3 +930,30 @@ def test_ingest_no_llm_zero_concepts_not_recorded(stub_parsers, tmp_path):
     assert result.exit_code == 0, result.output
     assert "no concepts created" in result.output
     assert len(stub_parsers.seen) == 0
+
+
+def test_mcp_missing_extra_no_traceback(monkeypatch, tmp_path):
+    """`okfsmith mcp` without fastmcp → stable error/hint, never a traceback."""
+    import sys as _sys
+    import types
+
+    bundle_dir = tmp_path / "bundle"
+    (bundle_dir / "draft").mkdir(parents=True)
+    (bundle_dir / "index.md").write_text("# Index\n", encoding="utf-8")
+
+    server_mod = types.ModuleType("okfsmith.mcp_server")
+
+    def serve(bundle, transport):
+        raise RuntimeError(
+            "The MCP server requires the 'mcp' extra: "
+            'install it with `pip install "okfsmith[mcp]"`.'
+        )
+
+    server_mod.serve = serve
+    monkeypatch.setitem(_sys.modules, "okfsmith.mcp_server", server_mod)
+
+    result = runner.invoke(app, ["mcp", str(bundle_dir)])
+    assert result.exit_code == 1, result.output
+    assert "error [missing-extra]:" in result.output
+    assert "pip install" in result.output
+    assert "Traceback" not in result.output

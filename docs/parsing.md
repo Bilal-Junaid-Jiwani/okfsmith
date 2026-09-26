@@ -17,11 +17,12 @@ PyMuPDF is deliberately **not** used (AGPL license).
 
 ## Notion exports
 
-Notion HTML/CSV exports are parsed directly: pages become sections, databases
-become per-row concepts where the export structure allows it. Zip archives
-(`.zip`) are unpacked with guards: max 100,000 members, max 512 MiB total
-uncompressed, and every member path is contained inside the destination
-(ZipSlip-safe).
+Notion HTML/CSV exports are parsed directly: each page (and each per-database
+CSV file) becomes one parsed document, and sections within it become draft
+concepts through the normal pipeline — not one concept per CSV row.
+Zip archives (`.zip`) are unpacked with guards: max 100,000 members, max
+512 MiB total uncompressed, and every member path is contained inside the
+destination (ZipSlip-safe).
 
 ## Markdown and text
 

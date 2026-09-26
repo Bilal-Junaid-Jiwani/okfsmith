@@ -67,7 +67,7 @@ raw documents (PDFs, markdown, wiki dumps, Notion exports)
 
 **1. Ingest.** The entry point for raw sources: `okfsmith ingest BUNDLE SOURCE...` fingerprints each source with SHA-256 (already-ingested files are skipped), parses it (PDF via LiteParse, `.md`/`.txt` via the stdlib reader, Office formats via the optional `office` extra), sections it, and extracts one draft concept per section (`--no-llm`) or LLM-extracted claims with `[^source-id]` citations. Provenance (origin path, digest, capture time) is recorded in the bundle log.
 
-**2. Parse.** Raw documents become clean, ordered text. Tier 1 is free, local, and keyless: LiteParse handles PDFs, MarkItDown handles everything else, and born-digital documents never leave the machine. Tier 2 (an optional Docling sidecar) covers the hard cases; Tier 3 flags
+**2. Parse.** Raw documents become clean, ordered text. Tier 1 is free, local, and keyless: LiteParse handles PDFs, the stdlib handles `.md`/`.txt`, a dedicated parser handles Notion exports, and MarkItDown (via the `office` extra) covers docx/pptx/xlsx/html/csv/images — born-digital documents never leave the machine. Tier 2 (an optional Docling sidecar) covers the hard cases; Tier 3 flags
 scan-only pages as `needs_ocr` for an external OCR/vision pass — v1 performs
 no cloud OCR itself. PyMuPDF is deliberately excluded from the stack (AGPL).
 
@@ -75,7 +75,7 @@ no cloud OCR itself. PyMuPDF is deliberately excluded from the stack (AGPL).
 
 **4. Extract.** Two LLM passes turn sections into OKF concepts. Pass 1 uses a cheap model to draft concept JSON with the contextual situating prefix embedded per concept. Pass 2 is a critic that rejects contradictions, claim infidelity, and stubs. Individual claims are anchored as `[^source-id]` footnotes that become `sources[]` frontmatter entries, and `generated: {by: <tool>/<model>, at: <timestamp>}` is stamped on every concept. Local Ollama is the default; hosted models are used only when API keys are provided via environment variables.
 
-**5. Link.** Duplicates are resolved and relationships are built. SHA-256 source dedup, normalized-title/resource matching, and embedding similarity propose merges; the LLM adjudicates ambiguous cases. Surviving concepts are wired into a relation graph (reflected in `index.md`), which powers `neighbors` queries and the `viz.html` visualization. Per spec §6, broken links surface as warnings, never errors.
+**5. Link.** Duplicates are resolved and relationships are built. SHA-256 source dedup and normalized-title/resource matching propose merges; the LLM adjudicates ambiguous cases. (Embedding similarity is a v1 TODO, not yet implemented.) Surviving concepts are wired into a relation graph (reflected in `index.md`), which powers `neighbors` queries and the `viz.html` visualization. Per spec §6, broken links surface as warnings, never errors.
 
 **6. Emit.** The bundle is written to disk as OKF v0.2: one markdown file per concept with YAML frontmatter (only `type` is required; `sources[]`/provenance, `generated`/`verified`, and `status`/`stale_after` are emitted when available), a generated `index.md`, and an append-only `log.md`. Everything is plain files, so bundles diff cleanly in version control.
 

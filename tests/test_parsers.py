@@ -9,8 +9,18 @@ import warnings
 import zipfile
 from pathlib import Path
 
-import pytest
-
+from okfsmith.core.bundle import Bundle
+from okfsmith.parsers import (
+    Page,
+    ParsedDocument,
+    dedup,
+    notion,
+    parse_file,
+    router,
+    sectioning,
+)
+from okfsmith.parsers.ingest_no_llm import DESCRIPTION, GENERATED_BY, ingest_no_llm
+from okfsmith.parsers.router import Tier
 from tests._helpers import (
     NOTION_HASH,
     text_stream,
@@ -19,12 +29,6 @@ from tests._helpers import (
     write_pdf,
     write_xlsx,
 )
-from okfsmith.core.bundle import Bundle
-from okfsmith.parsers import Page, ParsedDocument, parse_file
-from okfsmith.parsers import dedup, notion, office, router, sectioning
-from okfsmith.parsers.ingest_no_llm import DESCRIPTION, GENERATED_BY, ingest_no_llm
-from okfsmith.parsers.router import Tier
-
 
 LONG_TEXT = ("Lorem ipsum dolor sit amet, consectetur adipiscing elit. " * 40).strip()
 
@@ -168,7 +172,6 @@ def test_notion_export(tmp_path: Path):
     assert md_entry["resource"] == "https://www.notion.so/workspace/My-Page-1a2b3c4d5e6f"
     assert md_entry["assets"] == ["logo.png"]
 
-    csv_entry = next(e for e in index if e["title"] == "Tasks")
     csv_page = doc.pages[[e["title"] for e in index].index("Tasks")]
     assert csv_page.tables[0][0] == ["Task", "Owner"]
 

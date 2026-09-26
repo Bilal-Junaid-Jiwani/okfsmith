@@ -6,8 +6,9 @@ format; they differ in how much understanding is applied per section.
 ## `--no-llm` (default for quick passes)
 
 One draft concept per section, no model calls, fully offline. Fast and
-deterministic. Drafts get `trust: unverified` and a description noting they
-need review. Sources under 1,000 characters are skipped ("stub prevention") —
+deterministic. Drafts carry no `verified` entry, so their trust tier derives
+to `unverified` (trust is derived from `verified`, never a literal `trust:`
+field). Sources under 1,000 characters are skipped ("stub prevention") —
 tiny fragments make poor concepts.
 
 ## LLM mode
@@ -38,6 +39,8 @@ redacted from logs and error output.
 
 ## Trust tiers, again
 
-- LLM drafts start at `unverified` too. Promotion to `human-reviewed` is a
-  human decision: edit the frontmatter (or use the `human_review` helper),
-  then `okfsmith validate` to confirm the bundle still conforms.
+- LLM drafts start at `unverified` too. The critic pass can promote clean
+  drafts to `machine-confirmed` by adding a non-`human:` `verified` entry.
+  Promotion to `human-reviewed` is a human decision: edit the frontmatter
+  (or use the `human_review` helper), then `okfsmith validate` to confirm
+  the bundle still conforms.

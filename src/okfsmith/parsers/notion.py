@@ -12,6 +12,11 @@ ParsedDocument that :func:`okfsmith.parsers.parse_file` must return.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from . import ParsedDocument
+
 import logging
 import re
 import tempfile
@@ -50,7 +55,7 @@ def notion_resource_url(md_text: str) -> str | None:
     return m.group(0) if m else None
 
 
-def _page_from_markdown_file(md_path: Path, title: str) -> "ParsedDocument":
+def _page_from_markdown_file(md_path: Path, title: str) -> ParsedDocument:
     from . import Page, ParsedDocument
     from .office import markdown_tables
 
@@ -74,7 +79,7 @@ def _page_from_markdown_file(md_path: Path, title: str) -> "ParsedDocument":
     return ParsedDocument(pages=[page], meta=meta)
 
 
-def _page_from_csv_file(csv_path: Path, title: str) -> "ParsedDocument":
+def _page_from_csv_file(csv_path: Path, title: str) -> ParsedDocument:
     from . import office  # reuse the deterministic CSV parser via public API
 
     doc = office.parse_office(csv_path)
@@ -82,7 +87,7 @@ def _page_from_csv_file(csv_path: Path, title: str) -> "ParsedDocument":
     return doc
 
 
-def parse_notion_export(zip_path: str | Path) -> list["ParsedDocument"]:
+def parse_notion_export(zip_path: str | Path) -> list[ParsedDocument]:
     """Unzip a Notion export; return one ParsedDocument per Notion page.
 
     Markdown pages and per-database CSVs each become a ParsedDocument.
@@ -119,7 +124,7 @@ def parse_notion_export(zip_path: str | Path) -> list["ParsedDocument"]:
     return docs
 
 
-def parse_notion_zip_as_document(zip_path: str | Path) -> "ParsedDocument":
+def parse_notion_zip_as_document(zip_path: str | Path) -> ParsedDocument:
     """Merge a Notion export's per-page documents into one ParsedDocument."""
     from . import ParsedDocument
 

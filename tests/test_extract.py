@@ -14,10 +14,10 @@ the no-LLM clean error, and secret redaction.
 import httpx
 import pytest
 
-from okfsmith.core import indexlog
 from okfsmith.core.bundle import Bundle
 from okfsmith.core.spec import trust_tier
-from okfsmith.extract import human_review, llm as llm_module, prompts
+from okfsmith.extract import human_review, prompts
+from okfsmith.extract import llm as llm_module
 from okfsmith.extract.llm import (
     LLMResponseError,
     LLMUnavailableError,
@@ -27,7 +27,6 @@ from okfsmith.extract.llm import (
     resolve_model,
 )
 from okfsmith.extract.pipeline import SectionInput, run
-
 
 # ---------------------------------------------------------------------------
 # Fake LLM plumbing
@@ -105,18 +104,18 @@ CRITIC_PASS = {"verdict": "pass", "issues": [], "fixed_concept": None}
 
 
 def _section(**overrides) -> SectionInput:
-    base = dict(
-        title="Nightly Rollup",
-        level=2,
-        text="The nightly revenue rollup runs at 02:00 UTC and writes to the revenue table.",
-        page_span=(3, 4),
-        tables=[],
-        source_id="doc-1",
-        source_path="docs/report.pdf",
-        doc_title="Q3 Report",
-        doc_summary="Quarterly financial report.",
-        section_path="Finance > Nightly Rollup",
-    )
+    base = {
+        "title": "Nightly Rollup",
+        "level": 2,
+        "text": "The nightly revenue rollup runs at 02:00 UTC and writes to the revenue table.",
+        "page_span": (3, 4),
+        "tables": [],
+        "source_id": "doc-1",
+        "source_path": "docs/report.pdf",
+        "doc_title": "Q3 Report",
+        "doc_summary": "Quarterly financial report.",
+        "section_path": "Finance > Nightly Rollup",
+    }
     base.update(overrides)
     return SectionInput(**base)
 

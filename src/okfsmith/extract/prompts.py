@@ -84,7 +84,7 @@ If you cannot produce valid JSON, emit {{"verdict": "fail", "issues": \
 """
 
 
-def build_extraction_messages(section: "SectionInput") -> list[dict]:
+def build_extraction_messages(section: SectionInput) -> list[dict]:
     """Build the chat messages for pass 1 (draft) for *section*."""
     section_path = section.section_path or section.title
     parts = [

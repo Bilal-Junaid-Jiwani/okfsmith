@@ -59,7 +59,9 @@ def test_fixture_findings_match_expected(name: str):
 
     # Findings serialize to the EXPECTED.json schema {code, file, message, spec}.
     for finding, raw in zip(
-        report.errors + report.warnings, expected["errors"] + expected["warnings"]
+        report.errors + report.warnings,
+        expected["errors"] + expected["warnings"],
+        strict=True,
     ):
         serialized = finding.as_dict()
         assert set(serialized) == {"code", "file", "message", "spec"}

@@ -13,6 +13,11 @@ textless stub is FORBIDDEN.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from . import ParsedDocument
+
 import logging
 from enum import Enum
 from pathlib import Path
@@ -50,7 +55,7 @@ def route(path: str | Path) -> Tier:
     return Tier.TIER1_LOCAL
 
 
-def ocr_escalations(parsed: "ParsedDocument") -> list[str]:
+def ocr_escalations(parsed: ParsedDocument) -> list[str]:
     """Messages for pages that would be escalated to the OCR tier in v1.
 
     v1 skips paid OCR entirely; callers should record these messages in the

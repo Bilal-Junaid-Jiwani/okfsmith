@@ -2,7 +2,7 @@
 
 [![PyPI](https://img.shields.io/pypi/v/okfsmith.svg)](https://pypi.org/project/okfsmith/)
 [![Python](https://img.shields.io/pypi/pyversions/okfsmith.svg)](https://pypi.org/project/okfsmith/)
-[![License](https://img.shields.io/github/license/Bilal-Junaid-Jiwani/okfsmith.svg)](https://github.com/Bilal-Junaid-Jiwani/okfsmith/blob/main/LICENSE)
+[![License](https://img.shields.io/github/license/Bilal-Junaid-Jiwani/okfsmith.svg)](https://github.com/Bilal-Junaid-Jiwani/okfsmith/blob/master/LICENSE)
 
 **Forge messy documents into [OKF v0.2](https://github.com/GoogleCloudPlatform/open-knowledge-format) knowledge bundles.**
 

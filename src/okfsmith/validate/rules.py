@@ -287,7 +287,7 @@ def _analyze_log(path: Path, rel: str) -> tuple[_Doc, list[Finding], list[Findin
                     "§9",
                 )
             )
-    for earlier, later in zip(dates, dates[1:]):
+    for earlier, later in zip(dates, dates[1:], strict=False):
         if later > earlier:
             warnings.append(
                 Finding(
@@ -702,14 +702,14 @@ def run_checks(root: Path) -> tuple[list[Finding], list[Finding]]:
 
     for doc in ok_docs:  # W003
         warnings.extend(_warn_missing_recommended(doc))
-    for doc, w005, w008, w015, source_ids in per_doc_sources:  # W004
+    for doc, _w005, _w008, _w015, source_ids in per_doc_sources:  # W004
         warnings.extend(_warn_footnote_unresolved(doc, source_ids))
-    for doc, w005, w008, w015, source_ids in per_doc_sources:  # W005
+    for _doc, w005, _w008, _w015, _source_ids in per_doc_sources:  # W005
         warnings.extend(w005)
     for doc in ok_docs:  # W006
         warnings.extend(_warn_stale(doc))
     warnings.extend(w007_findings)  # W007
-    for doc, w005, w008, w015, source_ids in per_doc_sources:  # W008
+    for _doc, _w005, w008, _w015, _source_ids in per_doc_sources:  # W008
         warnings.extend(w008)
     for doc in ok_docs:  # W009
         warnings.extend(_warn_actor_missing_by(doc))
@@ -722,7 +722,7 @@ def run_checks(root: Path) -> tuple[list[Finding], list[Finding]]:
     warnings.extend(w013_findings)  # W013
     for doc in ok_docs:  # W014
         warnings.extend(_warn_unknown_status(doc))
-    for doc, w005, w008, w015, source_ids in per_doc_sources:  # W015
+    for _doc, _w005, _w008, w015, _source_ids in per_doc_sources:  # W015
         warnings.extend(w015)
 
     return errors, warnings

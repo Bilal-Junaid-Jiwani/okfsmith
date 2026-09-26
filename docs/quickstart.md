@@ -34,6 +34,7 @@ okfsmith graph ./kb --format html   # writes ./kb/viz.html — open it in a brow
 
 - Ingest with an LLM for richer extraction: `okfsmith ingest ./kb paper.pdf`
   (needs Ollama running, or `OPENAI_API_KEY` — see [LLM & no-LLM](llm.md)).
-- Mark drafts as reviewed: concepts whose frontmatter gains
-  `trust: human-reviewed` show up with the reviewed shape in the graph.
+- Mark drafts as reviewed: concepts whose frontmatter gains a `verified`
+  entry from a `human:` reviewer show up with the reviewed shape in the
+  graph (trust is derived from `verified`, never a literal `trust:` field).
 - Serve the bundle to an agent: `okfsmith mcp ./kb` — see [MCP](mcp.md).

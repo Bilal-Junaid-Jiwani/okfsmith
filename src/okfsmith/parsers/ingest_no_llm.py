@@ -32,7 +32,7 @@ def _truncate(text: str, limit: int = BODY_MAX_CHARS) -> str:
     return cut.rstrip() + "\n\n[... truncated: section body exceeds no-LLM limit ...]"
 
 
-def ingest_no_llm(bundle: "Bundle", parsed: "ParsedDocument", source_id: str) -> list[str]:
+def ingest_no_llm(bundle: Bundle, parsed: ParsedDocument, source_id: str) -> list[str]:
     """Ingest a ParsedDocument into *bundle* as DRAFT concepts.
 
     Returns the list of created concept ids. Creates nothing (returns [])

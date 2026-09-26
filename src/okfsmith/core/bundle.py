@@ -11,9 +11,9 @@ No network calls; stdlib only.
 from __future__ import annotations
 
 import re
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterator
 
 from okfsmith.core import frontmatter as _fm
 from okfsmith.core.spec import RESERVED_FILES
@@ -70,7 +70,7 @@ class Bundle:
         """Raw text of the root ``log.md``, if present when loaded."""
 
     @classmethod
-    def load(cls, root: str | Path) -> "Bundle":
+    def load(cls, root: str | Path) -> Bundle:
         """Walk *root* and parse every ``*.md`` file into a :class:`Concept`.
 
         Files named ``index.md`` / ``log.md`` are skipped as concepts; the

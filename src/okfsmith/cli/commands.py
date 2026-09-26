@@ -889,7 +889,7 @@ def mcp(
     \b
     Examples:
         okfsmith mcp ./kb
-        uvx "okfsmith[mcp]" mcp ./kb
+        uvx --with "okfsmith[mcp]" okfsmith mcp ./kb
     """
     try:
         _require_bundle_dir(bundle)
@@ -897,7 +897,18 @@ def mcp(
         _handle_cli_error(exc, False)
     # serve(bundle_path, transport) -> None
     serve = _lazy_attr("okfsmith.mcp_server", "serve")
-    serve(bundle, transport)
+    try:
+        serve(bundle, transport)
+    except RuntimeError as exc:
+        # Missing 'mcp' extra (fastmcp not installed): surface the stable
+        # error/hint contract, never a traceback.
+        fail(
+            "missing-extra",
+            str(exc),
+            'Install it with: pip install "okfsmith[mcp]" '
+            '(or pipx: pipx install "okfsmith[mcp]", '
+            'or uvx: uvx --with "okfsmith[mcp]" okfsmith mcp ./kb)',
+        )
 
 
 # ---------------------------------------------------------------------------

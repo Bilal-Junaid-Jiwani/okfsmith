@@ -14,7 +14,7 @@ def write_pdf(path: Path, pages: list[str]) -> Path:
     objs.append((1, "<< /Type /Catalog /Pages 2 0 R >>"))
     objs.append((2, f"<< /Type /Pages /Kids [{kids}] /Count {len(pages)} >>"))
     objs.append((3, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"))
-    for i, stream in enumerate(pages):
+    for i, _unused in enumerate(pages):
         objs.append(
             (
                 4 + i,

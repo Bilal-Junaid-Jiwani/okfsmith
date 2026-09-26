@@ -77,7 +77,7 @@ Homepage = "https://github.com/Bilal-Junaid-Jiwani/okfsmith"
 Repository = "https://github.com/Bilal-Junaid-Jiwani/okfsmith"
 Documentation = "https://github.com/Bilal-Junaid-Jiwani/okfsmith#readme"
 Issues = "https://github.com/Bilal-Junaid-Jiwani/okfsmith/issues"
-Changelog = "https://github.com/Bilal-Junaid-Jiwani/okfsmith/blob/main/CHANGELOG.md"
+Changelog = "https://github.com/Bilal-Junaid-Jiwani/okfsmith/blob/master/CHANGELOG.md"
 
 [tool.setuptools.packages.find]
 where = ["src"]

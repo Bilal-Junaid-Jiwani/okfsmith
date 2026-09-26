@@ -21,8 +21,12 @@ Requires the ``office`` extra: ``pip install "okfsmith[office]"``.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from . import Page, ParsedDocument
+
 import csv
-import io
 import logging
 import tempfile
 import zipfile
@@ -76,7 +80,7 @@ def markdown_tables(md_text: str) -> list[list[list[str]]]:
     return tables
 
 
-def _page_from_markdown(number: int, text: str) -> "Page":
+def _page_from_markdown(number: int, text: str) -> Page:
     from . import Page
 
     text = (text or "").strip()
@@ -88,7 +92,7 @@ def _page_from_markdown(number: int, text: str) -> "Page":
     )
 
 
-def _parse_xlsx(path: Path) -> "ParsedDocument":
+def _parse_xlsx(path: Path) -> ParsedDocument:
     """One Page per sheet, via openpyxl (no MarkItDown merge)."""
     from . import Page, ParsedDocument
 
@@ -119,11 +123,11 @@ def _parse_xlsx(path: Path) -> "ParsedDocument":
     )
 
 
-def _parse_csv(path: Path) -> "ParsedDocument":
+def _parse_csv(path: Path) -> ParsedDocument:
     from . import ParsedDocument
 
     with open(path, newline="", encoding="utf-8-sig") as fh:
-        rows = [[c for c in row] for row in csv.reader(fh) if any(row)]
+        rows = [list(row) for row in csv.reader(fh) if any(row)]
     md = "\n".join("| " + " | ".join(r) + " |" for r in rows)
     page = _page_from_markdown(1, md)
     page.tables = [rows] if rows else []
@@ -133,7 +137,7 @@ def _parse_csv(path: Path) -> "ParsedDocument":
     )
 
 
-def _parse_zip(path: Path, _depth: int = 0) -> "ParsedDocument":
+def _parse_zip(path: Path, _depth: int = 0) -> ParsedDocument:
     from . import ParsedDocument
 
     pages: list = []
@@ -162,7 +166,7 @@ def _parse_zip(path: Path, _depth: int = 0) -> "ParsedDocument":
     )
 
 
-def _parse_image(path: Path) -> "ParsedDocument":
+def _parse_image(path: Path) -> ParsedDocument:
     """Images have no text layer: flag for the OCR/vision tier, no stub text."""
     from . import Page, ParsedDocument
 
@@ -177,7 +181,7 @@ def _parse_image(path: Path) -> "ParsedDocument":
     )
 
 
-def _parse_with_markitdown(path: Path) -> "ParsedDocument":
+def _parse_with_markitdown(path: Path) -> ParsedDocument:
     from . import ParsedDocument
 
     md = _markitdown()
@@ -190,7 +194,7 @@ def _parse_with_markitdown(path: Path) -> "ParsedDocument":
     )
 
 
-def parse_office(path: str | Path, _depth: int = 0) -> "ParsedDocument":
+def parse_office(path: str | Path, _depth: int = 0) -> ParsedDocument:
     """Parse an office/misc file into a ParsedDocument."""
     p = Path(path)
     suffix = p.suffix.lower()
