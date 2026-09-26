@@ -247,10 +247,8 @@ def resolve_backend(
             f"  - Start a local Ollama server (e.g. `ollama serve`) at {DEFAULT_OLLAMA_BASE},\n"
             "    then retry\n"
             "  - Use a hosted OpenAI-compatible endpoint:\n"
-            "      export OPENAI_API_KEY=... "
-            "(or pass --api-key)\n"
-            "      okfsmith extract --base-url https://your-endpoint/v1 "
-            f"--model {resolved_model}"
+            "      export OPENAI_API_KEY=...\n"
+            "      okfsmith ingest --model <name>  # via OKFSMITH_MODEL / OPENAI_API_KEY\n"
         )
     logger.info(
         "Using default Ollama backend %s model=%s", DEFAULT_OLLAMA_BASE, resolved_model
