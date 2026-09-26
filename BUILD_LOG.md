@@ -679,3 +679,25 @@ Post-build integration and QA pass, all verified in headless Firefox:
 - Enabled via API: force pushes blocked, branch deletion blocked.
 - Deliberately NOT requiring PR reviews or status checks, so the
   established direct-push release workflow keeps working.
+
+## 2026-09-26 — PR #1 merged: audit fixes + BM25 search (muhammad-araf)
+
+- Friend's PR `audit/fixes-and-search` reviewed and merged into master
+  (merge commit `35045915`, GitHub shows PR #1 as merged).
+- Review performed: security scan (no exfil/shell/eval, no new deps, keys
+  never logged), full test suite, live verification of both headline
+  critical fixes (same-stem overwrite, symlink escape), plus an
+  independent deep-review subagent.
+- Results: 630 tests passed, 21 skipped, ruff clean. Both critical fixes
+  verified working on real scenarios; BM25 search smoke-tested (CLI text
+  + JSON output).
+- One correction made before merge: CHANGELOG over-claimed M1
+  (re-ingest pruning) as fixed — moved to a new Deferred section with
+  M29 and L12. Committed to the PR branch first.
+- Known behavior change: re-ingest no longer updates in place; with M1
+  deferred, repeated re-ingests accumulate `-2`/`-3` suffixed duplicates.
+  Documented in CHANGELOG; pruning is future work.
+- New: `okfsmith search BUNDLE QUERY` (stdlib-only BM25), shared by CLI,
+  MCP server and chat REPL `/search`. Guide: docs/searching.md.
+- Pushed via Git Data API as a true 2-parent merge commit; remote tree
+  byte-identical to the reviewed local tree.
