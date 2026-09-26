@@ -1,11 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="okfsmith">
   <title>okfsmith</title>
-  <!-- Simplified anvil mark, readable at 16x16, terracotta on transparent -->
+  <!-- Mark: side-profile blacksmith anvil (horn left, face right) with a forge spark.
+       Terracotta #D97757 on transparent — legible from 16px favicon to billboard. -->
   <g fill="#D97757">
-    <rect x="10" y="18" width="44" height="11" rx="2"/>
-    <polygon points="24,29 40,29 44,48 20,48"/>
-    <rect x="13" y="48" width="38" height="8" rx="2"/>
-    <!-- spark: 4-point star -->
-    <path d="M53 5 l2.4 5.1 5.1 2.4 -5.1 2.4 -2.4 5.1 -2.4 -5.1 -5.1 -2.4 5.1 -2.4 Z"/>
+    <path d="M4 25 L18 20.5 L46 20.5 Q50 20.5 50 24 L50 25 Q50 28.5 46 28.5 L18 28.5 Z"/>
+    <rect x="29" y="28.5" width="7" height="13"/>
+    <rect x="19" y="41.5" width="27" height="8" rx="2.5"/>
+    <path d="M52 4 l2 4.2 4.2 2 -4.2 2 -2 4.2 -2 -4.2 -4.2 -2 4.2 -2 Z"/>
   </g>
 </svg>

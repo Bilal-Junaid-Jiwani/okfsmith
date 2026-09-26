@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/assets/img/logo.svg" width="96" height="96" alt="okfsmith logo — a blacksmith's anvil with a forge spark">
+</p>
+
 # okfsmith
 
 [![PyPI](https://img.shields.io/pypi/v/okfsmith.svg)](https://pypi.org/project/okfsmith/)
