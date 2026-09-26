@@ -271,16 +271,17 @@ def init(
             typer.echo("aborted.", err=True)
             raise typer.Exit(code=1)
     bundle.mkdir(parents=True, exist_ok=True)
-    bundle = Bundle(bundle)
+    bundle_path = bundle
+    bundle = Bundle(bundle_path)
     index_path = indexlog.ensure_index(bundle)
     log_path = indexlog.append_log(
         bundle, kind="Creation", message="Bundle created with `okfsmith init`."
     )
-    typer.echo(f"Initialized OKF bundle in {bundle}")
+    typer.echo(f"Initialized OKF bundle in {bundle_path}")
     typer.echo(f"  index: {index_path}")
     typer.echo(f"  log:   {log_path}")
     typer.echo("Next: add sources with 'okfsmith ingest "
-               f"{bundle} <file-or-dir> --no-llm'.")
+               f"{bundle_path} <file-or-dir> --no-llm'.")
 
 
 # ---------------------------------------------------------------------------
@@ -673,7 +674,8 @@ def list_concepts(
         _require_bundle_dir(bundle)
     except CliError as exc:
         _handle_cli_error(exc, as_json)
-    bundle = Bundle.load(bundle)
+    bundle_path = bundle
+    bundle = Bundle.load(bundle_path)
     rows = []
     for concept in bundle.iter_concepts():
         ctype = str(concept.frontmatter.get("type") or "")
@@ -691,7 +693,7 @@ def list_concepts(
     if as_json:
         _dump_json({"concepts": rows, "count": len(rows)})
         return
-    table = Table(title=f"Concepts in {bundle}")
+    table = Table(title=f"Concepts in {bundle_path}")
     table.add_column("ID")
     table.add_column("Type")
     table.add_column("Title")

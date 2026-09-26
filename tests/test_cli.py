@@ -843,3 +843,20 @@ def test_read_missing_concept_error_shows_path_not_repr(tmp_path):
     assert result.exit_code == 1
     assert f"not found in '{bdir}'" in result.output
     assert "Bundle object at" not in result.output
+
+
+def test_no_bundle_repr_leaks_in_user_output(tmp_path):
+    """User-facing output must show bundle paths, never '<...Bundle object at ...>'."""
+    bdir = tmp_path / "kb"
+    result = runner.invoke(app, ["init", str(bdir)])
+    assert result.exit_code == 0, result.output
+    assert "Bundle object at" not in result.output
+    assert str(bdir) in result.output
+
+    result = runner.invoke(app, ["list", str(bdir)])
+    assert result.exit_code == 0, result.output
+    assert "Bundle object at" not in result.output
+
+    result = runner.invoke(app, ["read", str(bdir), "nope/missing"])
+    assert result.exit_code == 1
+    assert "Bundle object at" not in result.output
