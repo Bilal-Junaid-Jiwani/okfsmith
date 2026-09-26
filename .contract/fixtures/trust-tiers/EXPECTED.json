@@ -1,0 +1,1 @@
+{"description":"Trust-tier derivation per SPEC §5.3. human.md uses the bare-mapping `verified` form, which consumers MUST normalize to a one-element list (§5.2, §11). No errors or warnings in this fixture.","errors":[],"fixture":"trust-tiers","trust_tiers":{"human":"human-reviewed","machine":"machine-confirmed","mixed":"human-reviewed","unverified":"unverified"},"warnings":[]}

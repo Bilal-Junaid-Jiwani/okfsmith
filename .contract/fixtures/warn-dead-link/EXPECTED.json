@@ -1,0 +1,1 @@
+{"description":"Concept links to /finance/does-not-exist which is not in the bundle. SPEC §6.1: consumers MUST tolerate broken links (not-yet-written knowledge) — advisory warning W001, never an error.","errors":[],"fixture":"warn-dead-link","warnings":[{"code":"W001","file":"linked.md","message":"broken link target not found in bundle: '/finance/does-not-exist'","spec":"§6.1"}]}

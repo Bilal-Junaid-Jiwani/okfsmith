@@ -1,0 +1,1 @@
+{"description":"A non-reserved .md file with no frontmatter block at all. SPEC §11 rule 1: every non-reserved .md file MUST contain a parseable YAML frontmatter block.","errors":[{"code":"E001","file":"plain.md","message":"no parseable YAML frontmatter block found","spec":"§11.1"}],"fixture":"err-no-frontmatter","warnings":[]}

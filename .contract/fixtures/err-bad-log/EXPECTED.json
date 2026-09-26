@@ -1,0 +1,1 @@
+{"description":"log.md has a date heading not in ISO 8601 YYYY-MM-DD form. SPEC §9: date headings MUST use ISO YYYY-MM-DD; SPEC §11 rule 3 requires reserved files to follow §8/§9.","errors":[{"code":"E004","file":"log.md","message":"log date heading is not ISO YYYY-MM-DD: 'May 22, 2026'","spec":"§9"}],"fixture":"err-bad-log","warnings":[]}

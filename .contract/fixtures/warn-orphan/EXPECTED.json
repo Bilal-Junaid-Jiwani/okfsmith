@@ -1,0 +1,1 @@
+{"description":"orphan.md is a valid concept but no index.md entry points at it (or at a directory containing it). SPEC §8 indexes support progressive disclosure; unreachable concepts get advisory warning W002, never an error.","errors":[],"fixture":"warn-orphan","warnings":[{"code":"W002","file":"orphan.md","message":"concept not reachable from any index.md entry","spec":"§8"}]}
