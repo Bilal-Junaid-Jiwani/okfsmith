@@ -108,6 +108,8 @@ def _jsonable(value: Any) -> Any:
         return {k: _jsonable(v) for k, v in value.items()}
     if isinstance(value, (list, tuple)):
         return [_jsonable(v) for v in value]
+    if isinstance(value, (set, frozenset)):
+        return sorted((_jsonable(v) for v in value), key=repr)
     return value
 
 
@@ -265,6 +267,12 @@ def init(
         okfsmith init ./kb
         okfsmith init ./kb --force --yes   # non-interactive re-scaffold
     """
+    if bundle.exists() and not bundle.is_dir():
+        fail(
+            "not-a-directory",
+            f"'{bundle}' exists but is not a directory.",
+            "Pick a directory path for the bundle (or remove the file).",
+        )
     if bundle.exists() and any(bundle.iterdir()) and not force:
         fail(
             "bundle-not-empty",
@@ -813,7 +821,7 @@ def graph(
     output: Path | None = typer.Option(
         None,
         "--output",
-        help="Output file for --format html (default: <bundle>/viz.html).",
+        help="Write output to this file instead of stdout (default for html: <bundle>/viz.html).",
     ),
 ) -> None:
     """Show the concept link graph (nodes, edges, orphans, dead links).
@@ -840,9 +848,21 @@ def graph(
             adjacency[node["id"]] = []
         for edge in data["edges"]:
             adjacency.setdefault(edge["from"], []).append(edge["to"])
-        _dump_json({"nodes": data["nodes"], "adjacency": adjacency})
+        payload = {"nodes": data["nodes"], "adjacency": adjacency}
+        if output is not None:
+            output.write_text(
+                json.dumps(_jsonable(payload), indent=2), encoding="utf-8"
+            )
+            typer.echo(f"Wrote {output}")
+        else:
+            _dump_json(payload)
     elif output_format == "mermaid":
-        typer.echo(_links.mermaid_flowchart(data), nl=False)
+        text = _links.mermaid_flowchart(data)
+        if output is not None:
+            output.write_text(text, encoding="utf-8")
+            typer.echo(f"Wrote {output}")
+        else:
+            typer.echo(text, nl=False)
     elif output_format == "html":
         # render_html(root, output) -> Path
         render_html = _lazy_attr("okfsmith.viz", "render_html")
@@ -850,7 +870,18 @@ def graph(
         written = render_html(bundle_path, out_path)
         typer.echo(f"Wrote {written}")
     elif output_format == "text":
-        _print_graph_text(bundle, data)
+        if output is not None:
+            # Capture the text report and write it to the file.
+            import io
+            from contextlib import redirect_stdout
+
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                _print_graph_text(bundle, data)
+            output.write_text(buf.getvalue(), encoding="utf-8")
+            typer.echo(f"Wrote {output}")
+        else:
+            _print_graph_text(bundle, data)
 
 
 def _print_graph_text(bundle: Bundle, data: dict) -> None:
