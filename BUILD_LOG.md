@@ -663,3 +663,12 @@ Post-build integration and QA pass, all verified in headless Firefox:
   and centered 96px in README.md. Header screenshot-verified at 1440px.
 - Pushed via Git Data API (remote master `b65e98ec`, tree byte-identical);
   GitHub Pages rebuilt from the new commit.
+
+## 2026-09-26 — Docs website linked in README + repo homepage (user-requested)
+
+- README: terracotta "docs" badge added next to PyPI badges; live site
+  link (https://bilal-junaid-jiwani.github.io/okfsmith/) at the top of
+  the Docs section.
+- Repo settings: homepage URL set to the docs site via GitHub API
+  (shows next to the repo description).
+- Pushed via Git Data API, tree byte-identical.
