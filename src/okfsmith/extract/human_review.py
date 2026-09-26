@@ -29,12 +29,16 @@ def mark_reviewed(bundle: Bundle, concept_id: str, reviewer: str) -> Concept:
 
     Appends ``verified: {by: "human:<reviewer>", at: <now>}`` — normalizing a
     bare ``verified`` mapping to a one-element list per OKF §5.2 — and
-    appends a log **Update**. Existing verifications are preserved.
+    appends a log **Update**. Existing verifications are merged in and
+    preserved, never discarded.
 
     Raises :class:`KeyError` if the concept does not exist, :class:`ValueError`
     if *reviewer* is empty.
     """
-    reviewer = (reviewer or "").strip()
+    # Collapse attacker-influenced whitespace (incl. newlines) *before*
+    # storing, so the frontmatter record and the log line carry the same
+    # single-line identifier (QA L13; log-forgery hardening mirrors M5).
+    reviewer = _one_line(reviewer or "")
     if not reviewer:
         raise ValueError("reviewer must be a non-empty identifier")
     concept = bundle.get(concept_id)
@@ -47,10 +51,13 @@ def mark_reviewed(bundle: Bundle, concept_id: str, reviewer: str) -> Concept:
     verified = frontmatter.get("verified")
     if isinstance(verified, list):
         entries = list(verified)
-    elif isinstance(verified, dict):
-        entries = [verified]  # bare mapping counts as a one-element list (§5.2)
-    else:
+    elif verified is None:
         entries = []
+    else:
+        # Bare mapping (§5.2) or legacy scalar: keep it verbatim as the first
+        # entry rather than silently discarding it (QA L13). Non-mapping
+        # legacy values are flagged W011 by the validator but never dropped.
+        entries = [verified]
     entries.append({"by": f"human:{reviewer}", "at": utc_now_iso()})
     frontmatter["verified"] = entries
 
