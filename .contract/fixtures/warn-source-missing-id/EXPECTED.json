@@ -1,0 +1,13 @@
+{
+  "fixture": "warn-source-missing-id",
+  "description": "A `sources` entry lacks `id`. SPEC \u00a75.1: `id` SHOULD be present when the body cites the source; absence is advisory W005.",
+  "errors": [],
+  "warnings": [
+    {
+      "code": "W005",
+      "file": "sourced.md",
+      "message": "`sources` entry #1 is missing `id`",
+      "spec": "\u00a75.1"
+    }
+  ]
+}

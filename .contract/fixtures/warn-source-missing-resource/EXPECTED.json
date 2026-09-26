@@ -1,0 +1,13 @@
+{
+  "fixture": "warn-source-missing-resource",
+  "description": "A `sources` entry lacks its REQUIRED `resource`. SPEC \u00a75.1: advisory W008, never an error.",
+  "errors": [],
+  "warnings": [
+    {
+      "code": "W008",
+      "file": "sourced.md",
+      "message": "`sources` entry #1 is missing REQUIRED `resource`",
+      "spec": "\u00a75.1"
+    }
+  ]
+}

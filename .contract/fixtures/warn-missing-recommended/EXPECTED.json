@@ -1,0 +1,19 @@
+{
+  "fixture": "warn-missing-recommended",
+  "description": "Concept missing recommended `title` or `description` frontmatter. SPEC \u00a74.1: both are recommended; absence is advisory W003, never an error.",
+  "errors": [],
+  "warnings": [
+    {
+      "code": "W003",
+      "file": "no-description.md",
+      "message": "recommended frontmatter field `description` is missing",
+      "spec": "\u00a74.1"
+    },
+    {
+      "code": "W003",
+      "file": "no-title.md",
+      "message": "recommended frontmatter field `title` is missing",
+      "spec": "\u00a74.1"
+    }
+  ]
+}

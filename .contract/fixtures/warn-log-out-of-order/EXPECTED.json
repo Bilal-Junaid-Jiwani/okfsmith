@@ -1,0 +1,13 @@
+{
+  "fixture": "warn-log-out-of-order",
+  "description": "log.md date headings are valid ISO YYYY-MM-DD but oldest-first. SPEC \u00a79 states newest-first; out-of-order groups are advisory W013.",
+  "errors": [],
+  "warnings": [
+    {
+      "code": "W013",
+      "file": "log.md",
+      "message": "log date headings are not newest-first: '2026-06-28' follows '2026-05-15'",
+      "spec": "\u00a79"
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "fixture": "warn-okf-version",
+  "description": "Bundle-root index.md declares `okf_version: \"0.3\"`. SPEC \u00a712: unknown version is advisory W007; consumers attempt best-effort consumption.",
+  "errors": [],
+  "warnings": [
+    {
+      "code": "W007",
+      "file": "index.md",
+      "message": "unknown okf_version '0.3'; expected \"0.2\"",
+      "spec": "\u00a712"
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "fixture": "warn-footnote-unresolved",
+  "description": "Body footnote reference [^ghost] has no matching `sources[].id`. SPEC \u00a75.1: labels are the join key into `sources`; unresolved references are advisory W004.",
+  "errors": [],
+  "warnings": [
+    {
+      "code": "W004",
+      "file": "cited.md",
+      "message": "footnote reference [^ghost] has no matching `sources[].id`",
+      "spec": "\u00a75.1"
+    }
+  ]
+}
