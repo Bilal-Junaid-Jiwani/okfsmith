@@ -3,7 +3,7 @@
 All notable changes to okfsmith. Format follows Keep a Changelog; versions
 follow SemVer.
 
-## [Unreleased]
+## [0.3.0] — 2026-09-26
 
 ### Added
 - "Any model, any API key": `--provider` presets for 15 OpenAI-compatible
