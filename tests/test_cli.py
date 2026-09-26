@@ -98,7 +98,10 @@ def _stub_parsers_modules(monkeypatch, ingest_no_llm):
     dedup_mod.already_ingested = already_ingested
     dedup_mod.record_ingested = record_ingested
     inl_mod.ingest_no_llm = ingest_no_llm
-    sectioning_mod.section = lambda parsed: SimpleNamespace(sections=[], too_small=True)
+    sectioning_mod.TOO_SMALL_CHARS = 1000
+    sectioning_mod.section = lambda parsed: SimpleNamespace(
+        sections=[], too_small=False
+    )
 
     monkeypatch.setitem(sys.modules, "okfsmith.parsers", parsers_mod)
     monkeypatch.setitem(sys.modules, "okfsmith.parsers.dedup", dedup_mod)
@@ -860,3 +863,70 @@ def test_no_bundle_repr_leaks_in_user_output(tmp_path):
     result = runner.invoke(app, ["read", str(bdir), "nope/missing"])
     assert result.exit_code == 1
     assert "Bundle object at" not in result.output
+
+
+@pytest.fixture()
+def stub_too_small_parsers(monkeypatch):
+    """Stub parsers where every source is below the stub-prevention minimum."""
+
+    def ingest_no_llm(bundle: Bundle, parsed, source_id: str) -> list[str]:
+        raise AssertionError("must not be called for too-small sources")
+
+    ns = _stub_parsers_modules(monkeypatch, ingest_no_llm)
+    import sys as _sys
+
+    mod = _sys.modules["okfsmith.parsers.sectioning"]
+    mod.section = lambda parsed: SimpleNamespace(sections=[], too_small=True)
+    return ns
+
+
+def test_ingest_no_llm_too_small_reports_skip(stub_too_small_parsers, tmp_path):
+    src = tmp_path / "tiny.txt"
+    src.write_text("hello", encoding="utf-8")
+    bundle_dir = tmp_path / "bundle"
+    result = runner.invoke(
+        app, ["ingest", str(bundle_dir), str(src), "--no-llm"], env=WIDE
+    )
+    assert result.exit_code == 0, result.output
+    assert "below 1000-char minimum" in result.output
+    assert "ingested 0 concept(s)" in result.output
+    # Not recorded as ingested: a retry must repeat the reason, not claim
+    # "already ingested".
+    assert len(stub_too_small_parsers.seen) == 0
+    second = runner.invoke(
+        app, ["ingest", str(bundle_dir), str(src), "--no-llm"], env=WIDE
+    )
+    assert second.exit_code == 0, second.output
+    assert "below 1000-char minimum" in second.output
+    assert "already ingested" not in second.output
+
+
+def test_ingest_dry_run_applies_too_small_rule(stub_too_small_parsers, tmp_path):
+    src = tmp_path / "tiny.txt"
+    src.write_text("hello", encoding="utf-8")
+    bundle_dir = tmp_path / "bundle"
+    result = runner.invoke(
+        app, ["ingest", str(bundle_dir), str(src), "--no-llm", "--dry-run"]
+    )
+    assert result.exit_code == 0, result.output
+    assert "would skip" in result.output
+    assert "below 1000-char minimum" in result.output
+    assert "draft concepts" not in result.output
+
+
+def test_ingest_no_llm_zero_concepts_not_recorded(stub_parsers, tmp_path):
+    """A source that yields no concepts is not marked ingested."""
+    import sys as _sys
+
+    _sys.modules["okfsmith.parsers.ingest_no_llm"].ingest_no_llm = (
+        lambda bundle, parsed, source_id: []
+    )
+    src = tmp_path / "doc.txt"
+    src.write_text("hello", encoding="utf-8")
+    bundle_dir = tmp_path / "bundle"
+    result = runner.invoke(
+        app, ["ingest", str(bundle_dir), str(src), "--no-llm"], env=WIDE
+    )
+    assert result.exit_code == 0, result.output
+    assert "no concepts created" in result.output
+    assert len(stub_parsers.seen) == 0

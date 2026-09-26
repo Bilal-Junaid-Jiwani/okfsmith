@@ -307,13 +307,26 @@ def _ingest_no_llm_one(
     sha256_of: Any,
     already_ingested: Any,
     record_ingested: Any,
+    sectioning: Any,
 ) -> tuple[str, int]:
     """Ingest one file via deterministic sectioning. Returns (status, count)."""
     digest = sha256_of(path)
     if already_ingested(target, digest):
         return "skipped (already ingested)", 0
     parsed = parse_file(path)
+    # Stub prevention: sources under the char minimum produce no concepts.
+    # Say so explicitly instead of reporting a hollow "ok", and do not record
+    # the digest — the file was not ingested, so a later retry must surface
+    # the same reason instead of claiming "already ingested".
+    if sectioning.section(parsed).too_small:
+        return (
+            f"skipped (below {sectioning.TOO_SMALL_CHARS}-char minimum; "
+            "stub prevention)",
+            0,
+        )
     created = ingest_no_llm(target, parsed, str(path))
+    if not created:
+        return "skipped (no concepts created)", 0
     record_ingested(target, digest, str(path))
     return "ok", len(created)
 
@@ -424,6 +437,9 @@ def ingest(
         ingest_no_llm = _lazy_attr("okfsmith.parsers.ingest_no_llm", "ingest_no_llm")
         already_ingested = _lazy_attr("okfsmith.parsers.dedup", "already_ingested")
         record_ingested = _lazy_attr("okfsmith.parsers.dedup", "record_ingested")
+        # The parsers slice is definitely present here (parse_file imported
+        # above), so import the module directly for section()/TOO_SMALL_CHARS.
+        sectioning = importlib.import_module("okfsmith.parsers.sectioning")
         mode = "sectioning (no LLM)"
     else:
         section = _lazy_attr("okfsmith.parsers.sectioning", "section")
@@ -464,6 +480,7 @@ def ingest(
                         sha256_of=digest_of,
                         already_ingested=already_ingested,
                         record_ingested=record_ingested,
+                        sectioning=sectioning,
                     )
                 else:
                     try:
@@ -548,8 +565,11 @@ def _ingest_dry_run(
     """Parse and plan an ingest without writing anything."""
     typer.echo(f"dry run: would ingest {len(files)} file(s) into {bundle} (nothing written)")
     section_fn = section
+    too_small_chars = None
     if no_llm:
-        section_fn = _lazy_attr("okfsmith.parsers.sectioning", "section")
+        sectioning = importlib.import_module("okfsmith.parsers.sectioning")
+        section_fn = sectioning.section
+        too_small_chars = sectioning.TOO_SMALL_CHARS
     for path in files:
         try:
             parsed = parse_file(path)
@@ -561,9 +581,21 @@ def _ingest_dry_run(
             continue
         pages = len(parsed.pages or [])
         try:
-            n_sections = len(section_fn(parsed).sections)
+            sectioned = section_fn(parsed)
         except Exception:  # noqa: BLE001
-            n_sections = 0
+            sectioned = None
+        if sectioned is None:
+            typer.echo(f"  {path}: would skip (sectioning failed)")
+            continue
+        # Parity with the real ingest: the stub-prevention threshold applies
+        # here too, so dry-run never predicts concepts that won't be created.
+        if too_small_chars is not None and sectioned.too_small:
+            typer.echo(
+                f"  {path}: would skip (below {too_small_chars}-char minimum; "
+                "stub prevention)"
+            )
+            continue
+        n_sections = len(sectioned.sections)
         typer.echo(
             f"  {path}: {pages} page(s), ~{n_sections} section(s) → draft concepts"
         )
