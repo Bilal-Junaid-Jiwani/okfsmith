@@ -132,4 +132,28 @@ UX panels B/C/E verdicts: CHANGES-REQUIRED (blockers logged). Panels A/D pending
 ## 2026-09-26 — Integration green; staff review gate
 
 - integrate/wave2 merged all 7 slices (d60e76a). Conflicts: pyproject union, conftest dedupe. CLI contracts wired to real signatures. Full suite: 160 passed, 19 skipped, 0 failed. CLI smoke (init/ingest--no-llm/validate/list/graph--html) all exit 0. One integration bug fixed: is_ollama_reachable() now never raises (proxy-env ValueError was masking LLMUnavailableError).
-- Staff reviewer dispatched: merge-gate review of integrate/wave2 → master (diff review, test re-run, smoke re-run, security cross-check, consolidated builder-round-1 list).
+## 2026-09-26 — v0.1.0 RELEASED (merge → GitHub → package build)
+
+- **Release hygiene (audit-4 HIGH, minimal):** `license = "Apache-2.0"` PEP 639 SPDX
+  expression (+`license-files`, setuptools>=77, dropped superseded OSI classifier
+  which new setuptools rejects alongside license expressions); new `MANIFEST.in`
+  with explicit sdist policy: `prune .contract`, `exclude BUILD_LOG.md`.
+  No feature work, no round-1 items.
+- **Merge:** `integrate/wave2` → `master` as `8515b62` (staff review-gate APPROVED).
+- **GitHub:** public repo created `Bilal-Junaid-Jiwani/okfsmith`
+  (https://github.com/Bilal-Junaid-Jiwani/okfsmith) — "Convert messy documents
+  into Google OKF v0.2 knowledge bundles for AI agents", Apache-2.0.
+  `master` pushed as default branch. Note: plain `git push` over HTTPS cannot
+  authenticate from this environment (surrogate is api.github.com-only), so the
+  18-commit history was replicated byte-identically via the Git Data API
+  (verified: remote master tree SHA == local master tree SHA).
+- **Package build:** `python -m build` → `okfsmith-0.1.0.tar.gz` +
+  `okfsmith-0.1.0-py3-none-any.whl`; verified `.contract/` and `BUILD_LOG.md`
+  are NOT in the sdist/wheel; `LICENSE` IS included (PEP 639 license-files);
+  `twine check` PASSED on both artifacts.
+- **PyPI upload: BLOCKED** — no API token available yet. Everything except the
+  upload is done; `dist/` artifacts are ready for `twine upload` once a token
+  is provided.
+- Known remaining item (pre-existing, not release-blocking): markitdown
+  `>=0.1` floor admits vulnerable versions (CVE-2025-11849, CVE-2025-64512) —
+  fix (raise floor, move to `office` extra) queued for builder round 1.
