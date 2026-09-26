@@ -38,6 +38,7 @@ from okfsmith.core.spec import utc_now_iso
 
 from . import llm as _llm
 from . import prompts as _prompts
+from .llm import retry_with_backoff
 
 logger = logging.getLogger(__name__)
 
@@ -120,29 +121,49 @@ def _as_list(value, *, of: str = "items") -> list:
     return value if isinstance(value, list) else []
 
 
+def _meaningful(value: object) -> bool:
+    """Whether an LLM-supplied field value counts as real extraction output."""
+    if isinstance(value, str):
+        return bool(value.strip())
+    return bool(value)
+
+
+#: LLM JSON keys that count as extracted content for vacuity detection.
+#: ``type`` is excluded — it defaults to ``"note"`` and says nothing.
+_CONTENT_KEYS = ("title", "description", "claims", "links", "tags")
+
+
 def _coerce_concept(data: dict, section: SectionInput) -> dict:
     """Coerce raw LLM JSON into the canonical concept shape, with fallbacks.
 
     Missing fields fall back to section metadata ("skip, don't invent" —
-    the pipeline fills lineage, never facts).
+    the pipeline fills lineage, never facts). LLM-supplied text is
+    sanitized for active content (M21). A vacuous extraction (no usable
+    field at all, e.g. ``{}``) is flagged ``needs-review`` (M20) instead
+    of being silently accepted as a success.
     """
     claims = []
     for claim in _as_list(data.get("claims")):
-        if isinstance(claim, dict) and str(claim.get("text", "")).strip():
-            claims.append(
-                {"text": str(claim["text"]).strip(), "page": claim.get("page")}
-            )
-        elif isinstance(claim, str) and claim.strip():
-            claims.append({"text": claim.strip(), "page": None})
+        if isinstance(claim, dict):
+            text = _sanitize_llm_text(str(claim.get("text", ""))).strip()
+            if text:
+                claims.append({"text": text, "page": claim.get("page")})
+        elif isinstance(claim, str):
+            text = _sanitize_llm_text(claim).strip()
+            if text:
+                claims.append({"text": text, "page": None})
 
     links = []
     for link in _as_list(data.get("links")):
         if isinstance(link, dict) and str(link.get("target", "")).strip():
+            target = _sanitize_llm_text(str(link["target"])).strip()
+            if not target:
+                continue
+            why = _sanitize_llm_text(str(link.get("why", "") or "")).strip()
             links.append(
                 {
-                    "target": str(link["target"]).strip(),
-                    "why": str(link.get("why", "")).strip()
-                    or "Related concept (no reason given).",
+                    "target": target,
+                    "why": why or "Related concept (no reason given).",
                 }
             )
 
@@ -155,8 +176,21 @@ def _coerce_concept(data: dict, section: SectionInput) -> dict:
     )
 
     concept_type = str(data.get("type") or "note").strip() or "note"
-    title = str(data.get("title") or section.title).strip() or "Untitled"
-    description = str(data.get("description") or section.doc_summary or "").strip()
+    title = _sanitize_llm_text(str(data.get("title") or section.title)).strip() or "Untitled"
+    description = _sanitize_llm_text(
+        str(data.get("description") or section.doc_summary or "")
+    ).strip()
+
+    if not any(_meaningful(data.get(key)) for key in _CONTENT_KEYS):
+        # Vacuous extraction (e.g. ``{}`` or ``{"foo": "bar"}``): the LLM
+        # produced no usable content. Flag for human review rather than
+        # writing a silent, content-free concept.
+        logger.warning(
+            "Vacuous LLM extraction for section %r; flagging needs-review",
+            section.title,
+        )
+        tags = sorted(set(tags) | {NEEDS_REVIEW_TAG})
+
     return {
         "type": concept_type,
         "title": title,
@@ -315,6 +349,34 @@ def _one_line(value: object) -> str:
     return " ".join(str(value).split())
 
 
+#: Matches a complete ``<script>…</script>`` block (content included).
+_SCRIPT_BLOCK_RE = re.compile(r"<script\b[^>]*>.*?</script\s*>", re.IGNORECASE | re.DOTALL)
+#: Matches a stray opening ``<script …>`` tag with no closing tag.
+_SCRIPT_OPEN_RE = re.compile(r"<script\b[^>]*>", re.IGNORECASE)
+#: Matches an HTML event-handler attribute (``onclick=…``, ``onload=…``, …).
+_EVENT_ATTR_RE = re.compile(
+    r"""\s+on[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'`>]+)""", re.IGNORECASE
+)
+#: Matches a ``javascript:`` URI scheme (case-insensitive, optional spaces).
+_JS_URI_RE = re.compile(r"javascript\s*:", re.IGNORECASE)
+
+
+def _sanitize_llm_text(text: str) -> str:
+    """Strip active content from LLM-supplied text before it is written.
+
+    Removes ``<script>`` blocks/tags, HTML event-handler attributes
+    (``on*=``), and ``javascript:`` URI schemes from claim text, link text,
+    and ``why`` explanations. Defense-in-depth: raw bundle files are
+    consumed by renderers beyond viz (MCP, static generators) that may not
+    neutralize these payloads at render time.
+    """
+    text = _SCRIPT_BLOCK_RE.sub("", text)
+    text = _SCRIPT_OPEN_RE.sub("", text)
+    text = _EVENT_ATTR_RE.sub("", text)
+    text = _JS_URI_RE.sub("", text)
+    return text
+
+
 def _merge_concepts(
     bundle: Bundle, existing: Concept, new_frontmatter: dict, new_body: str, section: SectionInput
 ) -> Concept:
@@ -394,20 +456,40 @@ def _extract_one(
 ) -> tuple[dict, bool]:
     """Run pass 1 for *section*.
 
-    Returns ``(concept_json, used_fallback)``. On JSON parse failure the
-    repair prompt is tried once; if that also fails, a section-derived
-    fallback draft is returned (``used_fallback=True``) so the pipeline
-    never invents content.
+    Returns ``(concept_json, used_fallback)``. Transient LLM transport
+    errors are retried with exponential backoff (3 attempts); if the
+    endpoint stays down, or JSON parsing fails even after the repair
+    prompt, a section-derived fallback draft is returned
+    (``used_fallback=True``) so one bad section never aborts the run and
+    the pipeline never invents content.
     """
-    raw = backend.chat(_prompts.build_extraction_messages(section), temperature=0.0)
+    try:
+        raw = retry_with_backoff(
+            lambda: backend.chat(
+                _prompts.build_extraction_messages(section), temperature=0.0
+            )
+        )
+    except _llm.LLMError as exc:
+        logger.warning(
+            "Extraction LLM calls failed for section %r (%s); "
+            "keeping section-derived draft",
+            section.title,
+            exc,
+        )
+        return _fallback_concept(section), True
     try:
         data = _parse_json_strict(raw)
-    except (ValueError, json.JSONDecodeError) as first_error:
+    except (ValueError, json.JSONDecodeError) as exc:
+        # Bind to a plain local: the except-block name is deleted on block
+        # exit, which would break the retry lambda's closure (F821).
+        first_error = exc
         logger.warning("Extraction JSON parse failed; retrying with repair prompt")
         try:
-            raw = backend.chat(
-                _prompts.build_repair_messages(raw, str(first_error)),
-                temperature=0.0,
+            raw = retry_with_backoff(
+                lambda: backend.chat(
+                    _prompts.build_repair_messages(raw, str(first_error)),
+                    temperature=0.0,
+                )
             )
             data = _parse_json_strict(raw)
         except (ValueError, json.JSONDecodeError, _llm.LLMError) as second_error:
@@ -416,8 +498,6 @@ def _extract_one(
                 second_error,
             )
             return _fallback_concept(section), True
-    except _llm.LLMError:
-        raise
     return _coerce_concept(data, section), False
 
 
@@ -441,18 +521,43 @@ def _fallback_concept(section: SectionInput) -> dict:
 def _critic_review(
     backend: _llm.LLMBackend, section: SectionInput, concept: dict
 ) -> dict:
-    """Run pass 2 (critic) on a draft; always returns a verdict dict."""
-    raw = backend.chat(
-        _prompts.build_critic_messages(section.text, concept), temperature=0.0
-    )
+    """Run pass 2 (critic) on a draft; always returns a verdict dict.
+
+    Transient LLM transport errors are retried with exponential backoff
+    (3 attempts); a persistently failing critic degrades to a ``fail``
+    verdict so the draft is flagged ``needs-review`` instead of leaving
+    partial state (a draft with neither a ``verified`` stamp nor a
+    ``needs-review`` tag).
+    """
+    try:
+        raw = retry_with_backoff(
+            lambda: backend.chat(
+                _prompts.build_critic_messages(section.text, concept),
+                temperature=0.0,
+            )
+        )
+    except _llm.LLMError as exc:
+        logger.warning(
+            "Critic LLM calls failed (%s); flagging draft for review", exc
+        )
+        return {
+            "verdict": "fail",
+            "issues": ["critic LLM unavailable after retries"],
+            "fixed_concept": None,
+        }
     try:
         verdict = _parse_json_strict(raw)
-    except (ValueError, json.JSONDecodeError) as first_error:
+    except (ValueError, json.JSONDecodeError) as exc:
+        # Bind to a plain local: the except-block name is deleted on block
+        # exit, which would break the retry lambda's closure (F821).
+        first_error = exc
         logger.warning("Critic JSON parse failed; retrying with repair prompt")
         try:
-            raw = backend.chat(
-                _prompts.build_repair_messages(raw, str(first_error)),
-                temperature=0.0,
+            raw = retry_with_backoff(
+                lambda: backend.chat(
+                    _prompts.build_repair_messages(raw, str(first_error)),
+                    temperature=0.0,
+                )
             )
             verdict = _parse_json_strict(raw)
         except (ValueError, json.JSONDecodeError, _llm.LLMError) as second_error:
@@ -522,7 +627,9 @@ def _apply_critic_verdict(
             "",
             "Update",
             f'critic fixed "{concept.id}" '
-            f"(issues: {'; '.join(str(i) for i in issues) or 'unspecified'}) "
+            # Log-forgery hardening (M5): critic issues are LLM-controlled —
+            # collapse newlines so one issue stays one log line.
+            f"(issues: {'; '.join(_one_line(i) for i in issues) or 'unspecified'}) "
             "→ kept draft, flagged needs-review",
         )
         return
@@ -536,7 +643,8 @@ def _apply_critic_verdict(
         "",
         "Update",
         f'critic flagged "{concept.id}" needs-review '
-        f"(issues: {'; '.join(str(i) for i in issues) or 'unspecified'})",
+        # Log-forgery hardening (M5): see above.
+        f"(issues: {'; '.join(_one_line(i) for i in issues) or 'unspecified'})",
     )
 
 
@@ -548,8 +656,11 @@ def _apply_critic_verdict(
 def _inject_backlinks(bundle: Bundle, new_ids: list[str]) -> int:
     """Add backlinks to *new_ids* from existing concepts that mention them.
 
-    Exact normalized-title substring match; never self-links; never
-    duplicates an existing backlink. Returns the number of backlinks added.
+    Word-boundary-anchored normalized-title match (L14: ``slug`` must not
+    match inside ``slugfest``); never self-links; never duplicates an
+    existing backlink — the dedup guard covers both the ``(/id)`` format
+    this pass writes and the ``(slug)`` format :func:`_build_body` writes
+    (M4). Returns the number of backlinks added.
     """
     added = 0
     targets = []
@@ -562,15 +673,23 @@ def _inject_backlinks(bundle: Bundle, new_ids: list[str]) -> int:
             targets.append((concept_id, str(concept.frontmatter.get("title")), norm_title))
 
     for target_id, target_title, norm_title in targets:
+        # M4: _build_body writes body links as "- [Title](slug)" (no leading
+        # slash, slug — not id), so the dedup guard must match that actual
+        # format or a second bullet to the same concept gets injected.
+        slug_link = f"]({slugify(target_title)})"
+        mention_re = re.compile(rf"\b{re.escape(norm_title)}\b")
         for existing in bundle.iter_concepts():
             if existing.id == target_id:
                 continue
             if f"](/{target_id})" in existing.body:
-                continue  # already linked
+                continue  # already linked (backlink-pass format)
+            if slug_link in existing.body:
+                continue  # already linked ("See also" format from _build_body)
             haystack = normalize_title(
                 f"{existing.frontmatter.get('title', '')} {existing.body}"
             )
-            if norm_title not in haystack:
+            # L14: anchor on word boundaries — "test" must not match "contest".
+            if not mention_re.search(haystack):
                 continue
             why = f'Mentions "{target_title}" — see that concept for detail.'
             line = f"- [{target_title}](/{target_id}) — {why}"
