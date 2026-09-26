@@ -1116,6 +1116,110 @@ def read(
 
 
 # ---------------------------------------------------------------------------
+# search
+# ---------------------------------------------------------------------------
+
+
+@app.command(rich_help_panel=PANEL_KNOWLEDGE)
+@_cli
+def search(
+    bundle: Path = typer.Argument(..., help="Bundle directory to search."),
+    query: str = typer.Argument(
+        ..., help="Search query (quote multi-word queries)."
+    ),
+    limit: int = typer.Option(
+        10, "--limit", "-n", help="Maximum number of results (must be >= 1)."
+    ),
+    type_filter: str | None = typer.Option(
+        None, "--type", help="Only show concepts of this type."
+    ),
+    tier_filter: str | None = typer.Option(
+        None, "--tier",
+        help=f"Only show concepts with this trust tier ({', '.join(TRUST_TIERS)}).",
+    ),
+    output_format: ValidateFormat = typer.Option(
+        ValidateFormat.text, "--format", help="Output format: text or json."
+    ),
+) -> None:
+    """Full-text search over a bundle (BM25 ranking).
+
+    \b
+    Examples:
+        okfsmith search ./kb "knowledge graph"
+        okfsmith search ./kb "quarterly revenue" --tier human-reviewed -n 5
+        okfsmith search ./kb "api design" --format json
+    """
+    as_json = output_format == "json"
+    if not query.strip():
+        raise typer.BadParameter("query must not be empty.")
+    if limit < 1:
+        raise typer.BadParameter("--limit must be >= 1.")
+    if tier_filter is not None and tier_filter.casefold() not in TRUST_TIERS:
+        raise typer.BadParameter(
+            f"--tier '{tier_filter}' is not one of: {', '.join(TRUST_TIERS)}"
+        )
+    try:
+        _require_bundle_dir(bundle)
+    except CliError as exc:
+        _handle_cli_error(exc, as_json)
+    try:
+        # The search engine is built concurrently by another agent; code to
+        # this import and fail cleanly (never a traceback) if it is absent.
+        from okfsmith.search import search_bundle
+    except ImportError as exc:
+        raise CliError(
+            "search-unavailable",
+            "the search engine (okfsmith.search) is not available in this "
+            "installation.",
+            "Reinstall okfsmith; if the problem persists, file a bug report.",
+        ) from exc
+    bundle_path = bundle
+    bundle = _load_bundle_for_read(bundle_path)
+    hits = search_bundle(bundle, query, limit=limit)
+    rows = []
+    for score, concept in hits:
+        ctype = str(concept.frontmatter.get("type") or "")
+        tier = _spec.trust_tier(concept.frontmatter)
+        if type_filter and ctype.casefold() != type_filter.casefold():
+            continue
+        if tier_filter and tier.casefold() != tier_filter.casefold():
+            continue
+        rows.append({
+            "id": concept.id,
+            "type": ctype,
+            "title": str(concept.frontmatter.get("title") or ""),
+            "tier": tier,
+            "score": score,
+        })
+    if as_json:
+        _dump_json({"query": query, "results": rows, "count": len(rows)})
+        return
+    table = Table(title=f"Search results in {bundle_path}")
+    table.add_column("Score", justify="right")
+    # IDs must never truncate: users copy-paste them into `read`.
+    table.add_column("ID", no_wrap=True, overflow="fold")
+    table.add_column("Type")
+    table.add_column("Title")
+    table.add_column("Tier")
+    for row in rows:
+        table.add_row(
+            f"{row['score']:.3f}",
+            escape(row["id"]),
+            escape(row["type"]),
+            escape(row["title"]),
+            escape(row["tier"]),
+        )
+    console.print(table)
+    typer.echo(_plural(len(rows), "result"))
+    if not rows:
+        typer.echo(
+            f"hint: no concepts matched '{query}'. Try different terms, or "
+            f"browse with 'okfsmith list {bundle_path}'.",
+            err=True,
+        )
+
+
+# ---------------------------------------------------------------------------
 # graph
 # ---------------------------------------------------------------------------
 
