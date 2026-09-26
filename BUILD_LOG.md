@@ -157,3 +157,83 @@ UX panels B/C/E verdicts: CHANGES-REQUIRED (blockers logged). Panels A/D pending
 - Known remaining item (pre-existing, not release-blocking): markitdown
   `>=0.1` floor admits vulnerable versions (CVE-2025-11849, CVE-2025-64512) —
   fix (raise floor, move to `office` extra) queued for builder round 1.
+
+## 2026-09-26 — PyPI upload attempted; token rejected (403)
+
+- Wrote `~/workspace/skills/pypi/bin/upload.py` (compiled): multipart POST to
+  `https://upload.pypi.org/legacy/` with `Authorization: Bearer <surrogate>`
+  (verified against pypi/warehouse source that Bearer macaroons are accepted;
+  Basic auth deliberately avoided since base64 would hide the surrogate from
+  Sentinel). Sdist uploaded first, then wheel.
+- **Result: HTTP 403 "Invalid or non-existent authentication information" on
+  both files. Nothing was published** (first upload creates the project; 403
+  means no project/files were created — safe to retry).
+- Mechanism proven NOT at fault: (1) uploader verifies the outgoing request
+  carries the surrogate before sending; (2) same Bearer-surrogate pattern
+  against api.github.com returned HTTP 200; (3) egress goes via the proxy
+  (no_proxy does not bypass upload.pypi.org). The stored `custom.pypi` token
+  itself is therefore invalid/wrong.
+- Likely causes: token pasted incorrectly, token created on test.pypi.org
+  instead of pypi.org, wrong scope, expired/deleted, or a password pasted
+  instead of an API token.
+- Next step: replace the token via `credentials.request_api_access`
+  (provider `pypi`, `reconnect: true`), then re-run the uploader. User must
+  create the token at **pypi.org** (not test.pypi.org) → Account settings →
+  API tokens → Add API token, scope **Entire account**, paste the `pypi-…`
+  value into the secure card.
+
+## 2026-09-26 — PyPI release: okfsmith 0.1.0 LIVE
+
+- Root cause of the earlier 403s found and fixed: the `custom.pypi` connector
+  had been registered with `custom_header:Authorization` placement while the
+  uploader sent `Authorization: Bearer <surrogate>` (the Warehouse-accepted
+  form, verified from pypi/warehouse source). Re-registered with
+  `bearer_header` placement and switched `~/workspace/skills/pypi/bin/upload.py`
+  to the blessed `add_surrogate_to_request()` helper — fully consistent with
+  the GitHub-proven pattern.
+- Also fixed: uploader now sends `metadata_version` (read from each artifact's
+  own PKG-INFO/METADATA); Warehouse returned 400 without it after auth passed.
+- Upload result: `okfsmith-0.1.0.tar.gz` → HTTP 200, `okfsmith-0.1.0-py3-none-any.whl`
+  → HTTP 200 (both via https://upload.pypi.org/legacy/).
+- Verified live: https://pypi.org/project/okfsmith/ (HTTP 200),
+  https://pypi.org/pypi/okfsmith/json shows version 0.1.0 with 2 files.
+- Install: `pip install okfsmith`
+- Remaining known item (not release-blocking): markitdown `>=0.1` floor admits
+  CVE-2025-11849 / CVE-2025-64512 — queued for builder round 1.
+
+## 2026-09-26 — Polish round 1 (CLI rewrite + Panel-D viz + docs + packaging)
+
+**CLI rewrite (uncommitted until now):** bundle is now the first positional
+argument everywhere (`okfsmith ingest BUNDLE SOURCE...`); `--format`/`--tier`/`--transport`
+are constrained enums (exit 2 on misuse); path/flag validation happens before
+lazy imports; stable `error [CODE]:` messages with hints and no tracebacks;
+JSON error objects for JSON commands; `init --force` confirms (bypass with `--yes`);
+`--model` + `--no-llm` is a usage error; `ingest` gained multi-source,
+`--recursive`, `--dry-run`, `--quiet`, TTY progress; `validate --format json`
+reports `status`/`concepts`/`error_count`/`warning_count`; `list`/`read` gained
+JSON modes; new `doctor` command; datetime frontmatter coerced to ISO strings
+in JSON output; trust-tier validation; all dynamic Rich table content escaped;
+`okfsmith --version`, bare `okfsmith` exits 0 with first-run help.
+
+**Viz Panel-D:** fixed `#empty[hidden]` overlay swallowing pointer events;
+honest two-channel legend (trust=shape, type=color); Okabe–Ito colorblind-safe
+palette; focusable canvas + keyboard controls (arrows pan, +/- zoom, 0 reset,
+Esc close); screen-reader concept list; reset-view button; match count;
+one-hop neighborhood emphasis; detail panel with backlinks + dead-link
+connections + reduced metadata; minimal markdown rendering (code/strong/em/link
+only); empty/loading/error overlays; chunked layout for large graphs; fixed
+Python SyntaxWarning from template escapes (JS output byte-identical,
+node --check OK).
+
+**Packaging/docs:** `pyproject.toml` metadata (description, keywords,
+classifiers, URLs); Ruff config (`[tool.ruff]`, target py310); full docs set
+(index/install/quickstart/commands/pipeline/parsing/llm/validation/mcp/skill/
+troubleshooting/faq) + README rewritten to match the real CLI grammar;
+`llms.txt`, `CHANGELOG.md`, `CONTRIBUTING.md`, `SECURITY.md`.
+
+**Verification:** 181 passed, 20 skipped (full suite); CLI smoke green
+(init/ingest/validate/list/read/graph-mermaid/mcp-transport-rejection);
+`python -m build` + `twine check` PASSED; artifact scan clean
+(no secrets, no `extractall`, no PyMuPDF); ruff clean on all touched files
+(83 pre-existing errors elsewhere in tree left untouched); rendered-JS
+`node --check` OK.
