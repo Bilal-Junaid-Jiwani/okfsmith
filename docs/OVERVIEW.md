@@ -65,7 +65,7 @@ raw documents (PDFs, markdown, wiki dumps, Notion exports)
 
 ## Stage details
 
-**1. Ingest.** The entry point for raw sources. `okfsmith ingest` copies each source into the bundle's source store, hashes it with SHA-256 to dedup identical files, and records provenance (origin path, capture time) in the bundle log. Nothing is parsed here — this stage exists to establish an immutable record of exactly what went in, so every concept can later trace back to a byte-identical source.
+**1. Ingest.** The entry point for raw sources: `okfsmith ingest BUNDLE SOURCE...` fingerprints each source with SHA-256 (already-ingested files are skipped), parses it (PDF via LiteParse, `.md`/`.txt` via the stdlib reader, Office formats via the optional `office` extra), sections it, and extracts one draft concept per section (`--no-llm`) or LLM-extracted claims with `[^source-id]` citations. Provenance (origin path, digest, capture time) is recorded in the bundle log.
 
 **2. Parse.** Raw documents become clean, ordered text. Tier 1 is free, local, and keyless: LiteParse handles PDFs, MarkItDown handles everything else, and born-digital documents never leave the machine. Tier 2 (an optional Docling sidecar) and Tier 3 (cloud OCR — opt-in, for scanned pages only) cover the hard cases. PyMuPDF is deliberately excluded from the stack (AGPL).
 
@@ -79,7 +79,7 @@ raw documents (PDFs, markdown, wiki dumps, Notion exports)
 
 **7. Validate.** OKF §11 is implemented natively: the spec's three hard conformance rules are errors, and everything else is advisory lints — orphans, dead links, stubs, missing recommended fields, legacy v0.1 fields. Validation is the gate before a bundle ships or is served: zero errors required, warnings reported for the author to triage.
 
-**8. Serve.** The bundle is exposed read-only, never mutated. `uvx okfsmith mcp --bundle ./kb` starts a FastMCP server over stdio with `search`, `get`, `list`, `neighbors`, and `index` tools, so agents read concepts — with their provenance — directly. For humans, `okfsmith graph` renders `viz.html` to browse the concept graph in a browser.
+**8. Serve.** The bundle is exposed read-only, never mutated. `okfsmith mcp ./kb` starts a FastMCP server over stdio (needs the `mcp` extra) with `search`, `get`, `list`, `neighbors`, and `index` tools, so agents read concepts — with their provenance — directly. For humans, `okfsmith graph` renders `viz.html` to browse the concept graph in a browser.
 
 ## Cross-cutting constraints
 

@@ -63,7 +63,7 @@ okfsmith validate ./kb
 python3 scripts/validate.py ./kb   # exit 0 conformant, 1 errors, 2 usage error
 
 # 4. mcp — serve the bundle to your agent over stdio
-uvx okfsmith mcp --bundle ./kb
+okfsmith mcp ./kb
 # tools exposed: search, get, list, neighbors, index
 ```
 
@@ -78,7 +78,7 @@ them to `machine-confirmed`; a human stamping `verified:` promotes them to
 | Messy docs (PDFs, wiki dumps, Notion exports) → new bundle | `okfsmith init` + `okfsmith ingest` |
 | Clean markdown only, no extraction needed | consider `okf-cli` instead (simpler) |
 | Existing bundle, check conformance | `okfsmith validate` or `scripts/validate.py` |
-| Existing bundle, serve to agents | `okfsmith mcp --bundle ./kb` (see `references/mcp-recipes.md`) |
+| Existing bundle, serve to agents | `okfsmith mcp ./kb` (see `references/mcp-recipes.md`) |
 | Scanned-image PDFs | escalate parsing per `references/parsing-tiers.md` (Tier 3 is opt-in) |
 | Repo of source code → knowledge graph | not okfsmith — use a code-graph tool |
 

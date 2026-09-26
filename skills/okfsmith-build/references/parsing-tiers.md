@@ -4,15 +4,16 @@
 and extraction. Parsing is tiered: Tier 1 is local and free; harder inputs
 escalate only when needed.
 
-## Tier 1 — local, free, keyless (default for everything)
+## Tier 1 — local, free, keyless
 
 | Input | Parser | Notes |
 |---|---|---|
-| PDFs (born-digital) | **LiteParse** | Reading-order recovery on text PDFs |
-| Everything else (markdown, HTML, docx, xlsx, pptx, csv, …) | **MarkItDown** | Microsoft's document-to-markdown converter |
-| Plain `.md` / `.txt` | passthrough | Already structured; no parsing needed |
+| PDFs (born-digital) | **LiteParse** | Reading-order recovery on text PDFs; always installed |
+| `.md` / `.txt` | **stdlib text reader** | Read as UTF-8; markdown pipe tables extracted; always installed |
+| `.docx` / `.pptx` / `.xlsx` / `.html` / `.csv` | **MarkItDown** | Requires the `office` extra: `pip install "okfsmith[office]"` |
 
-Tier 1 never leaves the machine and needs no API keys or credentials.
+Tier 1 never leaves the machine and needs no API keys or credentials. Office
+formats without the extra are skipped with a clear error naming the extra.
 
 ## Tier 2 — Docling sidecar (optional)
 

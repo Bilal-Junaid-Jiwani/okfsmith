@@ -1,17 +1,19 @@
 # MCP Recipes — attach an OKF bundle to your agent
 
-`okfsmith mcp --bundle ./kb` starts a FastMCP server over stdio exposing five
-tools against the bundle: `search`, `get`, `list`, `neighbors`, `index`.
+`okfsmith mcp ./kb` starts a FastMCP server over stdio exposing five
+tools against the bundle: `index`, `list`, `search`, `get`, `neighbors`.
 Point any MCP-capable agent at the stdio server and every answer traces back
 to the bundle's `sources[]` provenance.
 
-The bundle path must be absolute (or resolvable from the client's working
-directory). Replace `/abs/path/to/kb` below.
+The server needs the `mcp` extra: `pip install "okfsmith[mcp]"` (or
+`uvx --with "okfsmith[mcp]"`). The bundle path must be absolute (or
+resolvable from the client's working directory). Replace `/abs/path/to/kb`
+below.
 
 ## Claude Code
 
 ```bash
-claude mcp add okfsmith -- uvx okfsmith mcp --bundle /abs/path/to/kb
+claude mcp add okfsmith -- okfsmith mcp /abs/path/to/kb
 ```
 
 Or declare it in `.mcp.json` at the project root:
@@ -21,7 +23,7 @@ Or declare it in `.mcp.json` at the project root:
   "mcpServers": {
     "okfsmith": {
       "command": "uvx",
-      "args": ["okfsmith", "mcp", "--bundle", "/abs/path/to/kb"]
+      "args": ["--with", "okfsmith[mcp]", "okfsmith", "mcp", "/abs/path/to/kb"]
     }
   }
 }
@@ -36,7 +38,7 @@ Or declare it in `.mcp.json` at the project root:
   "mcpServers": {
     "okfsmith": {
       "command": "uvx",
-      "args": ["okfsmith", "mcp", "--bundle", "/abs/path/to/kb"]
+      "args": ["--with", "okfsmith[mcp]", "okfsmith", "mcp", "/abs/path/to/kb"]
     }
   }
 }
@@ -54,7 +56,7 @@ Workspace `.vscode/mcp.json`:
     "okfsmith": {
       "type": "stdio",
       "command": "uvx",
-      "args": ["okfsmith", "mcp", "--bundle", "/abs/path/to/kb"]
+      "args": ["--with", "okfsmith[mcp]", "okfsmith", "mcp", "/abs/path/to/kb"]
     }
   }
 }
@@ -72,7 +74,7 @@ Enable the server from the MCP view; Copilot's agent mode can then call
   "mcpServers": {
     "okfsmith": {
       "command": "uvx",
-      "args": ["okfsmith", "mcp", "--bundle", "/abs/path/to/kb"]
+      "args": ["--with", "okfsmith[mcp]", "okfsmith", "mcp", "/abs/path/to/kb"]
     }
   }
 }
@@ -82,7 +84,7 @@ Enable the server from the MCP view; Copilot's agent mode can then call
 
 - `uvx` not found → install `uv`, or replace `command` with the path to a
   Python that has okfsmith installed and `args` with
-  `["-m", "okfsmith", "mcp", "--bundle", "/abs/path/to/kb"]`.
+  `["-m", "okfsmith", "mcp", "/abs/path/to/kb"]`.
 - The server reads the bundle from disk on each call, so re-running
   `okfsmith ingest` needs no server restart.
 - stdio servers are per-client: each of the configs above launches its own
