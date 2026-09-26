@@ -338,3 +338,58 @@ Round-2 reviewer scores (evidence-backed): QA 8/10 (was 8), SEO/AI-SEO
 6.5/10 (was 6.0 — skill-pack grammar fixes landed), Security 7/10 (was 8;
 reviewer claimed a residual XSS bypass via entity URLs — independently
 re-verified as non-exploitable, see above; gate stands).
+
+## 2026-09-26 — Correction: real C0-control XSS bypass found and fixed
+
+The round-2 security report contained a SECOND, separate claim beyond the
+entity-URL theory: leading C0 control characters (`\x01`–`\x08`, `\x0e`–`\x1f`,
+which are not matched by `\s`) bypass the `safeHref` scheme gate. This one
+is REAL and was verified against the pre-fix tree (HEAD 331106b):
+
+- `[x](\x01javascript:alert(1))` rendered as
+  `<a href="\x01javascript:alert(1">` — a clickable anchor.
+- The `md()` URL regex `[^)\s]+` permits C0 bytes; `safeHref` only rejected
+  URLs whose FIRST character was a letter or `/`.
+- Browsers strip leading C0 controls per WHATWG URL parsing, so the link
+  executes `javascript:alert(1)` on click.
+
+The earlier BUILD_LOG wording ("gate stands") covered only the entity
+theory and was incomplete. Fixed in `9deff35`:
+
+- `safeHref` now strips `^[\u0000-\u0020\u007F]+` first, mirroring browser
+  behavior, before the scheme checks.
+- New behavioral regression test executes the shipped `md()` in node:
+  `\x01`/`\x0e`/`\x07`-prefixed `javascript:`, direct `javascript:`,
+  `data:`, `vbscript:`, `//evil` produce no anchor; `https:`, `http:` with
+  query strings, `mailto:`, `#frag`, relative paths keep theirs.
+
+## 2026-09-26 — Polish round 3 fixes (post-reviewer)
+
+Round-3 reviewer scores (HEAD 331106b, evidence-backed): QA 9.0/10, SEO/AI-SEO
+8.5/10, Code 8/10, UX 8.2/10, Security 8/10 (round-2 entity claim withdrawn;
+C0 claim confirmed real — fixed as above).
+
+Additional fixes landed after the round-3 reviews:
+
+- **CLI honesty (UX P1):** sub-1000-char sources no longer report hollow
+  `ok` with 0 concepts — they report
+  `skipped (below 1000-char minimum; stub prevention)` and their digest is
+  NOT recorded, so retries repeat the reason instead of falsely claiming
+  `already ingested`. Zero-concept ingests for other reasons report
+  `skipped (no concepts created)`. `--dry-run` applies the same threshold
+  (parity). Regression tests added.
+- **Ruff gate green:** fixed all 61 pre-existing `ruff check src/ tests/`
+  errors (TYPE_CHECKING imports, unused loop vars, `zip(strict=)`,
+  dict/list idioms). CI lint step now passes.
+- **Docs:** trust derived from `verified` (not a literal `trust:` field);
+  critic → `machine-confirmed` documented; README badge + Changelog URL
+  target `master`; embedding similarity labeled v1 TODO; parser routing
+  precise; Notion CSV = one document each; `mcp --help` uvx `--with`
+  example.
+- **CLI:** `okfsmith mcp` without the `mcp` extra → `error [missing-extra]`
+  + install hint, never a traceback.
+
+**Gate (current HEAD 5060148):** diff-check clean; compileall clean; ruff
+clean; **191 passed, 20 skipped**; `python -m build` ok; `twine check`
+PASSED (wheel + sdist); clean-venv sdist install: 2940-char `.md` →
+5 concepts, `validate` conformant, `graph --format json` ok.
