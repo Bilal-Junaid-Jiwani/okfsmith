@@ -21,8 +21,8 @@ from pathlib import Path
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.markup import escape
-from rich.panel import Panel
 from rich.table import Table
+from rich.text import Text
 
 from okfsmith import __version__
 from okfsmith.core.bundle import Bundle, Concept
@@ -74,6 +74,95 @@ Rules you must follow:
 def _history_file() -> Path:
     override = os.environ.get(HISTORY_FILE_ENV_VAR)
     return Path(override) if override else DEFAULT_HISTORY_FILE
+
+
+# ---------------------------------------------------------------------------
+# startup banner — Qwen Code / Claude Code / Antigravity CLI aesthetic
+# ---------------------------------------------------------------------------
+
+#: 5-row block-letter glyphs for the OKFSMITH startup logo.
+_BANNER_GLYPHS: dict[str, list[str]] = {
+    "O": [" ███ ", "█   █", "█   █", "█   █", " ███ "],
+    "K": ["█   █", "█  █ ", "███  ", "█  █ ", "█   █"],
+    "F": ["█████", "█    ", "████ ", "█    ", "█    "],
+    "S": [" ████", "█    ", " ███ ", "    █", "████ "],
+    "M": ["█   █", "██ ██", "█ █ █", "█   █", "█   █"],
+    "I": ["█████", "  █  ", "  █  ", "  █  ", "█████"],
+    "T": ["█████", "  █  ", "  █  ", "  █  ", "  █  "],
+    "H": ["█   █", "█   █", "█████", "█   █", "█   █"],
+}
+
+#: Gradient anchors for the logo: yellow → orange → magenta (Qwen-style).
+_GRADIENT_STOPS = ((255, 214, 10), (255, 123, 0), (255, 46, 158))
+
+#: Accent color for the prompt chevron and answer markers.
+ACCENT = "#ff7b00"
+
+#: Marker printed before answers (Qwen-style), kept subtle.
+ANSWER_MARKER = "✦"
+
+
+def _color_enabled(console: Console) -> bool:
+    """True only on a real terminal without NO_COLOR.
+
+    Piped or captured output (tests, scripts) always gets plain ASCII so it
+    stays deterministic and grep-friendly.
+    """
+    if os.environ.get("NO_COLOR"):
+        return False
+    return bool(console.is_terminal)
+
+
+def print_styled(console: Console, styled: str) -> None:
+    """Print rich-markup *styled* on a tty, plain text otherwise.
+
+    Guarantees zero ANSI escapes in piped / NO_COLOR output (rich alone
+    keeps ``dim``/``bold`` attributes under NO_COLOR, which would still
+    pollute scripts and logs).
+    """
+    if _color_enabled(console):
+        console.print(styled)
+    else:
+        # highlight=False: rich auto-highlights numbers/URLs in plain
+        # strings, which would still emit ANSI on a terminal console.
+        console.print(Text.from_markup(styled).plain, highlight=False)
+
+
+def _gradient_color(x: int, width: int) -> str:
+    """Hex color for logo column *x* along the yellow→orange→magenta ramp."""
+    t = x / max(width - 1, 1)
+    if t < 0.5:
+        a, b, u = _GRADIENT_STOPS[0], _GRADIENT_STOPS[1], t * 2
+    else:
+        a, b, u = _GRADIENT_STOPS[1], _GRADIENT_STOPS[2], (t - 0.5) * 2
+    r = round(a[0] + (b[0] - a[0]) * u)
+    g = round(a[1] + (b[1] - a[1]) * u)
+    bl = round(a[2] + (b[2] - a[2]) * u)
+    return f"#{r:02x}{g:02x}{bl:02x}"
+
+
+def banner_rows() -> list[str]:
+    """The plain-ASCII rows of the OKFSMITH logo (no color codes)."""
+    return [
+        " ".join(_BANNER_GLYPHS[ch][i] for ch in "OKFSMITH") for i in range(5)
+    ]
+
+
+def print_banner_logo(console: Console) -> None:
+    """Print the OKFSMITH logo; gradient on a tty, plain ASCII otherwise."""
+    rows = banner_rows()
+    width = max(len(r) for r in rows)
+    color = _color_enabled(console)
+    text = Text()
+    for ri, row in enumerate(rows):
+        for x, ch in enumerate(row):
+            if ch != " " and color:
+                text.append(ch, style=_gradient_color(x, width))
+            else:
+                text.append(ch)
+        if ri < len(rows) - 1:
+            text.append("\n")
+    console.print(text)
 
 
 def _snippet(text: str, width: int = 300) -> str:
@@ -180,6 +269,16 @@ class ChatSession:
 
     @property
     def prompt(self) -> str:
+        # Styled on a real terminal (colored bundle name + accent chevron);
+        # plain text when piped/captured so output stays deterministic.
+        if _color_enabled(self.console):
+            with self.console.capture() as cap:
+                self.console.print(
+                    f"[cyan]{escape(self.bundle_label)}[/cyan]"
+                    f" [bold {ACCENT}]›[/] ",
+                    end="",
+                )
+            return cap.get()
         return f"{self.bundle_label} › "
 
     def n_concepts(self) -> int:
@@ -189,19 +288,41 @@ class ChatSession:
         """Re-read the bundle from disk (after /ingest adds concepts)."""
         self.bundle = Bundle.load(self.bundle_root)
 
+    def _backend_info(self) -> str:
+        """Compact ``provider · model`` (or ``extractive mode``) for the
+        Antigravity-style info line under the logo."""
+        if self.backend is None:
+            return "extractive mode"
+        provider = escape(getattr(self.backend, "provider", self.backend.name))
+        return f"{provider} · {escape(self.backend.model)}"
+
     def _print_banner(self) -> None:
-        self.console.print(
-            Panel(
-                f"[bold]okfsmith chat[/bold] v{escape(__version__)}\n"
-                f"Bundle: {escape(str(self.bundle_root))} "
-                f"([cyan]{self.n_concepts()} concepts[/cyan])\n"
-                f"Backend: {_backend_status_line(self.backend)}\n"
-                "[dim]Ask anything about the bundle. "
-                "Type /help for commands, /exit to quit.[/dim]",
-                title="💬 chat",
-                border_style="cyan",
-            )
+        c = self.console
+        print_banner_logo(c)
+        print_styled(c, f"[dim]okfsmith chat v{escape(__version__)}[/dim]")
+        print_styled(
+            c,
+            f"Bundle: [cyan]{escape(self.bundle_label)}[/cyan] "
+            f"([cyan]{self.n_concepts()} concepts[/cyan]) · {self._backend_info()}",
         )
+        if self.backend is None:
+            print_styled(
+                c,
+                "[dim]Extractive mode — no LLM reachable. Answers are "
+                "keyword-matched excerpts. Start Ollama, set OKFSMITH_API_KEY "
+                "+ OKFSMITH_PROVIDER, or pass --provider, for generative "
+                "answers.[/dim]",
+            )
+        c.print()
+        print_styled(c, "[bold]Tips for getting started:[/bold]")
+        print_styled(c, "  [dim]1.[/dim] Ask questions about your documents.")
+        print_styled(c, "  [dim]2.[/dim] Type [cyan]/help[/cyan] for chat commands.")
+        print_styled(
+            c,
+            "  [dim]3.[/dim] Type [cyan]/ingest <path>[/cyan] to add more "
+            "documents.",
+        )
+        c.print()
 
     def _setup_readline(self) -> None:
         if readline is None:  # pragma: no cover
@@ -290,6 +411,7 @@ class ChatSession:
             )
             return self._answer_extractive(question, concepts)
         text = self._validate_citations(text, concepts)
+        print_styled(self.console, f"[dim {ACCENT}]{ANSWER_MARKER}[/]")
         self.console.print(Markdown(text))
         self._record_turn(question, concepts, text)
         return text
@@ -320,7 +442,11 @@ class ChatSession:
         return text
 
     def _answer_extractive(self, question: str, concepts: list[Concept]) -> str:
-        table = Table(title=f"Matches for: {question}")
+        table = Table(
+            title=Text.from_markup(
+                f"[{ACCENT}]{ANSWER_MARKER}[/] Matches for: {escape(question)}"
+            )
+        )
         table.add_column("Concept", no_wrap=True, overflow="fold")
         table.add_column("Trust tier")
         table.add_column("Excerpt")

@@ -95,27 +95,36 @@ relevant concepts, no invented answer.
 
 ```text
 $ okfsmith chat ./kb
-╭─ 💬 chat ─────────────────────────╮
-│ okfsmith chat v0.2.0               │
-│ Bundle: ./kb (24 concepts)        │
-│ Backend: openai-compatible · qwen3:8b │
-╰───────────────────────────────────╯
+ ███  █   █ █████  ████ █   █ █████ █████ █   █
+█   █ █  █  █     █     ██ ██   █     █   █   █
+█   █ ███   ████   ███  █ █ █   █     █   █████
+█   █ █  █  █         █ █   █   █     █   █   █
+ ███  █   █ █     ████  █   █ █████   █   █   █
+okfsmith chat v0.2.0
+Bundle: kb (24 concepts) · openai · qwen3:8b
+
+Tips for getting started:
+  1. Ask questions about your documents.
+  2. Type /help for chat commands.
+  3. Type /ingest <path> to add more documents.
+
 kb › how do I authenticate?
+✦
 Use a Bearer token in the Authorization header [api/auth].
 
 *Sources: [api/auth]*
 kb › aur iska source kya hai
+✦
 The dashboard, under Settings › API Keys [api/auth].
 
 *Sources: [api/auth]*
-kb › /read api/auth
----
-type: Guide
-title: Authentication
-...
 kb › /exit
 Goodbye — your bundle is untouched.
 ```
+
+(On a real terminal the logo renders as a yellow→orange→magenta gradient,
+the prompt bundle name is colored, and answers carry a subtle `✦` marker.
+Piped output stays plain ASCII — zero escape codes, always.)
 
 Slash commands: `/help` `/ingest` `/list` `/read` `/search` `/validate`
 `/graph` `/doctor` `/model` `/clear` `/exit`. Line history persists at

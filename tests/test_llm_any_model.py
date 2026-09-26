@@ -369,8 +369,11 @@ def test_banner_masks_key(tiny_bundle: Path) -> None:
     session._print_banner()
     text = console.export_text()
     assert DUMMY_KEY not in text
-    assert "set (hidden)" in text
+    # compact Antigravity-style info line: bundle · provider · model
     assert "groq" in text
+    assert "llama-3.3-70b-versatile" in text
+    # key status lives in /model and doctor, not the banner
+    assert "set (hidden)" not in text
 
 
 def test_slash_model_masks_key(tiny_bundle: Path) -> None:

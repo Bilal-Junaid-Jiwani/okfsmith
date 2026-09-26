@@ -15,8 +15,9 @@ import pytest
 from rich.console import Console
 from typer.testing import CliRunner
 
+from okfsmith import __version__
 from okfsmith.cli.app import app
-from okfsmith.cli.chat import ChatSession, resolve_chat_backend
+from okfsmith.cli.chat import ChatSession, banner_rows, resolve_chat_backend
 from okfsmith.core.bundle import Bundle
 from okfsmith.extract.llm import LLMBackend, LLMResponseError
 from okfsmith.mcp_server.server import rank_concepts
@@ -400,3 +401,96 @@ def test_chat_help(bundle_dir: Path) -> None:
     result = runner.invoke(app, ["chat", "--help"])
     assert result.exit_code == 0
     assert "natural language" in result.output
+
+
+# ---------------------------------------------------------------------------
+# startup banner UI (Qwen Code / Claude Code / Antigravity CLI aesthetic)
+# ---------------------------------------------------------------------------
+
+
+def test_banner_renders_ascii_logo_and_tips(session: ChatSession) -> None:
+    session._print_banner()
+    out = _out(session)
+    rows = banner_rows()
+    assert len(rows) == 5
+    assert max(len(r) for r in rows) <= 80  # fits narrow terminals
+    assert rows[0] in out  # plain ASCII when captured
+    assert "Tips for getting started:" in out
+    assert "1. Ask questions about your documents." in out
+    assert "/help" in out
+    assert "/ingest <path>" in out
+
+
+def test_banner_shows_version_and_bundle_info(session: ChatSession) -> None:
+    session._print_banner()
+    out = _out(session)
+    assert f"okfsmith chat v{__version__}" in out
+    assert "kb" in out
+    assert "3 concepts" in out
+    assert "extractive mode" in out  # no backend in this fixture
+
+
+def test_banner_info_line_with_llm_backend(bundle_dir: Path) -> None:
+    session = _llm_session(bundle_dir, FakeBackend())
+    session._print_banner()
+    out = session.console.file.getvalue()
+    assert "fake · fake-model" in out
+    # extractive-mode notice must not appear when a backend is present
+    assert "no LLM reachable" not in out
+
+
+def test_banner_no_ansi_when_not_tty(session: ChatSession) -> None:
+    session._print_banner()
+    assert "\x1b[" not in _out(session)
+
+
+def test_banner_gradient_on_tty_and_no_color_fallback(
+    bundle_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.setenv("TERM", "xterm-256color")  # deterministic, not env-dependent
+    console = Console(file=io.StringIO(), width=100, force_terminal=True)
+    session = ChatSession(
+        Bundle.load(bundle_dir), bundle_dir, backend=None, console=console
+    )
+    session._print_banner()
+    assert "\x1b[" in session.console.file.getvalue()  # gradient ANSI emitted
+
+    monkeypatch.setenv("NO_COLOR", "1")
+    console2 = Console(file=io.StringIO(), width=100, force_terminal=True)
+    session2 = ChatSession(
+        Bundle.load(bundle_dir), bundle_dir, backend=None, console=console2
+    )
+    session2._print_banner()
+    out2 = session2.console.file.getvalue()
+    assert "\x1b[" not in out2  # NO_COLOR kills the gradient...
+    assert banner_rows()[0] in out2  # ...but the plain ASCII logo remains
+
+
+def test_prompt_plain_when_piped(session: ChatSession) -> None:
+    assert session.prompt == "kb › "
+
+
+def test_prompt_styled_on_tty(
+    bundle_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.setenv("TERM", "xterm-256color")  # deterministic, not env-dependent
+    console = Console(file=io.StringIO(), width=100, force_terminal=True)
+    session = ChatSession(
+        Bundle.load(bundle_dir), bundle_dir, backend=None, console=console
+    )
+    styled = session.prompt
+    assert "\x1b[" in styled
+    assert "kb" in styled and "›" in styled
+
+
+def test_extractive_answer_has_marker(session: ChatSession) -> None:
+    session.answer("authentication")
+    assert "✦" in _out(session)
+
+
+def test_llm_answer_has_marker(bundle_dir: Path) -> None:
+    session = _llm_session(bundle_dir, FakeBackend(["canned [api/auth]"]))
+    session.answer("authentication")
+    assert "✦" in session.console.file.getvalue()

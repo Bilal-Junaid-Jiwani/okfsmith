@@ -34,6 +34,16 @@ follow SemVer.
 - `rank_concepts()` in `okfsmith.mcp_server.server`: shared retrieval ranking
   used by both the MCP `search` tool and the chat REPL.
 
+### Changed
+- `okfsmith chat` startup UI redesigned in the Qwen Code / Claude Code /
+  Antigravity CLI aesthetic: giant gradient (yellow→orange→magenta) ASCII
+  `OKFSMITH` logo, dimmed `okfsmith chat vX.Y.Z` line, Antigravity-style
+  `Bundle: <name> (<N> concepts) · <provider> · <model>` info line,
+  Qwen-style "Tips for getting started:" list, colored bundle-aware prompt
+  (`kb ›`), and a subtle `✦` marker before answers. Piped / `NO_COLOR`
+  output stays plain ASCII with zero escape codes. The banner no longer
+  shows LLM key status (still in `/model` and `doctor`, masked).
+
 ## [0.2.0] — 2026-09-26
 
 ### Added

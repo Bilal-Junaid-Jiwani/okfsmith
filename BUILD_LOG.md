@@ -495,3 +495,36 @@ init → ingest (4 concepts) → validate conformant → graph JSON with dead_li
   `12106f03` (blobs verified against local SHAs, rebuilt trees verified
   byte-identical to local tree `18f2005d`). Remote master is now
   `613d48b0`; remote tree verified byte-identical to local `b91bd07`.
+
+## 2026-09-26 — Chat startup UI redesign (Qwen/Claude/Antigravity aesthetic)
+
+- User asked for the `okfsmith chat` interface to look like Claude Code /
+  Antigravity CLI / Qwen CLI (sent reference screenshots). Studied the real
+  screenshots via web image search first, then redesigned on
+  `feature/chat-ui-redesign`, merged to master.
+- New startup UI (`src/okfsmith/cli/chat.py`):
+  - Giant 5-row block-letter ASCII `OKFSMITH` logo, rendered with a
+    horizontal yellow→orange→magenta gradient (Qwen-style) via rich
+    truecolor/256-color; per-column colors computed in `_gradient_color`.
+  - Below the logo (dimmed): `okfsmith chat vX.Y.Z`, then an
+    Antigravity-style info line `Bundle: <name> (<N> concepts) · <provider>
+    · <model>` (or `· extractive mode`); extractive-mode notice compacted
+    to one dimmed line.
+  - Qwen-style "Tips for getting started:" numbered list (ask questions,
+    /help, /ingest).
+  - Prompt keeps bundle-awareness but styled: cyan bundle name + orange `›`
+    on a tty, plain `kb › ` when piped.
+  - Answers prefixed with a subtle dim-orange `✦` (extractive table title
+    and a marker line before LLM Markdown).
+- Plain-ASCII guarantee: `_color_enabled()` (tty + no NO_COLOR) gates all
+  color; `print_styled()` falls back to markup-stripped text with
+  `highlight=False` (rich auto-highlights numbers like `0.2.0` even in
+  plain strings — caught by test). Piped output verified: zero ANSI codes.
+- Key status removed from the banner (still masked in `/model` and
+  `doctor`); `test_banner_masks_key` updated accordingly.
+- Gate: ruff clean, **277 passed, 20 skipped** (268 pre-existing + 9 new
+  banner/prompt/marker tests in `tests/test_chat.py`).
+- Docs: README "Interactive chat" transcript replaced with the new look,
+  CHANGELOG [Unreleased] → Changed.
+- Commits on `feature/chat-ui-redesign`, merged to master. No version bump,
+  no PyPI publish.
