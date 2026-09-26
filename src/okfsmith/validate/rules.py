@@ -24,6 +24,7 @@ from typing import NamedTuple
 
 import yaml
 
+from okfsmith.links import extract_link_targets  # shared link extraction (M13)
 from okfsmith.validate import Finding
 
 # ---------------------------------------------------------------------------
@@ -65,7 +66,6 @@ def _strip_code(text: str) -> str:
     return _INLINE_CODE_RE.sub("", _FENCE_RE.sub("", text))
 
 
-_LINK_RE = re.compile(r"(?<!!)\[([^\]\n]*)\]\(([^)\n]*)\)")
 _FOOTNOTE_REF_RE = re.compile(r"\[\^([^\]\n]+)\](?!:)")
 _SCHEME_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*:")
 _LOG_HEADING_RE = re.compile(r"^##[ \t]+(\S(?:.*\S)?)[ \t]*$", re.MULTILINE)
@@ -306,9 +306,40 @@ def _analyze_log(path: Path, rel: str) -> tuple[_Doc, list[Finding], list[Findin
 # ---------------------------------------------------------------------------
 
 
-def _iter_link_targets(body: str) -> list[str]:
-    """Raw targets of inline markdown links in *body* (code stripped)."""
-    return [m.group(2) for m in _LINK_RE.finditer(_strip_code(body))]
+def _resolve_contained(root: Path, rel: str) -> Path | None:
+    """Resolve bundle-relative *rel* to an on-disk path, or ``None`` on escape.
+
+    Symlink components are resolved, mirroring the containment semantics of
+    ``links.resolve_link``: a target that walks out of the bundle root —
+    directly or through a symlink — is dead. Host files are never probed
+    through such a link (no existence oracle), and undecodable targets
+    (e.g. embedded null bytes) yield ``None`` instead of raising.
+    """
+    candidate = root / rel
+    try:
+        resolved = candidate.resolve()
+        resolved.relative_to(root)
+    except (OSError, ValueError):
+        return None
+    return resolved
+
+
+def _link_is_live(root: Path, base_rel: str, target: str) -> bool:
+    """True when *target* resolves to a file or directory inside the bundle.
+
+    Anything escaping the bundle root — directly or via a symlink — is dead
+    (C6), matching ``links.resolve_link``.
+    """
+    rel = _resolve_target(root, base_rel, target)
+    if rel is None:
+        return False
+    resolved = _resolve_contained(root, rel)
+    if resolved is None:
+        return False
+    if resolved.is_dir():
+        return True
+    alt = _resolve_contained(root, rel + ".md")
+    return resolved.is_file() or (alt is not None and alt.is_file())
 
 
 def _warn_broken_links(root: Path, doc: _Doc) -> list[Finding]:
@@ -316,53 +347,57 @@ def _warn_broken_links(root: Path, doc: _Doc) -> list[Finding]:
     findings: list[Finding] = []
     base_rel = posixpath.dirname(doc.rel)
     seen: set[str] = set()
-    for raw_target in _iter_link_targets(doc.body):
+    # Link extraction is shared with the graph (okfsmith.links); the shared
+    # extractor already strips CommonMark titles (M12). Code is stripped first
+    # so links inside fenced/inline code are never link-checked.
+    for raw_target in extract_link_targets(_strip_code(doc.body)):
         target = _clean_target(raw_target)
         if not target or _is_external(target) or target in seen:
             continue
         seen.add(target)
-        rel = _resolve_target(root, base_rel, target)
-        if rel is None:
+        if not _link_is_live(root, base_rel, target):
             findings.append(
                 Finding("W001", doc.rel, f"broken link target not found in bundle: {raw_target.strip()!r}", "§6.1")
             )
-            continue
-        candidate = root / rel
-        if candidate.is_dir():
-            continue
-        if candidate.is_file() or (root / (rel + ".md")).is_file():
-            continue
-        findings.append(
-            Finding("W001", doc.rel, f"broken link target not found in bundle: {raw_target.strip()!r}", "§6.1")
-        )
     return findings
 
 
 def _collect_index_coverage(root: Path, index_docs: list[_Doc]) -> tuple[set[str], set[str]]:
     """Concept ids covered by index.md link entries: ``(ids, dir_prefixes)``.
 
-    Only ``[...](...)`` entries confer reachability (§8); an entry pointing at
-    a directory covers every concept beneath it. Body links never count (§17 A12).
+    Only markdown-link *entries* (list items, ``* [Title](path)``) confer
+    reachability (§8, §11); prose mentions — even when they contain links —
+    are ignored (L10). An entry pointing at a directory covers every concept
+    beneath it, including the bundle root itself via ``(/)`` (L5). Entries
+    escaping the bundle root (directly or via symlinks) confer nothing (C6).
+    Body links never count (§17 A12).
     """
     ids: set[str] = set()
     prefixes: set[str] = set()
     for doc in index_docs:
         base_rel = posixpath.dirname(doc.rel)
-        for raw_target in _iter_link_targets(doc.body):
-            target = _clean_target(raw_target)
-            if not target or _is_external(target):
+        for line in _strip_code(doc.body).splitlines():
+            if not _LIST_ITEM_RE.match(line):
                 continue
-            rel = _resolve_target(root, base_rel, target)
-            if rel is None:
-                continue
-            candidate = root / rel
-            if candidate.is_dir():
-                prefixes.add(rel)
-            elif candidate.is_file():
-                stem = rel[: -len(".md")] if rel.endswith(".md") else rel
-                ids.add(stem)
-            elif (root / (rel + ".md")).is_file():
-                ids.add(rel)
+            for raw_target in extract_link_targets(line):
+                target = _clean_target(raw_target)
+                if not target or _is_external(target):
+                    continue
+                rel = _resolve_target(root, base_rel, target)
+                if rel is None:
+                    continue
+                resolved = _resolve_contained(root, rel)
+                if resolved is None:
+                    continue
+                if resolved.is_dir():
+                    prefixes.add(rel)
+                elif resolved.is_file():
+                    stem = rel[: -len(".md")] if rel.endswith(".md") else rel
+                    ids.add(stem)
+                else:
+                    alt = _resolve_contained(root, rel + ".md")
+                    if alt is not None and alt.is_file():
+                        ids.add(rel)
     return ids, prefixes
 
 
@@ -652,6 +687,8 @@ def _warn_unknown_status(doc: _Doc) -> list[Finding]:
 
 def run_checks(root: Path) -> tuple[list[Finding], list[Finding]]:
     """Run every rule over the bundle at *root*; returns ``(errors, warnings)``."""
+    # Resolve once so the symlink-containment checks compare like with like.
+    root = root.resolve()
     concepts: list[_Doc] = []
     index_docs: list[_Doc] = []
     errors: list[Finding] = []
@@ -659,7 +696,14 @@ def run_checks(root: Path) -> tuple[list[Finding], list[Finding]]:
     w013_findings: list[Finding] = []
 
     md_files = sorted(
-        (p for p in root.rglob("*.md") if p.is_file()),
+        (
+            p
+            for p in root.rglob("*.md")
+            # Never follow symlinks when walking (C6): like Bundle.load, a
+            # symlinked .md is not a concept. (rglob already refuses to
+            # descend into symlinked directories.)
+            if p.is_file() and not p.is_symlink()
+        ),
         # Bundle-root reserved files sort before nested ones of the same name,
         # so the root index.md / log.md findings come first; otherwise plain
         # bundle-relative path order.

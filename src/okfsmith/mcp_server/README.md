@@ -39,7 +39,7 @@ Add this to your MCP client's server config (e.g. Claude Code's
   "mcpServers": {
     "okfsmith": {
       "command": "uvx",
-      "args": ["okfsmith[mcp]", "mcp", "--bundle", "<path-to-your-bundle>"]
+      "args": ["okfsmith[mcp]", "mcp", "<path-to-your-bundle>"]
     }
   }
 }
@@ -52,13 +52,13 @@ Or, if okfsmith is already installed in the current environment:
   "mcpServers": {
     "okfsmith": {
       "command": "okfsmith",
-      "args": ["mcp", "--bundle", "./kb"]
+      "args": ["mcp", "./kb"]
     }
   }
 }
 ```
 
-The `mcp --bundle <path>` CLI entry point is provided by the CLI engineer;
+The `mcp <path>` CLI entry point is provided by the CLI engineer;
 it calls `okfsmith.mcp_server.serve(bundle_path, transport="stdio")`.
 
 ## Python API

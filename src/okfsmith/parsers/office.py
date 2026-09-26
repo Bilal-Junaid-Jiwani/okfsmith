@@ -11,7 +11,11 @@ Special cases handled here instead of plain MarkItDown:
   * XLSX -> one Page per sheet (via openpyxl, a MarkItDown extra), so sheet
     structure survives instead of one merged blob.
   * CSV  -> one Page with one table (stdlib csv module).
-  * ZIP  -> members are extracted and parsed recursively (depth 1).
+  * ZIP  -> members are extracted and parsed recursively (depth 1). Text
+    members (.md/.txt) use the stdlib text parser so generic zips work
+    without the ``office`` extra; repeated member names are deduped
+    (last occurrence wins, logged) and symlink members are skipped, per
+    :mod:`ziputil`.
   * images (png/jpg/...) -> single Page with needs_ocr=True: no text layer,
     escalated to the OCR/vision tier by the router. No textless stub is
     emitted as content.
@@ -39,6 +43,11 @@ log = logging.getLogger(__name__)
 _IMAGE_SUFFIXES = frozenset(
     {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tiff", ".tif", ".webp"}
 )
+
+# Zip members with these suffixes are stdlib-readable text: they go through
+# parsers.text (no office extra needed), mirroring parse_file's Tier-1
+# routing instead of falling through to MarkItDown.
+_TEXT_SUFFIXES = frozenset({".md", ".markdown", ".txt"})
 
 
 def _markitdown():
@@ -137,7 +146,23 @@ def _parse_csv(path: Path) -> ParsedDocument:
     )
 
 
-def _parse_zip(path: Path, _depth: int = 0) -> ParsedDocument:
+def _parse_zip_member(member: Path, _depth: int) -> ParsedDocument:
+    """Dispatch one extracted zip member to the right parser.
+
+    Mirrors :func:`parse_file`'s Tier-1 routing: text members (``.md`` /
+    ``.txt``) go through :mod:`parsers.text` (stdlib only), so generic zips
+    parse on a base install instead of warn-and-skipping every member.
+    Everything else goes to :func:`parse_office`, which handles CSV/XLSX,
+    images and MarkItDown types itself.
+    """
+    from . import text
+
+    if member.suffix.lower() in _TEXT_SUFFIXES:
+        return text.parse_text_file(member)
+    return parse_office(member, _depth=_depth + 1)
+
+
+def _parse_zip(path: Path, _depth: int = 0, _prefix: str = "") -> ParsedDocument:
     from . import ParsedDocument
 
     pages: list = []
@@ -148,16 +173,29 @@ def _parse_zip(path: Path, _depth: int = 0) -> ParsedDocument:
             p for p in Path(tmp).rglob("*") if p.is_file() and not p.name.startswith(".")
         )
         for member in members:
-            rel = member.relative_to(tmp).as_posix()
+            rel = _prefix + member.relative_to(tmp).as_posix()
             try:
-                if member.suffix.lower() == ".zip" or _depth >= 1:
-                    continue
-                sub = parse_office(member, _depth=_depth + 1)
+                if member.suffix.lower() == ".zip":
+                    if _depth >= 1:
+                        log.warning(
+                            "zip member %s skipped: nested zip below depth limit",
+                            rel,
+                        )
+                        continue
+                    # Depth-1 recursion, as the module docstring promises.
+                    # The recursive call labels its own pages with _prefix,
+                    # so they must not be relabeled again below.
+                    sub = _parse_zip(member, _depth=_depth + 1, _prefix=f"{rel}/")
+                    nested = True
+                else:
+                    sub = _parse_zip_member(member, _depth=_depth)
+                    nested = False
             except Exception as exc:  # one bad member must not kill the zip
                 log.warning("zip member %s skipped: %s", rel, exc)
                 continue
             for pg in sub.pages:
-                pg.text = f"[{rel}]\n\n{pg.text}" if pg.text else f"[{rel}]"
+                if not nested:
+                    pg.text = f"[{rel}]\n\n{pg.text}" if pg.text else f"[{rel}]"
                 pg.number = len(pages) + 1
                 pages.append(pg)
     return ParsedDocument(

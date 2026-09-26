@@ -58,7 +58,10 @@ def record_ingested(bundle, digest: str, source: str | Path) -> None:
     mp = manifest_path(bundle)
     mp.parent.mkdir(parents=True, exist_ok=True)
     sources = load_manifest(bundle)
-    sources[digest] = {"path": str(source), "ingested_at": utc_now_iso()}
+    # M8: source paths may hold undecodable bytes (surrogate escapes); the
+    # manifest is UTF-8 JSON, so sanitize instead of crashing on write_text.
+    path_text = str(source).encode("utf-8", errors="backslashreplace").decode("utf-8")
+    sources[digest] = {"path": path_text, "ingested_at": utc_now_iso()}
     mp.write_text(
         json.dumps({"sources": sources}, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",

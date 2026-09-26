@@ -20,14 +20,21 @@ configured LLM endpoint. No other host is ever contacted.
 
 from __future__ import annotations
 
+import atexit
 import logging
 import os
+import time
+import weakref
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any, TypeVar
 from urllib.parse import urlsplit
 
 import httpx
 
 logger = logging.getLogger(__name__)
+
+T = TypeVar("T")
 
 #: Default Ollama host. The reachability probe hits ``/api/tags`` here;
 #: the OpenAI-compatible API base is :data:`DEFAULT_OLLAMA_API_BASE`.
@@ -129,6 +136,91 @@ class LLMResponseError(LLMError):
     """The endpoint answered, but the response was unusable."""
 
 
+#: Owned httpx clients still open, for best-effort interpreter-exit cleanup.
+#: A WeakSet so backends that were never closed() don't pin memory; the
+#: atexit hook below closes whatever is left.
+_owned_clients: weakref.WeakSet[httpx.Client] = weakref.WeakSet()
+
+
+def _close_owned_clients() -> None:
+    """Close any backend-owned httpx clients still open at interpreter exit."""
+    for client in list(_owned_clients):
+        try:
+            client.close()
+        except Exception:  # noqa: BLE001 - best-effort shutdown path
+            pass
+
+
+atexit.register(_close_owned_clients)
+
+
+def retry_with_backoff(
+    fn: Callable[..., T],
+    *args: Any,
+    attempts: int = 3,
+    base_delay: float = 1.0,
+    max_delay: float = 30.0,
+    exceptions: tuple[type[BaseException], ...] = (LLMError,),
+    **kwargs: Any,
+) -> T:
+    """Call ``fn(*args, **kwargs)``, retrying transient failures with backoff.
+
+    Makes up to *attempts* total attempts (1 initial try + ``attempts - 1``
+    retries). Between attempts it sleeps
+    ``min(max_delay, base_delay * 2 ** (attempt - 1))`` seconds — plain
+    exponential backoff, no jitter, so delays stay deterministic and testable.
+
+    Extra positional/keyword arguments are passed straight through to *fn*,
+    so ``retry_with_backoff(backend.chat, messages, temperature=0.0)`` works
+    as well as ``retry_with_backoff(lambda: backend.chat(messages))``. The
+    retry controls (*attempts*, *base_delay*, *max_delay*, *exceptions*) are
+    keyword-only and never forwarded to *fn*.
+
+    Only **transient** failures are retried:
+
+    - An exception matching *exceptions* is retried, *except*
+      :class:`LLMUnavailableError`, which means *no usable endpoint is
+      configured* — retrying the same call cannot fix that, so it is
+      re-raised immediately even when it matches *exceptions*.
+    - Anything not matching *exceptions* (``ValueError``,
+      ``KeyboardInterrupt``, …) propagates untouched. Retries are only for
+      errors the caller explicitly marked retryable.
+
+    Typical use: ``retry_with_backoff(backend.chat, messages)`` — an
+    :class:`LLMResponseError` from a flaky transport (HTTP 5xx, timeout,
+    connection reset, empty payload) may succeed on the next attempt, while
+    a missing-endpoint config error fails fast.
+
+    After *attempts* are exhausted the **last** error is re-raised, with its
+    original traceback preserved.
+    """
+    if attempts < 1:
+        raise ValueError(f"attempts must be >= 1, got {attempts}")
+    last_error: BaseException | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            return fn(*args, **kwargs)
+        except LLMUnavailableError:
+            # Config problem, not a transient one: retrying is pointless.
+            raise
+        except exceptions as exc:
+            last_error = exc
+            if attempt == attempts:
+                break
+            delay = min(max_delay, base_delay * 2 ** (attempt - 1))
+            logger.warning(
+                "Attempt %d/%d failed (%s: %s); retrying in %.2fs",
+                attempt,
+                attempts,
+                type(exc).__name__,
+                exc,
+                delay,
+            )
+            time.sleep(delay)
+    assert last_error is not None  # attempts >= 1 guarantees a first failure
+    raise last_error
+
+
 def redact_key(key: str | None) -> str:
     """Return a safe placeholder for *key* — the value never leaves this.
 
@@ -201,7 +293,10 @@ class OpenAICompatibleBackend(LLMBackend):
     the backend appends only ``/chat/completions``). ``api_key`` may be
     ``None``/empty for local endpoints that need no auth. A prebuilt
     :class:`httpx.Client` can be injected (tests use a mock transport);
-    otherwise one is created per backend.
+    otherwise one is created lazily per backend and reused across calls —
+    close it with :meth:`close` or by using the backend as a context
+    manager (a best-effort atexit hook also closes clients of backends
+    that were never closed explicitly).
 
     ``provider`` is a display label (``"groq"``, ``"ollama"``, ``"custom"``,
     …) — it never affects the wire format, which is OpenAI-compatible for
@@ -222,7 +317,8 @@ class OpenAICompatibleBackend(LLMBackend):
         super().__init__(model)
         self.base_url = base_url.rstrip("/")
         self._api_key = api_key  # never logged; never serialized
-        self._client = client
+        self._client = client  # injected: owned by the caller, never closed here
+        self._owned_client: httpx.Client | None = None  # lazily created, reused
         self._timeout = timeout
         self.provider = provider
 
@@ -237,9 +333,37 @@ class OpenAICompatibleBackend(LLMBackend):
         return self.base_url.rstrip("/") + "/chat/completions"
 
     def _client_or_new(self) -> httpx.Client:
+        """Return the injected client, else a lazily-created instance client.
+
+        The instance-owned client is created once and reused across
+        ``chat()`` calls (no per-call client churn, no connection-pool
+        leak). It is closed by :meth:`close`, by using the backend as a
+        context manager, or — best effort — at interpreter exit. An injected
+        client is owned by the caller and is never closed here.
+        """
         if self._client is not None:
             return self._client
-        return httpx.Client(timeout=self._timeout)
+        if self._owned_client is None:
+            self._owned_client = httpx.Client(timeout=self._timeout)
+            _owned_clients.add(self._owned_client)
+        return self._owned_client
+
+    def close(self) -> None:
+        """Close the lazily-created client, if any.
+
+        An injected client is owned by the caller and is never closed here.
+        Safe to call more than once.
+        """
+        client, self._owned_client = self._owned_client, None
+        if client is not None:
+            _owned_clients.discard(client)
+            client.close()
+
+    def __enter__(self) -> OpenAICompatibleBackend:
+        return self
+
+    def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
+        self.close()
 
     def chat(
         self,
@@ -266,7 +390,11 @@ class OpenAICompatibleBackend(LLMBackend):
         )
         try:
             response = self._client_or_new().post(url, json=payload, headers=headers)
-        except httpx.HTTPError as exc:
+        except (httpx.HTTPError, httpx.InvalidURL) as exc:
+            # httpx.InvalidURL is NOT an HTTPError subclass: it escapes e.g.
+            # as "Invalid port: ':1]'" from an unparseable proxy env var —
+            # including at client-construction time inside _client_or_new().
+            # Catch it here so every transport failure surfaces as LLMError.
             raise LLMResponseError(
                 f"LLM endpoint {self.base_url} unreachable: "
                 f"{type(exc).__name__}: {exc}"
@@ -285,10 +413,15 @@ class OpenAICompatibleBackend(LLMBackend):
                 f"LLM endpoint {self.base_url} returned a malformed "
                 f"chat-completion payload: {exc}"
             ) from exc
-        if not isinstance(content, str) or not content.strip():
+        if not isinstance(content, str):
             raise LLMResponseError(
-                f"LLM endpoint {self.base_url} returned empty content"
+                f"LLM endpoint {self.base_url} returned a non-string "
+                f"chat-completion content: {type(content).__name__}"
             )
+        # Empty/whitespace content is returned as-is, not raised: the
+        # pipeline's JSON-parse → repair → needs-review fallback path treats
+        # it exactly like any other unparseable reply, consistent with stub
+        # backends (e.g. FakeBackend) that return "".
         return content
 
 

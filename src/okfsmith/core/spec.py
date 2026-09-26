@@ -77,12 +77,22 @@ def trust_tier(frontmatter: Mapping) -> str:
 
     A bare ``verified`` mapping counts as a one-element list, per §5.2.
     Unknown frontmatter keys are ignored here — never rejected.
+
+    Defensive: a scalar ``verified`` (``bool``/``str``/``int``, e.g.
+    ``verified: yes`` in hand-written YAML) carries no actor info and is
+    treated as ``"unverified"``; a ``verified`` of any other non-list,
+    non-mapping shape is likewise ``"unverified"``. This function never
+    raises on malformed ``verified`` input.
     """
     verified = frontmatter.get("verified")
     if verified is None:
         return UNVERIFIED
     if isinstance(verified, Mapping):
         verified = [verified]
+    elif not isinstance(verified, (list, tuple)):
+        # Scalar or otherwise malformed ``verified``: no actor info to judge,
+        # so there is no basis for a trust tier — treat as unverified.
+        return UNVERIFIED
     if not verified:
         return UNVERIFIED
     for entry in verified:

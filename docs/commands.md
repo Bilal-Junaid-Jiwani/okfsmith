@@ -11,6 +11,7 @@ okfsmith ingest BUNDLE SOURCE... [--recursive] [--no-llm] [--model NAME]
 okfsmith validate BUNDLE [--format text|json] [--strict]
 okfsmith list BUNDLE [--format text|json] [--tier TIER]
 okfsmith read BUNDLE CONCEPT_ID [--format text|json]
+okfsmith search BUNDLE QUERY [--limit N] [--format text|json] [--tier TIER] [--type TYPE]
 okfsmith graph BUNDLE [--format text|json|mermaid|html] [--output FILE]
 okfsmith mcp BUNDLE [--transport stdio|sse|streamable-http]
 okfsmith chat [BUNDLE] [--model NAME] [--provider NAME] [--api-base URL]
@@ -85,6 +86,19 @@ okfsmith read ./kb finance/revenue --format json
 ```
 
 Concept ids are bundle-relative paths without the `.md` suffix.
+
+## search — full-text search over a bundle
+
+```bash
+okfsmith search ./kb "knowledge graph"
+okfsmith search ./kb "quarterly revenue" --tier human-reviewed -n 5
+okfsmith search ./kb "api design" --format json
+```
+
+BM25 ranking over id, title, description, tags, and body (stdlib-only).
+Query syntax: bare terms, quoted phrases (`"knowledge graph"`), exclusions
+(`-deprecated`). Same engine as the MCP `search` tool and chat `/search`,
+so all three rank identically. See [Searching](searching.md).
 
 ## graph — links between concepts
 

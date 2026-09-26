@@ -35,6 +35,22 @@ from okfsmith.extract.llm import (
     resolve_backend,
 )
 
+#: Bundle search used by the REPL: the stdlib BM25 engine
+#: (:func:`okfsmith.search.search_bundle`) once that package lands, else the
+#: legacy ``rank_concepts`` scorer. Same call shape either way —
+#: ``(bundle, query, limit)`` → ``[(score, Concept)]`` sorted by score
+#: descending, ``[]`` for an empty query — so the swap is ranking-only.
+_search_bundle: Callable[[Bundle, str, int], list[tuple[float, Concept]]]
+
+try:
+    from okfsmith.search import search_bundle
+
+    _search_bundle = search_bundle
+except ImportError:  # ``okfsmith.search`` ships in a parallel workstream
+    from okfsmith.mcp_server import server as _mcp_server
+
+    _search_bundle = _mcp_server.rank_concepts
+
 try:
     import readline  # noqa: F401  (stdlib; absent on Windows without pyreadline)
 except ImportError:  # pragma: no cover
@@ -349,9 +365,7 @@ class ChatSession:
     # -- answering --------------------------------------------------------
     def answer(self, question: str) -> str:
         """Answer *question*; returns the text shown (useful for tests)."""
-        from okfsmith.mcp_server.server import rank_concepts
-
-        hits = rank_concepts(self.bundle, question, TOP_K)
+        hits = _search_bundle(self.bundle, question, TOP_K)
         fallback = False
         if not hits and self.last_concepts:
             # Follow-up ("tell me more", "uska source kya hai"): the new
@@ -543,15 +557,20 @@ def _needs_arg(session: ChatSession, arg: str, usage: str) -> bool:
     return True
 
 
-def _run_cli(session: ChatSession, fn, *args, **kwargs) -> None:
+def _run_cli(session: ChatSession, fn, *args, **kwargs) -> bool:
     """Call a Typer command function directly; failed commands print their
-    own ``error [CODE]`` and exit — catch that so the REPL survives."""
+    own ``error [CODE]`` and exit — catch that so the REPL survives.
+
+    Returns ``True`` when the command completed, ``False`` when it raised
+    ``typer.Exit`` (i.e. it failed with an ``error [CODE]`` line).
+    """
     import typer
 
     try:
         fn(*args, **kwargs)
     except typer.Exit:
-        pass
+        return False
+    return True
 
 
 def _slash_help(session: ChatSession, _arg: str) -> None:
@@ -579,7 +598,7 @@ def _slash_ingest(session: ChatSession, arg: str) -> None:
     if not parts:
         session.console.print("[yellow]Usage:[/yellow] /ingest <file-or-dir> [--recursive]")
         return
-    _run_cli(
+    ok = _run_cli(
         session,
         _cmd.ingest,
         session.bundle_root,
@@ -593,6 +612,9 @@ def _slash_ingest(session: ChatSession, arg: str) -> None:
         quiet=False,
         dry_run=False,
     )
+    if not ok:
+        # Ingest already printed its own error [CODE]; don't claim a reload.
+        return
     session.reload_bundle()
     session.console.print(
         f"[dim]Bundle reloaded — {session.n_concepts()} concepts now.[/dim]"
@@ -627,9 +649,9 @@ def _slash_read(session: ChatSession, arg: str) -> None:
 def _slash_search(session: ChatSession, arg: str) -> None:
     if _needs_arg(session, arg, "/search <keywords>"):
         return
-    from okfsmith.mcp_server.server import BundleTools, rank_concepts
+    from okfsmith.mcp_server.server import BundleTools
 
-    hits = rank_concepts(session.bundle, arg, 10)
+    hits = _search_bundle(session.bundle, arg, 10)
     if not hits:
         session.console.print(
             f"[yellow]No concepts match {escape(arg)!r}.[/yellow]"
@@ -659,6 +681,20 @@ def _slash_doctor(session: ChatSession, _arg: str) -> None:
     from okfsmith.cli import commands as _cmd
 
     _run_cli(session, _cmd.doctor)
+
+
+def _report_llm_config_error(session: ChatSession, exc: LLMError) -> None:
+    """Print an LLM config error without killing the REPL (M25).
+
+    Startup-time config mistakes fail loudly via ``error [bad-llm-config]`` +
+    exit in ``commands.py``; inside the REPL the same error is just a message
+    and the session — including the previous backend — survives.
+    """
+    session.console.print(f"[red]{escape(f'error [bad-llm-config]: {exc}')}[/red]")
+    session.console.print(
+        "[dim]hint: pass a valid provider name (groq, mistral, deepseek, "
+        "openrouter, together, xai, gemini, openai, ollama).[/dim]"
+    )
 
 
 def _slash_model(session: ChatSession, arg: str) -> None:
@@ -693,27 +729,37 @@ def _slash_model(session: ChatSession, arg: str) -> None:
             )
             return
         name = parts[1].lower()
+        try:
+            # Resolve BEFORE storing: a typo must neither kill the REPL
+            # (M25) nor poison llm_provider for subsequent /model switches.
+            backend = resolve_chat_backend(
+                model=session.model,
+                provider=name,
+                api_base=session.llm_api_base,
+                api_key=session.llm_api_key,
+            )
+        except LLMError as exc:
+            _report_llm_config_error(session, exc)
+            return
         session.llm_provider = name
-        # LLMError (unknown provider) propagates: a typo must fail loudly,
-        # not silently degrade to extractive mode.
-        session.backend = resolve_chat_backend(
-            model=session.model,
-            provider=name,
-            api_base=session.llm_api_base,
-            api_key=session.llm_api_key,
-        )
+        session.backend = backend
         session.console.print(
             f"Switched provider to {escape(name)} — "
             f"{_backend_status_line(session.backend)}"
         )
         return
+    try:
+        backend = resolve_chat_backend(
+            model=arg,
+            provider=session.llm_provider,
+            api_base=session.llm_api_base,
+            api_key=session.llm_api_key,
+        )
+    except LLMError as exc:
+        _report_llm_config_error(session, exc)
+        return
     session.model = arg
-    session.backend = resolve_chat_backend(
-        model=arg,
-        provider=session.llm_provider,
-        api_base=session.llm_api_base,
-        api_key=session.llm_api_key,
-    )
+    session.backend = backend
     session.console.print(
         f"Switched model to {escape(arg)} — {_backend_status_line(session.backend)}"
     )

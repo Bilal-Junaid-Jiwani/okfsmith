@@ -32,6 +32,55 @@ def _truncate(text: str, limit: int = BODY_MAX_CHARS) -> str:
     return cut.rstrip() + "\n\n[... truncated: section body exceeds no-LLM limit ...]"
 
 
+def _safe_log_text(value: object) -> str:
+    """Render *value* as text that always encodes as UTF-8.
+
+    Source paths can contain undecodable bytes (surrogate escapes, M8);
+    embedding them verbatim in a log message makes ``indexlog.append_log``
+    raise ``UnicodeEncodeError`` when it writes ``log.md``. ``backslashreplace``
+    keeps the name recognizable without ever failing to encode.
+    """
+    text = value if isinstance(value, str) else str(value)
+    return text.encode("utf-8", errors="backslashreplace").decode("utf-8")
+
+
+def _stored_concept_id(bundle: Bundle, concept_id: str) -> str:
+    """Id under which ``write_concept`` will store *concept_id*.
+
+    ``Bundle.write_concept`` slugifies each ``/``-separated segment to derive
+    the on-disk path; the stored id is that path minus the suffix. Collision
+    checks must run against this exact form (C3), not the raw candidate.
+    """
+    from okfsmith.core.bundle import concept_path_for
+
+    return (
+        concept_path_for(bundle.root, concept_id)
+        .relative_to(bundle.root)
+        .with_suffix("")
+        .as_posix()
+    )
+
+
+def _alloc_concept_id(bundle: Bundle, stem: str, slug: str, used: set[str]) -> str:
+    """Allocate a concept id for ``stem/slug`` that collides with nothing.
+
+    Mirrors the LLM path's ``_concept_id_for`` (C3): the bundle is consulted
+    via ``bundle.get()`` — not just the per-file ``used`` set — so two
+    same-stem files in different directories can never silently overwrite
+    each other's concepts. Appends ``-2``, ``-3``, … on collision and records
+    the allocated (stored-form) id in ``used``.
+    """
+    candidate = f"{stem}/{slug}"
+    n = 2
+    while True:
+        stored = _stored_concept_id(bundle, candidate)
+        if stored not in used and bundle.get(stored) is None:
+            used.add(stored)
+            return candidate
+        candidate = f"{stem}/{slug}-{n}"
+        n += 1
+
+
 def ingest_no_llm(bundle: Bundle, parsed: ParsedDocument, source_id: str) -> list[str]:
     """Ingest a ParsedDocument into *bundle* as DRAFT concepts.
 
@@ -46,8 +95,12 @@ def ingest_no_llm(bundle: Bundle, parsed: ParsedDocument, source_id: str) -> lis
     from . import sectioning
     from .router import ocr_escalations
 
+    # M8: source_id may hold undecodable bytes (surrogate escapes); never let
+    # the raw value reach a log message or append_log (UnicodeEncodeError).
+    safe_source = _safe_log_text(source_id)
+
     if (parsed.meta or {}).get("error"):
-        log.warning("not ingesting %s: %s", source_id, parsed.meta["error"])
+        log.warning("not ingesting %s: %s", safe_source, parsed.meta["error"])
         return []
 
     sectioned = sectioning.section(parsed)
@@ -55,7 +108,7 @@ def ingest_no_llm(bundle: Bundle, parsed: ParsedDocument, source_id: str) -> lis
         log.info(
             "deferring entity creation for %s: source under %d chars "
             "(stub prevention)",
-            source_id,
+            safe_source,
             sectioning.TOO_SMALL_CHARS,
         )
         return []
@@ -69,7 +122,7 @@ def ingest_no_llm(bundle: Bundle, parsed: ParsedDocument, source_id: str) -> lis
 
     stem = Path(source_id).stem or "document"
     created: list[str] = []
-    used_slugs: set[str] = set()
+    used_ids: set[str] = set()
 
     for i, sec in enumerate(sectioned.sections, start=1):
         span_pages = set(range(sec.page_span[0], sec.page_span[1] + 1))
@@ -78,7 +131,7 @@ def ingest_no_llm(bundle: Bundle, parsed: ParsedDocument, source_id: str) -> lis
             log.warning(
                 "skipping section %r from %s: pages %s need OCR tier",
                 sec.title,
-                source_id,
+                safe_source,
                 sorted(span_pages),
             )
             continue
@@ -87,13 +140,9 @@ def ingest_no_llm(bundle: Bundle, parsed: ParsedDocument, source_id: str) -> lis
 
         base = slugify(sec.title) if sec.title else ""
         slug = base or f"section-{i}"
-        n = 2
-        while slug in used_slugs:
-            slug = f"{base or f'section-{i}'}-{n}"
-            n += 1
-        used_slugs.add(slug)
-
-        concept_id = f"{stem}/{slug}"
+        # C3: cross-document collision check via bundle.get(); never silently
+        # overwrite an existing concept from a different source file.
+        concept_id = _alloc_concept_id(bundle, stem, slug, used_ids)
         frontmatter = {
             "type": "Draft",
             "title": sec.title or f"Section {i} of {Path(source_id).name}",
@@ -106,13 +155,13 @@ def ingest_no_llm(bundle: Bundle, parsed: ParsedDocument, source_id: str) -> lis
         body = _truncate(sec.text)
         concept = bundle.write_concept(concept_id, frontmatter, body)
         created.append(concept.id)
-        log.info("draft concept created: %s", concept.id)
+        log.info("draft concept created: %s", _safe_log_text(concept.id))
 
     if created:
         indexlog.append_log(
             bundle,
             kind="Creation",
-            message=f"ingested {source_id} (--no-llm): {len(created)} draft concept(s)",
+            message=f"ingested {safe_source} (--no-llm): {len(created)} draft concept(s)",
         )
     return created
 
