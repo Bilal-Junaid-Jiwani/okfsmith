@@ -1,0 +1,8 @@
+# Explicit sdist file policy (audit-4 HIGH): internal review/audit notes must
+# never ship inside the published package. Wheels only contain files under
+# src/ anyway; this file governs the sdist.
+prune .contract
+exclude BUILD_LOG.md
+exclude MANIFEST.in
+global-exclude __pycache__
+global-exclude *.py[cod]
