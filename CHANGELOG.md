@@ -3,7 +3,7 @@
 All notable changes to okfsmith. Format follows Keep a Changelog; versions
 follow SemVer.
 
-## [Unreleased]
+## [0.2.0] — 2026-09-26
 
 ### Added
 - Positional bundle argument across all commands (`okfsmith ingest BUNDLE SOURCE...`)
@@ -30,6 +30,17 @@ follow SemVer.
 - `Bundle.load` skips symlinked concepts and reserved files
 - Subdir traversal rejected in index/log helpers
 - Human-review errors no longer disclose absolute bundle paths
+- Viz `safeHref`: strip leading C0 controls before scheme check (blocks `\x01javascript:` bypass); behavioral node regression test
+- Viz `md()`: `javascript:`/`data:`/`vbscript:`/protocol-relative URLs never become anchors
+
+### Fixed
+- Sub-1000-char ingest reports `skipped (below 1000-char minimum; stub prevention)` instead of hollow `ok`; digest not recorded; `--dry-run` parity
+- `okfsmith mcp` without the `mcp` extra emits `error [missing-extra]` + hint (no traceback)
+- `init` on a file path emits `error [not-a-directory]` (no traceback)
+- `graph --output` works for json/mermaid/text (was silently ignored); graph JSON includes `dead_links`
+- `list` IDs never truncate (copy-paste safe); empty `list` shows next-step hint
+- `ruff check src/ tests/` fully clean; CI workflow fixed (master trigger, cross-platform smoke, honest PyMuPDF check)
+- Docs: trust derived from `verified` (not a literal `trust:` field); embedding similarity labeled v1 TODO; Notion CSV = one document each; canonical spec URLs in examples
 
 ## [0.1.0] — 2026-09-26
 

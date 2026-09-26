@@ -393,3 +393,27 @@ Additional fixes landed after the round-3 reviews:
 clean; **191 passed, 20 skipped**; `python -m build` ok; `twine check`
 PASSED (wheel + sdist); clean-venv sdist install: 2940-char `.md` →
 5 concepts, `validate` conformant, `graph --format json` ok.
+
+## 2026-09-26 — Polish rounds 4 → release 0.2.0
+
+**Round-4 reviewer scores** (branch `polish/round-1`, target HEAD `9d29e05`;
+read-only, nothing changed by reviewers):
+- Code: completed — 191 passed/20 skipped, all changes accounted (score line not visible in delivery preview)
+- UX: 8.5/10 — all 4 round-4 UX fixes verified hands-on
+- QA: 10/10 — 191 passed, 20 skipped, 0 failed; 5 new round-4 tests all pass
+- SEO/AI-SEO: 9/10 — trust fiction gone, blob/main fixed, llms.txt verified
+- Security: completed — all checks passed (score line not visible in delivery preview)
+
+**Post-round-4 fixes** (HEAD 9d29e05 → release):
+- `921bc8f`: examples cite canonical spec URL (not frozen snapshot);
+  `list` ID column `no_wrap+fold` (copy-paste safe); BUILD_LOG supersede note
+- `a1678bf`: CI `master` trigger, cross-platform smoke paths, honest PyMuPDF check
+- `46744e9`: empty-list hint, graph JSON `dead_links`, invalid-output hint
+- `6fe0360`: init on file path, set JSON serialization, graph `--output` all formats
+
+**Release 0.2.0** — version bumped (`pyproject.toml`, `__init__.py`,
+`GENERATED_BY`, test), CHANGELOG dated with Added/Changed/Security/Fixed.
+Final gate: diff-check clean, compileall clean, ruff clean,
+**191 passed, 20 skipped**; `python -m build` → okfsmith-0.2.0 wheel+sdist;
+`twine check` PASSED both; isolated-venv wheel install: `--version` = 0.2.0,
+init → ingest (4 concepts) → validate conformant → graph JSON with dead_links.

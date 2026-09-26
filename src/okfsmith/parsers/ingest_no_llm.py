@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-GENERATED_BY = "okfsmith/0.1.0"
+GENERATED_BY = "okfsmith/0.2.0"
 DESCRIPTION = "Draft concept extracted without LLM; needs review"
 BODY_MAX_CHARS = 8000
 
