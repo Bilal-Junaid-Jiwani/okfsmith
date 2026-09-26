@@ -67,8 +67,11 @@ def test_frontmatter_round_trip_preserves_key_order():
 def test_frontmatter_never_rejects():
     data, body = frontmatter.parse_frontmatter("# no frontmatter here\n")
     assert data == {} and body == "# no frontmatter here\n"
-    data, body = frontmatter.parse_frontmatter("---\n- just\n- a\n- list\n---\nbody\n")
-    assert data == {} and body == "body\n"
+    # C4: non-mapping frontmatter is preserved verbatim — the whole text is
+    # kept as the body so a load + re-save never deletes the user's lines.
+    raw = "---\n- just\n- a\n- list\n---\nbody\n"
+    data, body = frontmatter.parse_frontmatter(raw)
+    assert data == {} and body == raw
 
 
 def test_trust_tier():
