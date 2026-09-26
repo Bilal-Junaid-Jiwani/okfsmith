@@ -72,8 +72,8 @@ QA bug report); criticals and highs listed, mediums/lows summarized.
   hangs on a FIFO named `*.md` (H17).
 - **Medium/low (30 + 25):** summary of the remaining audit fixes —
   BOM handling in titles/frontmatter (M9), latin-1 mojibake flagged not
-  silently corrupted (M10), binary-file detection on ingest (M11), ghost
-  concepts pruned on re-ingest (M1), `--dry-run` dedup-manifest parity
+  silently corrupted (M10), binary-file detection on ingest (M11),
+  `--dry-run` dedup-manifest parity
   (M18), parse errors reported accurately instead of the stub-prevention
   message (M2), phantom `'---'` concepts from frontmatter'd sources
   (M3), non-UTF-8 filename log encoding (M8), `validate --strict` output
@@ -84,6 +84,16 @@ QA bug report); criticals and highs listed, mediums/lows summarized.
   (M25), `graph --format text` inflection and other low-severity
   polish (L1–L25); stale `--bundle` flag usage removed from the MCP
   README (M26).
+
+### Deferred (deliberate, pending design decisions)
+- Re-ingest pruning / ghost-concept cleanup (M1): re-ingesting a source
+  never overwrites in place (see the C3 fix above) and stale concepts
+  from changed sources are not pruned yet; repeated re-ingests will
+  accumulate `-2`, `-3`, … suffixed duplicates until pruning lands.
+- Validator line numbers (M29): cosmetic; `Finding` carries no line
+  field by design.
+- Byte-identical ingest output (L12): `generated.at` timestamps are
+  inherently time-dependent; a frozen-time mechanism is needed.
 
 ## [0.3.0] — 2026-09-26
 
