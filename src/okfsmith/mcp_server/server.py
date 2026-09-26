@@ -28,6 +28,43 @@ from okfsmith.core.spec import trust_tier
 _LINK_RE = re.compile(r"(?<!\^)\[([^\]]+)\]\(([^)\s]+)\)")
 
 
+def rank_concepts(
+    bundle: Bundle, query: str, limit: int = 10
+) -> list[tuple[int, Concept]]:
+    """Score bundle concepts against *query*, best first.
+
+    Case-insensitive substring matching: a word matching the concept id or
+    title scores 3, description/tags 2, body 1. Results are sorted by score
+    descending, then concept id, and capped at *limit*. Shared by
+    :meth:`BundleTools.search` and the interactive chat REPL so both rank
+    identically. Returns ``[]`` for an empty query.
+    """
+    words = [w for w in query.lower().split() if w]
+    if not words:
+        return []
+    scored: list[tuple[int, Concept]] = []
+    for concept in bundle.iter_concepts():
+        fm = concept.frontmatter
+        title = str(fm.get("title", ""))
+        description = str(fm.get("description", ""))
+        tags = fm.get("tags") or []
+        if isinstance(tags, str):
+            tags = [tags]
+        tag_text = " ".join(str(t) for t in tags)
+        score = 0
+        for word in words:
+            if word in concept.id.lower() or word in title.lower():
+                score += 3
+            if word in description.lower() or word in tag_text.lower():
+                score += 2
+            if word in concept.body.lower():
+                score += 1
+        if score:
+            scored.append((score, concept))
+    scored.sort(key=lambda item: (-item[0], item[1].id))
+    return scored[: max(limit, 0)]
+
+
 def _require_fastmcp() -> Any:
     """Import ``fastmcp`` (the ``mcp`` extra) or raise a helpful error."""
     try:
@@ -162,27 +199,7 @@ class BundleTools:
         words = [w for w in query.lower().split() if w]
         if not words:
             return "Error: `query` is empty — provide a keyword to search for."
-        scored: list[tuple[int, Concept]] = []
-        for concept in self.bundle.iter_concepts():
-            fm = concept.frontmatter
-            title = str(fm.get("title", ""))
-            description = str(fm.get("description", ""))
-            tags = fm.get("tags") or []
-            if isinstance(tags, str):
-                tags = [tags]
-            tag_text = " ".join(str(t) for t in tags)
-            score = 0
-            for word in words:
-                if word in concept.id.lower() or word in title.lower():
-                    score += 3
-                if word in description.lower() or word in tag_text.lower():
-                    score += 2
-                if word in concept.body.lower():
-                    score += 1
-            if score:
-                scored.append((score, concept))
-        scored.sort(key=lambda item: (-item[0], item[1].id))
-        hits = scored[: max(limit, 0)]
+        hits = rank_concepts(self.bundle, query, limit)
         if not hits:
             return f"No concepts match {query!r}. Try broader keywords or use `list`."
         lines = [
