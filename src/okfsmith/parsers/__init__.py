@@ -5,9 +5,11 @@ Public surface:
 
 Routing by file type:
     *.pdf          -> parsers.pdf        (Tier 1, liteparse, fully offline)
+    *.md/*.txt     -> parsers.text       (Tier 1, stdlib only, fully offline)
     notion exports -> parsers.notion     (zip that looks like a Notion export)
     everything else handled formats
-                   -> parsers.office    (MarkItDown: docx/pptx/xlsx/html/md/txt/csv/zip/images)
+                   -> parsers.office    (MarkItDown: docx/pptx/xlsx/html/csv/zip/images;
+                                         requires the ``office`` extra)
 
 Graceful degradation: a corrupt or unreadable file never crashes the run.
 parse_file catches parser exceptions, logs a warning, and returns an empty
@@ -52,7 +54,7 @@ def parse_file(path: str | Path) -> ParsedDocument:
     Returns an empty ParsedDocument with meta["error"] set when the file
     cannot be parsed, so callers can warn-and-skip instead of crashing.
     """
-    from . import notion, office, pdf  # local imports: keep import cost lazy
+    from . import notion, office, pdf, text  # local imports: keep import cost lazy
 
     p = Path(path)
     try:
@@ -62,6 +64,8 @@ def parse_file(path: str | Path) -> ParsedDocument:
 
         if suffix == ".pdf":
             return pdf.parse_pdf(p)
+        if suffix in {".md", ".markdown", ".txt"}:
+            return text.parse_text_file(p)
         if suffix == ".zip" and notion.looks_like_notion_export(p):
             return notion.parse_notion_zip_as_document(p)
         return office.parse_office(p)

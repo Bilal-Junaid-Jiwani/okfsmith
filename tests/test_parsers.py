@@ -334,3 +334,31 @@ def test_manifest_corrupt_is_empty(tmp_path: Path):
     mp.write_text("{not json")
     assert dedup.load_manifest(bundle) == {}
     assert dedup.already_ingested(bundle, "0" * 64) is False
+
+
+def test_txt_and_md_parse_without_office_extra(tmp_path: Path, monkeypatch):
+    """Regression: moving MarkItDown to the `office` extra must not break
+    .md/.txt ingestion on a base install. Simulate 'markitdown not
+    installed' and prove the stdlib text parser still handles them."""
+    import sys
+
+    monkeypatch.setitem(sys.modules, "markitdown", None)
+
+    md = tmp_path / "notes.md"
+    md.write_text("# Title\n\nSome body text.\n")
+    doc = parse_file(md)
+    assert not doc.meta.get("error"), doc.meta
+    assert "Title" in doc.pages[0].text
+
+    txt = tmp_path / "notes.txt"
+    txt.write_text("plain text body")
+    doc = parse_file(txt)
+    assert not doc.meta.get("error"), doc.meta
+    assert "plain text body" in doc.pages[0].text
+
+    # ... but office formats still degrade gracefully without the extra.
+    from tests._helpers import write_docx
+
+    docx = write_docx(tmp_path / "doc.docx", "H", ["para"])
+    doc = parse_file(docx)
+    assert "markitdown is not installed" in doc.meta.get("error", "")

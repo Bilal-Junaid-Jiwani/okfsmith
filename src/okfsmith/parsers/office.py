@@ -1,8 +1,11 @@
 """Office / misc document parsing via MarkItDown (MIT).
 
-Covers DOCX, PPTX, XLSX, HTML, MD, TXT, CSV, ZIP and images. MarkItDown is
+Covers DOCX, PPTX, XLSX, HTML, CSV, ZIP and images. MarkItDown is
 used for its markdown output; markdown pipe-tables in that output are also
 converted into structured Page.tables.
+
+(MD/TXT are handled by parsers.text with the stdlib, so the base install
+can ingest them without this extra.)
 
 Special cases handled here instead of plain MarkItDown:
   * XLSX -> one Page per sheet (via openpyxl, a MarkItDown extra), so sheet
