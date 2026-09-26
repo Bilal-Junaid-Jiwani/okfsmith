@@ -1,19 +1,24 @@
 """Tests for the okfsmith Typer CLI.
 
 Covers init/validate/list/read/graph against the ``.contract/fixtures``
-bundles, plus error exits. Sibling slices that have not landed on this branch
-(``okfsmith.validate``, ``okfsmith.parsers``, ``okfsmith.viz``,
+bundles, plus error exits. Sibling slices (``okfsmith.validate``,
+``okfsmith.parsers``, ``okfsmith.extract``, ``okfsmith.viz``,
 ``okfsmith.mcp_server``) are represented by lightweight stubs injected into
-``sys.modules`` — this tests the CLI wiring and the documented lazy-import
-contracts, not the slices themselves.
+``sys.modules`` at their real submodule paths — this tests the CLI wiring
+and the lazy-import contracts, not the slices themselves. The
+"slice not landed" tests simulate an absent slice by blocking its import.
 """
 
 from __future__ import annotations
 
+import hashlib
+import importlib
 import json
 import sys
 import types
+from dataclasses import dataclass, field
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from typer.testing import CliRunner
@@ -21,6 +26,7 @@ from typer.testing import CliRunner
 from okfsmith.cli.app import app
 from okfsmith.core import Bundle
 from okfsmith.core import frontmatter
+from okfsmith.validate import Finding, ValidationReport
 
 runner = CliRunner()
 WIDE = {"COLUMNS": "200"}  # keep rich tables from truncating concept rows
@@ -32,18 +38,12 @@ FIXTURES = Path(__file__).resolve().parents[1] / ".contract" / "fixtures"
 # ---------------------------------------------------------------------------
 
 
-class _CheckResult:
-    def __init__(self, errors: list[dict], warnings: list[dict]) -> None:
-        self.errors = errors
-        self.warnings = warnings
-
-
-def _stub_check(bundle_path) -> _CheckResult:
-    """Canned validator results keyed by fixture directory name."""
+def _stub_check(bundle_path) -> ValidationReport:
+    """Canned validator results keyed by fixture directory name (real types)."""
     name = Path(bundle_path).name
 
-    def issue(code: str, file: str, message: str) -> dict:
-        return {"code": code, "file": file, "message": message, "spec": "test"}
+    def issue(code: str, file: str, message: str) -> Finding:
+        return Finding(code=code, file=file, message=message, spec_ref="test")
 
     canned = {
         "err-no-frontmatter": ([issue("E001", "bad.md", "no frontmatter block")], []),
@@ -61,50 +61,159 @@ def _stub_check(bundle_path) -> _CheckResult:
         ),
     }
     errors, warnings = canned.get(name, ([], []))
-    return _CheckResult(errors, warnings)
+    return ValidationReport(errors=errors, warnings=warnings)
 
 
 @pytest.fixture()
 def stub_validate(monkeypatch):
     """Inject a stub ``okfsmith.validate`` module honoring the lazy contract."""
     module = types.ModuleType("okfsmith.validate")
-    module.check = _stub_check  # check(bundle_path) -> .errors / .warnings
+    module.check = _stub_check  # check(bundle_path) -> ValidationReport
     monkeypatch.setitem(sys.modules, "okfsmith.validate", module)
     return module
 
 
+def _stub_parsers_modules(monkeypatch, ingest_no_llm):
+    """Stub the parsers slice at its real submodule import paths."""
+    parsers_mod = types.ModuleType("okfsmith.parsers")
+    dedup_mod = types.ModuleType("okfsmith.parsers.dedup")
+    inl_mod = types.ModuleType("okfsmith.parsers.ingest_no_llm")
+    sectioning_mod = types.ModuleType("okfsmith.parsers.sectioning")
+
+    seen: dict[str, str] = {}
+
+    def sha256_of(path) -> str:
+        return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+    def already_ingested(bundle, digest: str) -> bool:
+        return digest in seen
+
+    def record_ingested(bundle, digest: str, source) -> None:
+        seen[digest] = str(source)
+
+    def parse_file(path):
+        return SimpleNamespace(pages=[], meta={"source": str(path)})
+
+    parsers_mod.parse_file = parse_file
+    dedup_mod.sha256_of = sha256_of
+    dedup_mod.already_ingested = already_ingested
+    dedup_mod.record_ingested = record_ingested
+    inl_mod.ingest_no_llm = ingest_no_llm
+    sectioning_mod.section = lambda parsed: SimpleNamespace(sections=[], too_small=True)
+
+    monkeypatch.setitem(sys.modules, "okfsmith.parsers", parsers_mod)
+    monkeypatch.setitem(sys.modules, "okfsmith.parsers.dedup", dedup_mod)
+    monkeypatch.setitem(sys.modules, "okfsmith.parsers.ingest_no_llm", inl_mod)
+    monkeypatch.setitem(sys.modules, "okfsmith.parsers.sectioning", sectioning_mod)
+    return SimpleNamespace(seen=seen)
+
+
 @pytest.fixture()
-def stub_parsers(monkeypatch, tmp_path):
-    """Inject a stub ``okfsmith.parsers.ingest_no_llm`` that writes drafts."""
-    module = types.ModuleType("okfsmith.parsers")
+def stub_parsers(monkeypatch):
+    """Inject stub parsers honoring the real no-LLM contract.
 
-    def ingest_no_llm(sources: list[Path], bundle: Bundle) -> list:
-        created = []
-        for src in sources:
-            created.append(
-                bundle.write_concept(
-                    f"draft/{src.stem}",
-                    {"type": "Draft", "title": f"Draft of {src.name}"},
-                    f"Ingested from {src.name}.",
-                )
-            )
-        return created
+    ``ingest_no_llm(bundle, parsed, source_id)`` writes one draft concept
+    per call and returns its id.
+    """
 
-    module.ingest_no_llm = ingest_no_llm
-    monkeypatch.setitem(sys.modules, "okfsmith.parsers", module)
-    return module
+    def ingest_no_llm(bundle: Bundle, parsed, source_id: str) -> list[str]:
+        concept = bundle.write_concept(
+            f"draft/{Path(source_id).stem}",
+            {"type": "Draft", "title": f"Draft of {Path(source_id).name}"},
+            f"Ingested from {source_id}.",
+        )
+        return [concept.id]
+
+    return _stub_parsers_modules(monkeypatch, ingest_no_llm)
 
 
 @pytest.fixture()
 def stub_failing_parsers(monkeypatch):
-    module = types.ModuleType("okfsmith.parsers")
-
-    def ingest_no_llm(sources: list[Path], bundle: Bundle) -> list:
+    def ingest_no_llm(bundle: Bundle, parsed, source_id: str) -> list[str]:
         raise RuntimeError("simulated extraction failure")
 
-    module.ingest_no_llm = ingest_no_llm
-    monkeypatch.setitem(sys.modules, "okfsmith.parsers", module)
-    return module
+    return _stub_parsers_modules(monkeypatch, ingest_no_llm)
+
+
+@dataclass
+class _StubSectionInput:
+    title: str
+    level: int
+    text: str
+    page_span: object = (1, 1)
+    tables: list = field(default_factory=list)
+    source_id: str = ""
+    source_path: str = ""
+    doc_title: str = ""
+    doc_summary: str = ""
+    section_path: str = ""
+
+
+@pytest.fixture()
+def stub_extract(monkeypatch):
+    """Inject a stub ``okfsmith.extract`` plus the parsers pieces it needs."""
+    parsers_mod = types.ModuleType("okfsmith.parsers")
+    sectioning_mod = types.ModuleType("okfsmith.parsers.sectioning")
+    extract_mod = types.ModuleType("okfsmith.extract")
+
+    class LLMUnavailableError(Exception):
+        pass
+
+    def parse_file(path):
+        return SimpleNamespace(pages=[], meta={"source": str(path)})
+
+    def section(parsed):
+        return SimpleNamespace(
+            sections=[
+                SimpleNamespace(
+                    title="Intro", level=1, text="body text", page_span=(1, 1), tables=[]
+                )
+            ],
+            too_small=False,
+        )
+
+    calls: list[dict] = []
+
+    def run(bundle, sections, *, model=None, base_url=None, api_key=None, verify=True):
+        calls.append(
+            {
+                "n_sections": len(sections),
+                "model": model,
+                "titles": [s.title for s in sections],
+                "source_ids": [s.source_id for s in sections],
+            }
+        )
+        concept = bundle.write_concept(
+            "extracted/doc",
+            {"type": "Extracted", "title": "Doc"},
+            "Extracted body.",
+        )
+        return [concept.id]
+
+    parsers_mod.parse_file = parse_file
+    sectioning_mod.section = section
+    extract_mod.SectionInput = _StubSectionInput
+    extract_mod.run = run
+    extract_mod.LLMUnavailableError = LLMUnavailableError
+
+    monkeypatch.setitem(sys.modules, "okfsmith.parsers", parsers_mod)
+    monkeypatch.setitem(sys.modules, "okfsmith.parsers.sectioning", sectioning_mod)
+    monkeypatch.setitem(sys.modules, "okfsmith.extract", extract_mod)
+    return SimpleNamespace(calls=calls, LLMUnavailableError=LLMUnavailableError)
+
+
+@pytest.fixture()
+def stub_extract_unavailable(stub_extract, monkeypatch):
+    """Same as stub_extract, but run() raises LLMUnavailableError."""
+
+    def run(bundle, sections, *, model=None, base_url=None, api_key=None, verify=True):
+        raise stub_extract.LLMUnavailableError(
+            "no LLM endpoint reachable: start Ollama (`ollama serve`) "
+            "or set OKFSMITH_MODEL / OPENAI_API_KEY"
+        )
+
+    sys.modules["okfsmith.extract"].run = run
+    return stub_extract
 
 
 @pytest.fixture()
@@ -133,6 +242,20 @@ def stub_mcp(monkeypatch):
     module.calls = calls
     monkeypatch.setitem(sys.modules, "okfsmith.mcp_server", module)
     return module
+
+
+def _hide_slice(monkeypatch, dotted: str):
+    """Simulate a slice that is not installed: block its import entirely."""
+    real_import_module = importlib.import_module
+
+    def fake_import_module(name, *args, **kwargs):
+        if name == dotted or name.startswith(dotted + "."):
+            raise ModuleNotFoundError(f"No module named '{dotted}'", name=dotted)
+        return real_import_module(name, *args, **kwargs)
+
+    monkeypatch.setattr(importlib, "import_module", fake_import_module)
+    for mod in [m for m in sys.modules if m == dotted or m.startswith(dotted + ".")]:
+        monkeypatch.delitem(sys.modules, mod, raising=False)
 
 
 # ---------------------------------------------------------------------------
@@ -232,9 +355,9 @@ def test_validate_missing_directory():
     assert result.exit_code == 1
 
 
-def test_validate_without_slice_landed():
-    # okfsmith.validate has not landed on this branch: clean error, exit 1.
-    assert "okfsmith.validate" not in sys.modules
+def test_validate_without_slice_landed(monkeypatch):
+    # okfsmith.validate is not installed: clean error, exit 1.
+    _hide_slice(monkeypatch, "okfsmith.validate")
     result = runner.invoke(app, ["validate", str(FIXTURES / "valid")])
     assert result.exit_code == 1
     assert "not available" in result.output
@@ -339,8 +462,8 @@ def test_graph_text_reports_orphan():
     assert "orphan" in result.output
 
 
-def test_graph_html_without_slice_landed(tmp_path):
-    assert "okfsmith.viz" not in sys.modules
+def test_graph_html_without_slice_landed(monkeypatch):
+    _hide_slice(monkeypatch, "okfsmith.viz")
     result = runner.invoke(
         app, ["graph", str(FIXTURES / "valid"), "--format", "html"]
     )
@@ -375,7 +498,7 @@ def test_graph_unknown_format():
 
 
 # ---------------------------------------------------------------------------
-# ingest (stub parsers — tests CLI wiring, not extraction itself)
+# ingest (stub parsers/extract — tests CLI wiring, not extraction itself)
 # ---------------------------------------------------------------------------
 
 
@@ -386,10 +509,10 @@ def test_ingest_missing_source(tmp_path):
     assert result.exit_code == 1
 
 
-def test_ingest_no_llm_without_slice_landed(tmp_path):
+def test_ingest_no_llm_without_slice_landed(monkeypatch, tmp_path):
     src = tmp_path / "doc.txt"
     src.write_text("hello", encoding="utf-8")
-    assert "okfsmith.parsers" not in sys.modules
+    _hide_slice(monkeypatch, "okfsmith.parsers")
     result = runner.invoke(
         app, ["ingest", str(src), "--bundle", str(tmp_path / "b"), "--no-llm"]
     )
@@ -406,9 +529,27 @@ def test_ingest_no_llm_with_stub_parsers(stub_parsers, tmp_path):
     )
     assert result.exit_code == 0, result.output
     assert (bundle_dir / "draft" / "doc.md").is_file()
+    # dedup manifest recorded the source
+    assert len(stub_parsers.seen) == 1
     # index refreshed and log appended
     assert (bundle_dir / "index.md").is_file()
     assert "**Update**" in (bundle_dir / "log.md").read_text(encoding="utf-8")
+
+
+def test_ingest_no_llm_skips_already_ingested(stub_parsers, tmp_path):
+    src = tmp_path / "doc.txt"
+    src.write_text("hello", encoding="utf-8")
+    bundle_dir = tmp_path / "bundle"
+    first = runner.invoke(
+        app, ["ingest", str(src), "--bundle", str(bundle_dir), "--no-llm"]
+    )
+    assert first.exit_code == 0, first.output
+    second = runner.invoke(
+        app, ["ingest", str(src), "--bundle", str(bundle_dir), "--no-llm"], env=WIDE
+    )
+    assert second.exit_code == 0, second.output
+    assert "already ingested" in second.output
+    assert "Wrote" not in second.output  # nothing new created
 
 
 def test_ingest_directory_recursive(stub_parsers, tmp_path):
@@ -443,10 +584,10 @@ def test_ingest_total_failure_exits_1(stub_failing_parsers, tmp_path):
     assert "all inputs failed" in result.output
 
 
-def test_ingest_llm_path_without_slice_landed(tmp_path):
+def test_ingest_llm_path_without_slice_landed(monkeypatch, tmp_path):
     src = tmp_path / "doc.txt"
     src.write_text("hello", encoding="utf-8")
-    assert "okfsmith.extract" not in sys.modules
+    _hide_slice(monkeypatch, "okfsmith.extract")
     result = runner.invoke(
         app, ["ingest", str(src), "--bundle", str(tmp_path / "b")]
     )
@@ -454,13 +595,43 @@ def test_ingest_llm_path_without_slice_landed(tmp_path):
     assert "not available" in result.output
 
 
+def test_ingest_llm_path_wires_sections(stub_extract, tmp_path):
+    src = tmp_path / "doc.txt"
+    src.write_text("hello", encoding="utf-8")
+    bundle_dir = tmp_path / "bundle"
+    result = runner.invoke(
+        app,
+        ["ingest", str(src), "--bundle", str(bundle_dir), "--model", "test-model"],
+    )
+    assert result.exit_code == 0, result.output
+    assert len(stub_extract.calls) == 1
+    call = stub_extract.calls[0]
+    assert call["model"] == "test-model"
+    assert call["n_sections"] == 1
+    assert call["titles"] == ["Intro"]
+    assert call["source_ids"] == [str(src)]
+    assert (bundle_dir / "extracted" / "doc.md").is_file()
+    assert "**Update**" in (bundle_dir / "log.md").read_text(encoding="utf-8")
+
+
+def test_ingest_llm_unavailable_clean_error(stub_extract_unavailable, tmp_path):
+    src = tmp_path / "doc.txt"
+    src.write_text("hello", encoding="utf-8")
+    result = runner.invoke(
+        app, ["ingest", str(src), "--bundle", str(tmp_path / "b")]
+    )
+    assert result.exit_code == 1
+    assert "LLM unavailable" in result.output
+    assert "Traceback" not in result.output
+
+
 # ---------------------------------------------------------------------------
 # mcp
 # ---------------------------------------------------------------------------
 
 
-def test_mcp_without_slice_landed(tmp_path):
-    assert "okfsmith.mcp_server" not in sys.modules
+def test_mcp_without_slice_landed(monkeypatch, tmp_path):
+    _hide_slice(monkeypatch, "okfsmith.mcp_server")
     result = runner.invoke(app, ["mcp", "--bundle", str(tmp_path)])
     assert result.exit_code == 1
     assert "not available" in result.output

@@ -2,14 +2,12 @@
 
 This module only wires user input to business logic: the real work lives in
 ``okfsmith.core`` and the sibling slices (``parsers``, ``extract``,
-``validate``, ``viz``, ``mcp_server``), which land on other branches and are
-therefore imported lazily — see each command's docstring and the expected
-signatures documented in the module docstring of the owning slice.
+``validate``, ``viz``, ``mcp_server``), which are imported lazily so each
+command fails cleanly when its slice is not installed.
 """
 
 from __future__ import annotations
 
-import hashlib
 import importlib
 import json
 from pathlib import Path
@@ -32,17 +30,19 @@ def _lazy_attr(module_name: str, attr: str) -> Any:
     """Import *attr* from *module_name*, failing cleanly if the slice is absent.
 
     Sibling slices (``okfsmith.parsers``, ``okfsmith.extract``,
-    ``okfsmith.validate``, ``okfsmith.viz``, ``okfsmith.mcp_server``) land on
-    other branches; when they have not landed yet the command exits 1 with a
-    clear message instead of an ImportError traceback.
+    ``okfsmith.validate``, ``okfsmith.viz``, ``okfsmith.mcp_server``) are
+    imported lazily; when one is not installed the command exits 1 with a
+    clear message instead of an ImportError traceback. *module_name* may be a
+    dotted submodule path (e.g. ``okfsmith.parsers.ingest_no_llm``).
     """
     try:
         module = importlib.import_module(module_name)
     except ModuleNotFoundError as exc:
         missing = exc.name or ""
-        if missing == module_name or missing.startswith(module_name + "."):
+        # The slice itself (or one of its parents under okfsmith) is absent.
+        if module_name == missing or module_name.startswith(missing + "."):
             typer.echo(
-                f"error: '{module_name}' is not available on this branch yet.",
+                f"error: '{module_name}' is not available in this installation.",
                 err=True,
             )
             raise typer.Exit(code=1)
@@ -51,7 +51,7 @@ def _lazy_attr(module_name: str, attr: str) -> Any:
         return getattr(module, attr)
     except AttributeError:
         typer.echo(
-            f"error: '{module_name}' does not provide '{attr}' yet.", err=True
+            f"error: '{module_name}' does not provide '{attr}'.", err=True
         )
         raise typer.Exit(code=1)
 
@@ -60,14 +60,6 @@ def _require_dir(path: Path, what: str = "directory") -> None:
     if not path.is_dir():
         typer.echo(f"error: {what} '{path}' does not exist.", err=True)
         raise typer.Exit(code=1)
-
-
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(65536), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def _collect_inputs(source: Path, recursive: bool) -> list[Path]:
@@ -111,8 +103,59 @@ def init(
 
 
 # ---------------------------------------------------------------------------
-# ingest (stub — extraction slices land on other branches)
+# ingest
 # ---------------------------------------------------------------------------
+
+
+def _ingest_no_llm_one(
+    path: Path,
+    target: Bundle,
+    *,
+    parse_file: Any,
+    ingest_no_llm: Any,
+    sha256_of: Any,
+    already_ingested: Any,
+    record_ingested: Any,
+) -> tuple[str, int]:
+    """Ingest one file via deterministic sectioning. Returns (status, count)."""
+    digest = sha256_of(path)
+    if already_ingested(target, digest):
+        return "skipped (already ingested)", 0
+    parsed = parse_file(path)
+    created = ingest_no_llm(target, parsed, str(path))
+    record_ingested(target, digest, str(path))
+    return "ok", len(created)
+
+
+def _ingest_llm_one(
+    path: Path,
+    target: Bundle,
+    *,
+    parse_file: Any,
+    section: Any,
+    SectionInput: Any,
+    run: Any,
+    model: str | None,
+) -> tuple[str, int]:
+    """Ingest one file via the LLM extraction pipeline. Returns (status, count)."""
+    parsed = parse_file(path)
+    sectioned = section(parsed)
+    doc_title = (parsed.meta or {}).get("title") or path.stem
+    sections = [
+        SectionInput(
+            title=sec.title,
+            level=sec.level,
+            text=sec.text,
+            page_span=sec.page_span,
+            tables=list(sec.tables or []),
+            source_id=str(path),
+            source_path=str(path),
+            doc_title=doc_title,
+        )
+        for sec in sectioned.sections
+    ]
+    created = run(target, sections, model=model)
+    return "ok", len(created)
 
 
 @app.command()
@@ -135,9 +178,10 @@ def ingest(
 ) -> None:
     """Ingest documents into the bundle as draft concepts.
 
-    Per-file SHA-256 is computed for every input; with ``--no-llm`` the
-    deterministic sectioning path (``okfsmith.parsers.ingest_no_llm``) is used,
-    otherwise the LLM extraction path (``okfsmith.extract.run``).
+    With ``--no-llm`` the deterministic sectioning path is used
+    (``okfsmith.parsers.ingest_no_llm``) with per-file SHA-256 dedup via the
+    bundle manifest; otherwise the LLM extraction path
+    (``okfsmith.extract.run``) is used.
     """
     if not source.exists():
         typer.echo(f"error: source '{source}' does not exist.", err=True)
@@ -147,23 +191,20 @@ def ingest(
         typer.echo(f"error: no input files found under '{source}'.", err=True)
         raise typer.Exit(code=1)
 
+    parse_file = _lazy_attr("okfsmith.parsers", "parse_file")
     if no_llm:
-        # Expected: ingest_no_llm(sources: list[Path], bundle: Bundle)
-        #           -> list[okfsmith.core.bundle.Concept]
-        extract = _lazy_attr("okfsmith.parsers", "ingest_no_llm")
-
-        def run_one(path: Path, target: Bundle) -> list:
-            return extract([path], target)
-
+        ingest_no_llm = _lazy_attr(
+            "okfsmith.parsers.ingest_no_llm", "ingest_no_llm"
+        )
+        sha256_of = _lazy_attr("okfsmith.parsers.dedup", "sha256_of")
+        already_ingested = _lazy_attr("okfsmith.parsers.dedup", "already_ingested")
+        record_ingested = _lazy_attr("okfsmith.parsers.dedup", "record_ingested")
         mode = "sectioning (no LLM)"
     else:
-        # Expected: run(sources: list[Path], bundle: Bundle,
-        #               model: str | None = None) -> list[Concept]
+        section = _lazy_attr("okfsmith.parsers.sectioning", "section")
+        SectionInput = _lazy_attr("okfsmith.extract", "SectionInput")
         run = _lazy_attr("okfsmith.extract", "run")
-
-        def run_one(path: Path, target: Bundle) -> list:
-            return run([path], target, model=model)
-
+        LLMUnavailableError = _lazy_attr("okfsmith.extract", "LLMUnavailableError")
         mode = f"LLM extraction (model={model or 'default'})"
 
     target = Bundle.load(bundle)
@@ -173,18 +214,45 @@ def ingest(
     table.add_column("Concepts", justify="right")
     table.add_column("Status")
 
+    digest_of = _lazy_attr("okfsmith.parsers.dedup", "sha256_of")
     failures: list[Path] = []
     created_total = 0
     for path in files:
-        digest = _sha256(path)
+        digest = digest_of(path)[:12]
         try:
-            created = run_one(path, target)
-            count = len(created)
+            if no_llm:
+                status, count = _ingest_no_llm_one(
+                    path,
+                    target,
+                    parse_file=parse_file,
+                    ingest_no_llm=ingest_no_llm,
+                    sha256_of=digest_of,
+                    already_ingested=already_ingested,
+                    record_ingested=record_ingested,
+                )
+                style = "green" if status == "ok" else "yellow"
+                table.add_row(str(path), digest, str(count), f"[{style}]{status}[/{style}]")
+            else:
+                try:
+                    status, count = _ingest_llm_one(
+                        path,
+                        target,
+                        parse_file=parse_file,
+                        section=section,
+                        SectionInput=SectionInput,
+                        run=run,
+                        model=model,
+                    )
+                except LLMUnavailableError as exc:
+                    typer.echo(f"error: LLM unavailable: {exc}", err=True)
+                    raise typer.Exit(code=1)
+                table.add_row(str(path), digest, str(count), "[green]ok[/green]")
             created_total += count
-            table.add_row(str(path), digest[:12], str(count), "[green]ok[/green]")
+        except typer.Exit:
+            raise
         except Exception as exc:  # noqa: BLE001 — per-file failure, keep going
             failures.append(path)
-            table.add_row(str(path), digest[:12], "0", f"[red]failed: {exc}[/red]")
+            table.add_row(str(path), digest, "0", f"[red]failed: {exc}[/red]")
     console.print(table)
 
     if created_total:
@@ -224,12 +292,12 @@ def validate(
 ) -> None:
     """Validate a bundle against OKF v0.2 (E001–E004 / W001–W015)."""
     _require_dir(directory)
-    # Expected: check(bundle_path: Path | str) -> object with
-    # `.errors` / `.warnings`: lists of dicts {code, file, message, spec}.
+    # check(bundle_path) -> ValidationReport with .errors / .warnings as
+    # Finding objects; serialize each via Finding.as_dict().
     check = _lazy_attr("okfsmith.validate", "check")
     result = check(directory)
-    errors = list(result.errors)
-    warnings = list(result.warnings)
+    errors = [finding.as_dict() for finding in result.errors]
+    warnings = [finding.as_dict() for finding in result.warnings]
 
     if output_format == "json":
         typer.echo(json.dumps({"errors": errors, "warnings": warnings}, indent=2))
@@ -362,7 +430,7 @@ def graph(
     elif output_format == "mermaid":
         typer.echo(_links.mermaid_flowchart(data), nl=False)
     elif output_format == "html":
-        # Expected: render_html(root: Path, output: Path) -> Path
+        # render_html(root, output) -> Path
         render_html = _lazy_attr("okfsmith.viz", "render_html")
         out_path = output or (Path(directory) / "viz.html")
         written = render_html(Path(directory), out_path)
@@ -410,6 +478,6 @@ def mcp(
 ) -> None:
     """Serve the bundle over MCP (Model Context Protocol)."""
     _require_dir(bundle, "bundle")
-    # Expected: serve(bundle_path: Path | str, transport: str) -> None
+    # serve(bundle_path, transport) -> None
     serve = _lazy_attr("okfsmith.mcp_server", "serve")
     serve(bundle, transport)

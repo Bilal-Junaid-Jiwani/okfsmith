@@ -196,7 +196,10 @@ def is_ollama_reachable(base_url: str = DEFAULT_OLLAMA_BASE) -> bool:
     try:
         response = httpx.get(f"{base_url.rstrip('/')}/api/tags", timeout=REACHABILITY_TIMEOUT)
         return response.status_code < 500
-    except httpx.HTTPError:
+    except Exception:
+        # Any failure — connection refused, timeout, bad status, or even a
+        # broken client setup (e.g. unparseable proxy env vars) — means
+        # "not reachable". This probe must never raise.
         return False
 
 
