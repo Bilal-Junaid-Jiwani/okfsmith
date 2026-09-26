@@ -76,7 +76,7 @@ def fake_llm(monkeypatch):
     def _factory(script: list) -> OpenAICompatibleBackend:
         transport = httpx.MockTransport(_scripted(script))
         backend = OpenAICompatibleBackend(
-            base_url="http://fake",
+            base_url="http://fake/v1",
             model="fake-model",
             client=httpx.Client(transport=transport),
         )
@@ -461,7 +461,8 @@ def test_anthropic_key_logs_todo_warning(monkeypatch, caplog):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-fake")
     with caplog.at_level("WARNING", logger="okfsmith.extract.llm"):
         backend = resolve_backend()
-    assert "Anthropic" in caplog.text and "TODO" in caplog.text
+    assert "Anthropic" in caplog.text
+    assert "not OpenAI-compatible" in caplog.text
     assert isinstance(backend, OpenAICompatibleBackend)
 
 
@@ -481,7 +482,7 @@ def test_redact_key_and_error_hygiene():
         return httpx.Response(500, text="internal boom")
 
     backend = OpenAICompatibleBackend(
-        base_url="http://fake",
+        base_url="http://fake/v1",
         model="m",
         api_key="sk-super-secret-123",
         client=httpx.Client(transport=httpx.MockTransport(handler)),

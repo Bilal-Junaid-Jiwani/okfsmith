@@ -21,21 +21,47 @@ claims are written with `[^source-id]` citations that resolve against
 
 1. `--model NAME` on the command line
 2. `OKFSMITH_MODEL` environment variable
-3. built-in default (Ollama)
+3. built-in default (Ollama `qwen3:8b`)
 
 ### Backends
 
 - **Ollama** (default): expects a server at `http://localhost:11434`
-  (`ollama serve`). Fully local.
-- **OpenAI-compatible**: set `OPENAI_API_KEY` (read from the environment
-  only — never from files) and optionally `OKFSMITH_BASE_URL`.
+  (`ollama serve`). Fully local. `okfsmith doctor` still reports whether
+  it is reachable.
+- **Provider presets** (`--provider NAME` or `OKFSMITH_PROVIDER`): 15
+  OpenAI-compatible endpoints — `openrouter`, `groq`, `mistral`,
+  `deepseek`, `together`, `fireworks`, `deepinfra`, `anyscale`,
+  `perplexity`, `xai`, `gemini`, `openai`, `agentrouter`, `lmstudio`,
+  `ollama`. The key comes from `OKFSMITH_API_KEY` (preferred),
+  `--api-key`, `AGENTROUTER_API_KEY` (honored when the provider is
+  `agentrouter`), or legacy `OPENAI_API_KEY`. `openrouter` is the
+  flagship: one key routes to hundreds of models via `vendor/model`-style
+  IDs (e.g. `--model anthropic/claude-sonnet-4`).
+- **Anything else** (`--api-base URL` or `OKFSMITH_API_BASE`): Azure
+  OpenAI, self-hosted vLLM, a llama.cpp server, any compat proxy. The base
+  is the full API base (e.g. `https://my-proxy/v1`); okfsmith appends
+  `/chat/completions`. A bare host with no path gains `/v1` automatically
+  (the old `OPENAI_BASE_URL` contract keeps working).
+
+Full precedence: flags → `OKFSMITH_*` → legacy `OPENAI_API_KEY` /
+`OPENAI_BASE_URL` (and the `OKFSMITH_BASE_URL` alias promised here
+earlier) → provider preset → default Ollama.
+
+Anthropic's **native** API is not OpenAI-compatible, so it cannot be
+called directly. Use the `openrouter` preset (one key, routes to Claude
+models) or point `--api-base` at an OpenAI-compatible gateway in front of
+Anthropic.
 
 If no endpoint is reachable, ingest fails cleanly with
 `error [llm-unavailable]:` and a hint (`ollama serve`, env vars, or retry
 with `--no-llm`) — never a traceback, never a leaked key. API keys are
-redacted from logs and error output.
+redacted from logs and error output; banners, `/model`, and
+`okfsmith doctor` only ever show `set (hidden)` / `not set`.
 
-`--model` combined with `--no-llm` is a usage error (exit 2).
+`--model` combined with `--no-llm` is a usage error (exit 2) — as are
+`--provider`, `--api-base`, and `--api-key` with `--no-llm`. Passing
+`--api-key` on the command line prints a one-time warning: it lands in
+shell history, so `OKFSMITH_API_KEY` is preferred.
 
 ## Trust tiers, again
 

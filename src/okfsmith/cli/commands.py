@@ -90,6 +90,26 @@ def fail(
     raise typer.Exit(code=exit_code)
 
 
+def _warn_api_key_flag() -> None:
+    """One-time warning when ``--api-key`` is passed on the command line.
+
+    The key lands in shell history that way; the ``OKFSMITH_API_KEY``
+    environment variable is preferred. Printed to stderr, once per process.
+    """
+    global _api_key_warned
+    if _api_key_warned:
+        return
+    _api_key_warned = True
+    typer.echo(
+        "Warning: --api-key puts your key in shell history; "
+        "prefer the OKFSMITH_API_KEY environment variable.",
+        err=True,
+    )
+
+
+_api_key_warned = False
+
+
 def _fail_json(code: str, message: str, hint: str | None = None) -> NoReturn:
     """Emit a machine-readable error object on stdout and exit 1."""
     payload: dict[str, Any] = {"status": "error", "code": code, "message": message}
@@ -349,6 +369,9 @@ def _ingest_llm_one(
     SectionInput: Any,
     run: Any,
     model: str | None,
+    provider: str | None = None,
+    api_base: str | None = None,
+    api_key: str | None = None,
 ) -> tuple[str, int]:
     """Ingest one file via the LLM extraction pipeline. Returns (status, count)."""
     parsed = parse_file(path)
@@ -367,7 +390,14 @@ def _ingest_llm_one(
         )
         for sec in sectioned.sections
     ]
-    created = run(target, sections, model=model)
+    created = run(
+        target,
+        sections,
+        model=model,
+        provider=provider,
+        base_url=api_base,
+        api_key=api_key,
+    )
     return "ok", len(created)
 
 
@@ -382,6 +412,27 @@ def ingest(
     ),
     model: str | None = typer.Option(
         None, "--model", help="Model to use for LLM extraction."
+    ),
+    provider: str | None = typer.Option(
+        None,
+        "--provider",
+        help="LLM provider preset: openrouter, groq, mistral, deepseek, "
+        "together, fireworks, deepinfra, anyscale, perplexity, xai, gemini, "
+        "openai, agentrouter, lmstudio, ollama (or OKFSMITH_PROVIDER).",
+    ),
+    api_base: str | None = typer.Option(
+        None,
+        "--api-base",
+        help="Custom OpenAI-compatible base URL, e.g. "
+        "https://my-proxy/v1 (or OKFSMITH_API_BASE). Covers Azure OpenAI, "
+        "self-hosted vLLM / llama.cpp, or any compat proxy. "
+        "Overrides --provider.",
+    ),
+    api_key: str | None = typer.Option(
+        None,
+        "--api-key",
+        help="API key for the endpoint (or OKFSMITH_API_KEY env var, "
+        "preferred — --api-key lands in shell history).",
     ),
     no_llm: bool = typer.Option(
         False,
@@ -418,12 +469,27 @@ def ingest(
         okfsmith ingest ./kb docs/ --recursive --no-llm
         okfsmith ingest ./kb paper.pdf --dry-run
         okfsmith ingest ./kb paper.pdf --quiet
+        export OKFSMITH_API_KEY=... OKFSMITH_PROVIDER=groq
+        okfsmith ingest ./kb paper.pdf --model llama-3.3-70b-versatile
+        okfsmith ingest ./kb paper.pdf --provider openrouter --model anthropic/claude-sonnet-4
     """
     # --- validate everything before any lazy import (review-gate item 4) ---
     if model is not None and no_llm:
         raise typer.BadParameter(
             "--model cannot be combined with --no-llm: no LLM is used in that mode."
         )
+    for flag_name, flag_value in (
+        ("--provider", provider),
+        ("--api-base", api_base),
+        ("--api-key", api_key),
+    ):
+        if flag_value is not None and no_llm:
+            raise typer.BadParameter(
+                f"{flag_name} cannot be combined with --no-llm: "
+                "no LLM is used in that mode."
+            )
+    if api_key is not None:
+        _warn_api_key_flag()
     files: list[Path] = []
     for source in sources:
         if not source.exists():
@@ -501,13 +567,16 @@ def ingest(
                             SectionInput=SectionInput,
                             run=run,
                             model=model,
+                            provider=provider,
+                            api_base=api_base,
+                            api_key=api_key,
                         )
                     except LLMUnavailableError as exc:
                         raise CliError(
                             "llm-unavailable",
                             f"LLM unavailable: {exc}",
-                            "Start Ollama ('ollama serve'), set OKFSMITH_MODEL / "
-                            "OPENAI_API_KEY, or retry with --no-llm.",
+                            "Start Ollama ('ollama serve'), set OKFSMITH_PROVIDER / "
+                            "OKFSMITH_API_KEY, or retry with --no-llm.",
                         ) from None
                 created_total += count
                 rows.append((str(path), digest, str(count), status))
@@ -1025,6 +1094,25 @@ def doctor() -> None:
     except Exception:  # noqa: BLE001
         rows.append(("ollama", "WARN", "could not probe"))
 
+    # LLM backend resolution summary (no network probing here; the ollama
+    # row above covers reachability). Keys are never displayed — only
+    # whether one is configured.
+    try:
+        from okfsmith.extract import llm as _llm
+        cfg = _llm.resolve_llm_config()
+        rows.append(("llm provider", "OK", cfg.provider))
+        rows.append(("llm base URL", "OK", cfg.base_url or _llm.DEFAULT_OLLAMA_BASE))
+        rows.append(("llm model", "OK", cfg.model))
+        rows.append((
+            "llm api key",
+            "OK" if cfg.api_key else "MISSING",
+            f"{_llm.key_status(cfg.api_key)} (via {cfg.key_source})"
+            if cfg.api_key
+            else "not needed for local Ollama; set OKFSMITH_API_KEY for hosted providers",
+        ))
+    except Exception as exc:  # noqa: BLE001 — e.g. unknown OKFSMITH_PROVIDER
+        rows.append(("llm provider", "FAIL", str(exc)))
+
     import tempfile
     try:
         with tempfile.TemporaryDirectory(prefix="okfsmith-doctor-"):
@@ -1059,6 +1147,27 @@ def chat(
     model: str | None = typer.Option(
         None, "--model", help="Model to use for generative answers."
     ),
+    provider: str | None = typer.Option(
+        None,
+        "--provider",
+        help="LLM provider preset: openrouter, groq, mistral, deepseek, "
+        "together, fireworks, deepinfra, anyscale, perplexity, xai, gemini, "
+        "openai, agentrouter, lmstudio, ollama (or OKFSMITH_PROVIDER).",
+    ),
+    api_base: str | None = typer.Option(
+        None,
+        "--api-base",
+        help="Custom OpenAI-compatible base URL, e.g. "
+        "https://my-proxy/v1 (or OKFSMITH_API_BASE). Covers Azure OpenAI, "
+        "self-hosted vLLM / llama.cpp, or any compat proxy. "
+        "Overrides --provider.",
+    ),
+    api_key: str | None = typer.Option(
+        None,
+        "--api-key",
+        help="API key for the endpoint (or OKFSMITH_API_KEY env var, "
+        "preferred -- --api-key lands in shell history).",
+    ),
     no_llm: bool = typer.Option(
         False,
         "--no-llm",
@@ -1073,11 +1182,25 @@ def chat(
     extractive mode. Slash commands expose bundle operations inline —
     type ``/help`` inside the chat to see them.
 
+    Any hosted model works via ``--provider`` presets — ``openrouter``
+    is the flagship: one key routes to hundreds of models
+    (``--model anthropic/claude-sonnet-4`` style IDs). Also: groq, mistral,
+    deepseek, together, fireworks, deepinfra, anyscale, perplexity, xai,
+    gemini, openai, agentrouter, lmstudio, ollama. Put the key in
+    ``OKFSMITH_API_KEY`` (``AGENTROUTER_API_KEY`` works for the agentrouter
+    preset), never on the command line in scripts. Anything else (Azure
+    OpenAI, self-hosted vLLM / llama.cpp, any compat proxy) works via
+    ``--api-base``. Note: Anthropic's native API is not OpenAI-compatible —
+    it needs a compat proxy (or the ``openrouter`` preset).
+
     \b
     Examples:
         okfsmith chat ./kb
         okfsmith chat ./kb --no-llm
         okfsmith chat ./kb --model qwen3:8b
+        export OKFSMITH_API_KEY=... OKFSMITH_PROVIDER=groq
+        okfsmith chat ./kb --model llama-3.3-70b-versatile
+        okfsmith chat ./kb --provider openrouter --model anthropic/claude-sonnet-4
         printf '/list\\n/exit\\n' | okfsmith chat ./kb
     """
     if model is not None and no_llm:
@@ -1088,9 +1211,39 @@ def chat(
     # implementations, so importing it at top level would be circular.
     # _require_bundle_dir raises CliError; the @_cli wrapper turns it into
     # the standard `error [CODE]` + hint and exits.
+    for flag_name, flag_value in (
+        ("--provider", provider),
+        ("--api-base", api_base),
+        ("--api-key", api_key),
+    ):
+        if flag_value is not None and no_llm:
+            raise typer.BadParameter(
+                f"{flag_name} cannot be combined with --no-llm: "
+                "no LLM is used in that mode."
+            )
+    if api_key is not None:
+        _warn_api_key_flag()
     root = _require_bundle_dir(bundle or Path("."))
     from okfsmith.cli import chat as _chat_engine
+    from okfsmith.extract.llm import LLMError as _LLMError
 
-    code = _chat_engine.run_chat(root, model=model, no_llm=no_llm)
+    try:
+        code = _chat_engine.run_chat(
+            root,
+            model=model,
+            no_llm=no_llm,
+            provider=provider,
+            api_base=api_base,
+            api_key=api_key,
+        )
+    except _LLMError as exc:
+        # Configuration mistakes (e.g. unknown --provider) fail loudly here
+        # rather than silently degrading to extractive mode.
+        fail(
+            "bad-llm-config",
+            str(exc),
+            "Use --provider with a valid preset name, or set "
+            "OKFSMITH_PROVIDER / OKFSMITH_API_BASE.",
+        )
     if code:
         raise typer.Exit(code=code)

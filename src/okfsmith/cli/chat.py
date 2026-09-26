@@ -28,13 +28,11 @@ from okfsmith import __version__
 from okfsmith.core.bundle import Bundle, Concept
 from okfsmith.core.spec import trust_tier
 from okfsmith.extract.llm import (
-    OPENAI_KEY_ENV_VAR,
     LLMBackend,
     LLMError,
     LLMUnavailableError,
-    OpenAICompatibleBackend,
+    key_status,
     resolve_backend,
-    resolve_model,
 )
 
 try:
@@ -96,30 +94,34 @@ def _concept_sources(concept: Concept) -> list[str]:
 
 
 def resolve_chat_backend(
-    *, model: str | None = None, no_llm: bool = False
+    *,
+    model: str | None = None,
+    provider: str | None = None,
+    api_base: str | None = None,
+    api_key: str | None = None,
+    no_llm: bool = False,
 ) -> LLMBackend | None:
-    """Pick the chat backend, or ``None`` for extractive mode. Never raises.
+    """Pick the chat backend, or ``None`` for extractive mode.
 
     - ``no_llm=True`` → ``None`` (extractive mode, by choice).
-    - Otherwise the standard :func:`resolve_backend` selection (Ollama, then
-      ``OPENAI_API_KEY``). When Ollama is unreachable but ``OPENAI_API_KEY``
-      is set, a hosted OpenAI-compatible backend is used as a last resort.
-    - Anything unusable → ``None``: chat always starts, LLM or not.
+    - Otherwise the standard :func:`resolve_backend` selection (explicit
+      provider/base/key → env → Ollama → legacy ``OPENAI_API_KEY``).
+    - :class:`LLMUnavailableError` → ``None``: chat always starts, LLM or not.
+    - :class:`LLMError` for *configuration* mistakes (unknown provider) is
+      **not** swallowed — a typo'd ``--provider`` must fail loudly, not
+      silently degrade to extractive mode.
     """
     if no_llm:
         return None
     try:
-        return resolve_backend(model=model)
+        return resolve_backend(
+            model=model, provider=provider, api_base=api_base, api_key=api_key
+        )
     except LLMUnavailableError:
-        key = os.environ.get(OPENAI_KEY_ENV_VAR)
-        if key:
-            return OpenAICompatibleBackend(
-                base_url="https://api.openai.com",
-                model=resolve_model(model),
-                api_key=key,
-            )
         return None
-    except Exception:
+    except Exception as exc:
+        if isinstance(exc, LLMError):
+            raise
         return None
 
 
@@ -127,10 +129,16 @@ def _backend_status_line(backend: LLMBackend | None) -> str:
     if backend is None:
         return (
             "[yellow]extractive mode[/yellow] — no LLM reachable. Answers are "
-            "keyword-matched concept excerpts. Start Ollama or set "
-            "OPENAI_API_KEY for generative answers."
+            "keyword-matched concept excerpts. Start Ollama, set "
+            "OKFSMITH_API_KEY + OKFSMITH_PROVIDER, or pass --provider, for "
+            "generative answers."
         )
-    return f"[green]{escape(backend.name)}[/green] · model {escape(backend.model)}"
+    provider = escape(getattr(backend, "provider", backend.name))
+    has_key = bool(getattr(backend, "has_key", False))
+    return (
+        f"[green]{provider}[/green] · model {escape(backend.model)} · "
+        f"key {key_status('x' if has_key else None)}"
+    )
 
 
 class ChatSession:
@@ -143,12 +151,22 @@ class ChatSession:
         *,
         backend: LLMBackend | None = None,
         model: str | None = None,
+        provider: str | None = None,
+        api_base: str | None = None,
+        api_key: str | None = None,
         console: Console | None = None,
     ) -> None:
         self.bundle = bundle
         self.bundle_root = bundle_root
         self.backend = backend
         self.model = model or (backend.model if backend is not None else None)
+        #: Explicit LLM routing, re-applied by /ingest so a chat started with
+        #: --provider/--api-base/--api-key ingests with the same backend.
+        #: The raw key lives here only in memory, never on disk (the backend
+        #: holds it too — same process, same lifetime).
+        self.llm_provider = provider
+        self.llm_api_base = api_base
+        self.llm_api_key = api_key
         self.console = console or Console()
         #: Recent (role, content) turns fed back to the LLM as context.
         self.history: list[dict] = []
@@ -441,6 +459,9 @@ def _slash_ingest(session: ChatSession, arg: str) -> None:
         session.bundle_root,
         [Path(p) for p in parts],
         model=session.model,
+        provider=session.llm_provider,
+        api_base=session.llm_api_base,
+        api_key=session.llm_api_key,
         no_llm=session.backend is None,
         recursive=recursive,
         quiet=False,
@@ -519,17 +540,54 @@ def _slash_model(session: ChatSession, arg: str) -> None:
         if session.backend is None:
             session.console.print(
                 "[yellow]No LLM backend[/yellow] (extractive mode). "
-                "Start Ollama, set OPENAI_API_KEY, or pass a model: "
-                "/model <name>."
+                "Start Ollama, set OKFSMITH_API_KEY + OKFSMITH_PROVIDER "
+                "(e.g. openrouter, groq, mistral, deepseek, together, "
+                "fireworks, agentrouter, xai, gemini), or: /model provider groq"
             )
         else:
+            backend = session.backend
+            base = escape(getattr(backend, "base_url", "?") or "?")
+            has_key = bool(getattr(backend, "has_key", False))
             session.console.print(
-                f"Backend: [green]{escape(session.backend.name)}[/green] · "
-                f"model {escape(session.backend.model)}"
+                f"Backend: [green]{escape(getattr(backend, 'provider', backend.name))}[/green]\n"
+                f"  base URL: {base}\n"
+                f"  model: {escape(backend.model)}\n"
+                f"  api key: {key_status('x' if has_key else None)}\n"
+                "[dim]Switch model: /model <name> · switch provider: "
+                "/model provider <name>[/dim]"
             )
         return
+    parts = arg.split()
+    if parts[0].lower() == "provider":
+        if len(parts) < 2:
+            session.console.print(
+                "[yellow]Usage:[/yellow] /model provider <name> "
+                "(groq, mistral, deepseek, openrouter, together, xai, "
+                "gemini, openai, ollama)"
+            )
+            return
+        name = parts[1].lower()
+        session.llm_provider = name
+        # LLMError (unknown provider) propagates: a typo must fail loudly,
+        # not silently degrade to extractive mode.
+        session.backend = resolve_chat_backend(
+            model=session.model,
+            provider=name,
+            api_base=session.llm_api_base,
+            api_key=session.llm_api_key,
+        )
+        session.console.print(
+            f"Switched provider to {escape(name)} — "
+            f"{_backend_status_line(session.backend)}"
+        )
+        return
     session.model = arg
-    session.backend = resolve_chat_backend(model=arg)
+    session.backend = resolve_chat_backend(
+        model=arg,
+        provider=session.llm_provider,
+        api_base=session.llm_api_base,
+        api_key=session.llm_api_key,
+    )
     session.console.print(
         f"Switched model to {escape(arg)} — {_backend_status_line(session.backend)}"
     )
@@ -573,7 +631,7 @@ _SLASH_HELP: list[tuple[str, Callable, str]] = [
     ("validate", _slash_validate, "Validate the bundle against OKF v0.2."),
     ("graph", _slash_graph, "Show the concept link graph."),
     ("doctor", _slash_doctor, "Check the environment."),
-    ("model [name]", _slash_model, "Show or switch the LLM backend/model."),
+    ("model [name | provider <name>]", _slash_model, "Show or switch the LLM backend/model/provider."),
     ("clear", _slash_clear, "Clear the screen and conversation history."),
     ("exit", _slash_exit, "Leave the chat (/quit works too)."),
 ]
@@ -595,9 +653,29 @@ def _slash_completer(text: str, state: int) -> str | None:
 # ---------------------------------------------------------------------------
 
 
-def run_chat(bundle_root: Path, *, model: str | None, no_llm: bool) -> int:
+def run_chat(
+    bundle_root: Path,
+    *,
+    model: str | None,
+    no_llm: bool,
+    provider: str | None = None,
+    api_base: str | None = None,
+    api_key: str | None = None,
+) -> int:
     """Load the bundle, resolve the backend, and run the REPL."""
     bundle = Bundle.load(bundle_root)
-    backend = resolve_chat_backend(model=model, no_llm=no_llm)
-    session = ChatSession(bundle, bundle_root, backend=backend, model=model)
+    # Unknown providers fail loudly here (LLMError), not inside the REPL.
+    backend = resolve_chat_backend(
+        model=model, provider=provider, api_base=api_base, api_key=api_key,
+        no_llm=no_llm,
+    )
+    session = ChatSession(
+        bundle,
+        bundle_root,
+        backend=backend,
+        model=model,
+        provider=provider,
+        api_base=api_base,
+        api_key=api_key,
+    )
     return session.run()

@@ -18,29 +18,39 @@ optional ``section_path`` for the situating prefix.
 from okfsmith.extract import human_review, llm, pipeline, prompts
 from okfsmith.extract.human_review import mark_reviewed
 from okfsmith.extract.llm import (
+    PROVIDER_PRESETS,
     LLMBackend,
+    LLMConfig,
     LLMError,
     LLMResponseError,
     LLMUnavailableError,
     OpenAICompatibleBackend,
+    key_status,
+    redact_key,
     resolve_backend,
+    resolve_llm_config,
     resolve_model,
 )
 from okfsmith.extract.pipeline import SectionInput, run, situating_prefix
 
 __all__ = [
     "LLMBackend",
+    "LLMConfig",
     "LLMError",
     "LLMResponseError",
     "LLMUnavailableError",
     "OpenAICompatibleBackend",
+    "PROVIDER_PRESETS",
     "SectionInput",
     "human_review",
+    "key_status",
     "llm",
     "mark_reviewed",
     "pipeline",
     "prompts",
+    "redact_key",
     "resolve_backend",
+    "resolve_llm_config",
     "resolve_model",
     "run",
     "situating_prefix",

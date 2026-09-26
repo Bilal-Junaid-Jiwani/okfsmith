@@ -33,7 +33,7 @@ Refuses a non-empty directory unless
 is given (asks for confirmation unless
 .BR \-\-yes ).
 .TP
-.B ingest \fIBUNDLE\fR \fISOURCE\fR... [\-\-recursive] [\-\-no\-llm] [\-\-model \fINAME\fR] [\-\-dry\-run] [\-\-quiet]
+.B ingest \fIBUNDLE\fR \fISOURCE\fR... [\-\-recursive] [\-\-no\-llm] [\-\-model \fINAME\fR] [\-\-provider \fINAME\fR] [\-\-api\-base \fIURL\fR] [\-\-api\-key \fIKEY\fR] [\-\-dry\-run] [\-\-quiet]
 Parse, section, and extract each
 .I SOURCE
 (file or directory) into draft concepts. Sources are SHA-256 fingerprinted:
@@ -68,18 +68,26 @@ Serve the bundle to AI agents over MCP. Requires the
 extra.
 .TP
 .B doctor
-Check dependencies, optional extras, Ollama reachability, and temp-dir
-writability.
+Check dependencies, optional extras, Ollama reachability, temp-dir
+writability, and the resolved LLM backend (provider, base URL, model,
+key status — the key itself is never shown).
 .TP
-.B chat \\fR[\\fIBUNDLE\\fR] [\\-\\-model \\fINAME\\fR] [\\-\\-no\\-llm]
+.B chat \\fR[\\fIBUNDLE\\fR] [\\-\\-model \\fINAME\\fR] [\\-\\-provider \\fINAME\\fR] [\\-\\-api\\-base \\fIURL\\fR] [\\-\\-api\\-key \\fIKEY\\fR] [\\-\\-no\\-llm]
 Interactive Q&A over the bundle (REPL): plain-language questions answered
 with concept-id citations, plus slash commands
 .RI ( /help ,
 /ingest, /list, /read, /search, /validate, /graph, /doctor, /model, /clear,
 /exit ).
-Generative answers via Ollama (or
-.IR OPENAI_API_KEY );
+Generative answers via Ollama, any \-\-provider preset
+.RI ( openrouter ,
+groq, mistral, deepseek, together, fireworks, deepinfra, anyscale,
+perplexity, xai, gemini, openai, agentrouter, lmstudio), or a custom
+\-\-api\-base endpoint;
 falls back to extractive mode when no LLM is reachable.
+Anthropic's native API is not OpenAI-compatible: use the
+.B openrouter
+preset or a compat proxy via
+.BR \-\-api\-base .
 .SH EXIT STATUS
 .TP
 .B 0
@@ -100,6 +108,19 @@ Usage error (bad flags, invalid enum choices, conflicting options).
 .TP
 .B OKFSMITH_MODEL
 Default model name for LLM extraction.
+.TP
+.B OKFSMITH_PROVIDER
+Provider preset name (e.g.
+.BR openrouter ).
+.TP
+.B OKFSMITH_API_KEY
+API key for the configured endpoint; preferred over
+.BR \-\-api\-key ,
+which lands in shell history (never read from files, never displayed).
+.TP
+.B OKFSMITH_API_BASE
+Custom OpenAI-compatible base URL (full base, e.g.
+.IR https://my-proxy/v1 ).
 .TP
 .B OPENAI_API_KEY
 API key for OpenAI-compatible backends (never read from files).

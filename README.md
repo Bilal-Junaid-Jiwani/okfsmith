@@ -122,6 +122,57 @@ Slash commands: `/help` `/ingest` `/list` `/read` `/search` `/validate`
 `~/.okfsmith/history`; Ctrl-C cancels input, Ctrl-D quits. Flags:
 `--model` to pick the model, `--no-llm` to force extractive mode.
 
+## Use any model (API key)
+
+Ollama is the default, but any OpenAI-compatible model works — one key,
+any provider. **OpenRouter** is the flagship: a single key routes to
+hundreds of models (`anthropic/claude-sonnet-4`-style IDs included):
+
+```bash
+export OKFSMITH_API_KEY="sk-or-..."        # your OpenRouter key
+okfsmith chat ./kb --provider openrouter --model anthropic/claude-sonnet-4
+okfsmith ingest ./kb docs/ --provider openrouter --model openai/gpt-4o-mini
+```
+
+Prefer env vars — the flags also work:
+
+```bash
+export OKFSMITH_API_KEY="..."              # Groq example
+export OKFSMITH_PROVIDER=groq
+okfsmith chat ./kb --model llama-3.3-70b-versatile
+
+okfsmith chat ./kb --provider deepseek --model deepseek-chat
+okfsmith chat ./kb --provider gemini --model gemini-2.0-flash
+
+export AGENTROUTER_API_KEY="..."       # Agent Router gateway example
+okfsmith chat ./kb --provider agentrouter --model gpt-4o-mini
+```
+
+Provider presets (15): `openrouter` · `groq` · `mistral` · `deepseek` ·
+`together` · `fireworks` · `deepinfra` · `anyscale` · `perplexity` · `xai` ·
+`gemini` · `openai` · `agentrouter` · `lmstudio` · `ollama`.
+
+Literally anything else — Azure OpenAI, self-hosted vLLM, a llama.cpp
+server, any compat proxy — works via `--api-base`:
+
+```bash
+okfsmith chat ./kb --api-base https://my-proxy/v1 --model my-model
+```
+
+Notes:
+
+- Put the key in `OKFSMITH_API_KEY` (`AGENTROUTER_API_KEY` is honored
+  for the `agentrouter` preset). `--api-key` also works but lands in
+  your shell history — okfsmith warns you once per session about that.
+- Keys are never logged, never shown (banners and `okfsmith doctor` only
+  say `set (hidden)`), and never written to disk.
+- Anthropic's **native** API is not OpenAI-compatible, so it can't be
+  called directly — use the `openrouter` preset (routes to Claude with one
+  key) or point `--api-base` at an OpenAI-compatible gateway in front of
+  Anthropic.
+- `okfsmith doctor` shows the resolved provider, base URL, model, and key
+  status without probing the network.
+
 ## Install options
 
 ```bash

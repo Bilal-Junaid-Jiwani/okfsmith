@@ -599,6 +599,7 @@ def run(
     sections: list[SectionInput],
     *,
     model: str | None = None,
+    provider: str | None = None,
     base_url: str | None = None,
     api_key: str | None = None,
     verify: bool = True,
@@ -606,16 +607,20 @@ def run(
     """Extract concepts from *sections* into *bundle* (2-pass LLM).
 
     - ``model``: model name (default: ``OKFSMITH_MODEL`` env or ``qwen3:8b``).
+    - ``provider``: provider preset — ``groq``, ``mistral``, ``deepseek``,
+      ``openrouter``, ``together``, ``xai``, ``gemini``, ``openai`` —
+      or ``OKFSMITH_PROVIDER`` env.
     - ``base_url``: OpenAI-compatible endpoint (default: local Ollama).
-    - ``api_key``: key for the endpoint (or ``OPENAI_API_KEY`` env; env only,
-      never logged or persisted).
+      Overrides the provider preset.
+    - ``api_key``: key for the endpoint (``OKFSMITH_API_KEY`` /
+      ``OPENAI_API_KEY`` env preferred; never logged or persisted).
     - ``verify``: run pass 2 (critic). ``False`` skips verification.
 
     Returns the ids of newly written or merged concepts (dedup-skipped
     sections contribute nothing). Raises :class:`LLMUnavailableError` with
     an actionable message when no LLM endpoint is reachable.
     """
-    backend = _llm.resolve_backend(model=model, base_url=base_url, api_key=api_key)
+    backend = _llm.resolve_backend(model=model, provider=provider, api_base=base_url, api_key=api_key)
     resolved_model = backend.model
     logger.info(
         "Extraction run: %d section(s), model=%s, backend=%s, verify=%s",

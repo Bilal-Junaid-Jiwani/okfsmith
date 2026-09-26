@@ -177,11 +177,12 @@ def stub_extract(monkeypatch):
 
     calls: list[dict] = []
 
-    def run(bundle, sections, *, model=None, base_url=None, api_key=None, verify=True):
+    def run(bundle, sections, *, model=None, provider=None, base_url=None, api_key=None, verify=True):
         calls.append(
             {
                 "n_sections": len(sections),
                 "model": model,
+                "provider": provider,
                 "titles": [s.title for s in sections],
                 "source_ids": [s.source_id for s in sections],
             }
@@ -217,7 +218,7 @@ def stub_extract(monkeypatch):
 def stub_extract_unavailable(stub_extract, monkeypatch):
     """Same as stub_extract, but run() raises LLMUnavailableError."""
 
-    def run(bundle, sections, *, model=None, base_url=None, api_key=None, verify=True):
+    def run(bundle, sections, *, model=None, provider=None, base_url=None, api_key=None, verify=True):
         raise stub_extract.LLMUnavailableError(
             "no LLM endpoint reachable: start Ollama (`ollama serve`) "
             "or set OKFSMITH_MODEL / OPENAI_API_KEY"

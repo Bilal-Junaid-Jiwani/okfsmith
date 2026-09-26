@@ -6,6 +6,22 @@ follow SemVer.
 ## [Unreleased]
 
 ### Added
+- "Any model, any API key": `--provider` presets for 15 OpenAI-compatible
+  endpoints (`openrouter`, `groq`, `mistral`, `deepseek`, `together`,
+  `fireworks`, `deepinfra`, `anyscale`, `perplexity`, `xai`, `gemini`,
+  `openai`, `agentrouter`, `lmstudio`, `ollama`) on `okfsmith ingest` and
+  `okfsmith chat`, plus `--api-base` for literally anything else (Azure
+  OpenAI, self-hosted vLLM / llama.cpp, any compat proxy). Keys via
+  `OKFSMITH_API_KEY` (env, preferred), `--api-key` (with a one-time
+  shell-history warning), `AGENTROUTER_API_KEY` (honored when the provider
+  is `agentrouter`), or legacy `OPENAI_API_KEY`; models via `--model` /
+  `OKFSMITH_MODEL`. OpenRouter is the flagship — one key routes to hundreds
+  of models via `vendor/model`-style IDs. `okfsmith doctor` now reports the resolved
+  provider, base URL, model, and key status (`set (hidden)` / `not set`) —
+  keys are never displayed, logged, or persisted. Unknown `--provider`
+  names fail loudly with the valid list. Anthropic's native API is not
+  OpenAI-compatible: it needs a compat proxy via `--api-base` (or the
+  `openrouter` preset).
 - `okfsmith chat BUNDLE`: interactive Claude Code / Gemini CLI style REPL over
   a bundle — natural-language questions answered with `[concept-id]` citations,
   multi-turn follow-ups resolved against recent context, slash commands

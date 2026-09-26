@@ -6,13 +6,15 @@ The bundle is always the **first positional argument**. Run any command with
 ```bash
 okfsmith init BUNDLE [--force] [--yes]
 okfsmith ingest BUNDLE SOURCE... [--recursive] [--no-llm] [--model NAME]
+                                 [--provider NAME] [--api-base URL] [--api-key KEY]
                                  [--dry-run] [--quiet]
 okfsmith validate BUNDLE [--format text|json] [--strict]
 okfsmith list BUNDLE [--format text|json] [--tier TIER]
 okfsmith read BUNDLE CONCEPT_ID [--format text|json]
 okfsmith graph BUNDLE [--format text|json|mermaid|html] [--output FILE]
 okfsmith mcp BUNDLE [--transport stdio|sse|streamable-http]
-okfsmith chat [BUNDLE] [--model NAME] [--no-llm]
+okfsmith chat [BUNDLE] [--model NAME] [--provider NAME] [--api-base URL]
+                [--api-key KEY] [--no-llm]
 okfsmith doctor
 ```
 
@@ -41,7 +43,14 @@ okfsmith ingest ./kb paper.pdf --quiet       # one-line summary, no tables
 - `--no-llm` writes one draft concept per section (fast, offline).
   Without it, okfsmith uses an LLM (Ollama by default) for richer extraction —
   see [LLM & no-LLM](llm.md).
-- `--model` and `--no-llm` together are a usage error (exit 2).
+- `--model` and `--no-llm` together are a usage error (exit 2) — as are
+  `--provider`, `--api-base`, and `--api-key` with `--no-llm`.
+- Any hosted model works: `--provider openrouter --model
+  anthropic/claude-sonnet-4` (one key, hundreds of models), or pick from
+  the 15 presets (`groq`, `mistral`, `deepseek`, `together`, `fireworks`,
+  `deepinfra`, `anyscale`, `perplexity`, `xai`, `gemini`, `openai`,
+  `agentrouter`, `lmstudio`, `ollama`) — key in `OKFSMITH_API_KEY`
+  (`AGENTROUTER_API_KEY` for `agentrouter`). See [LLM & no-LLM](llm.md).
 - Failures are reported per file; a summary table shows SHA-256, concept
   count, and status for each input. If *all* inputs fail, the exit code is 1.
 
@@ -118,6 +127,7 @@ writability.
 okfsmith chat ./kb                 # REPL; Ollama if reachable, else extractive
 okfsmith chat ./kb --no-llm        # extractive mode: concept excerpts, no LLM
 okfsmith chat ./kb --model qwen3:8b
+okfsmith chat ./kb --provider openrouter --model anthropic/claude-sonnet-4
 printf '/list\n/exit\n' | okfsmith chat ./kb   # scriptable via stdin
 ```
 
