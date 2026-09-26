@@ -528,3 +528,9 @@ init → ingest (4 concepts) → validate conformant → graph JSON with dead_li
   CHANGELOG [Unreleased] → Changed.
 - Commits on `feature/chat-ui-redesign`, merged to master. No version bump,
   no PyPI publish.
+- GitHub: plain HTTPS push 401s from this env, so commit `fccea8d` was
+  replicated via the Git Data API on top of remote master `eb163b72`
+  (remote tree == local parent tree, fast-forward safe). All 6 blobs
+  verified against local SHAs; rebuilt tree verified byte-identical to
+  local tree `af9c084f`. Remote master is now `1b19f58e`; remote tree
+  verified byte-identical to local.
