@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import functools
 import importlib
+import inspect
 import json
 import sys
 from enum import Enum
@@ -39,6 +40,15 @@ from okfsmith.cli.app import app
 from okfsmith.core import Bundle, indexlog
 from okfsmith.core import frontmatter as _fm
 from okfsmith.core import spec as _spec
+
+try:
+    # C8: raised by Bundle.load for unreadable (e.g. non-UTF-8) ``.md``
+    # files, with the offending filename in the message. Landed by the core
+    # agent; the fallback keeps this module working until then.
+    from okfsmith.core.bundle import BundleError
+except ImportError:  # pragma: no cover - fallback until the C8 change lands
+    class BundleError(Exception):
+        """Unreadable bundle file (non-UTF-8 ``.md``); filename in message."""
 
 console = Console()
 
@@ -120,13 +130,25 @@ def _fail_json(code: str, message: str, hint: str | None = None) -> NoReturn:
 
 
 def _jsonable(value: Any) -> Any:
-    """Make frontmatter values JSON-serializable (datetimes -> ISO 8601)."""
+    """Make frontmatter values JSON-serializable.
+
+    datetimes -> ISO 8601; bytes (e.g. ``!!binary`` YAML tags) -> UTF-8 text
+    when possible, otherwise a ``{"$binary": <base64>}`` marker object, so
+    ``read --format json`` never crashes on non-JSON-native values (H13).
+    """
+    import base64
     import datetime
 
     if isinstance(value, (datetime.datetime, datetime.date)):
         return value.isoformat()
+    if isinstance(value, (bytes, bytearray)):
+        raw = bytes(value)
+        try:
+            return raw.decode("utf-8")
+        except UnicodeDecodeError:
+            return {"$binary": base64.b64encode(raw).decode("ascii")}
     if isinstance(value, dict):
-        return {k: _jsonable(v) for k, v in value.items()}
+        return {_jsonable(k): _jsonable(v) for k, v in value.items()}
     if isinstance(value, (list, tuple)):
         return [_jsonable(v) for v in value]
     if isinstance(value, (set, frozenset)):
@@ -136,6 +158,88 @@ def _jsonable(value: Any) -> Any:
 
 def _dump_json(payload: Any) -> None:
     typer.echo(json.dumps(_jsonable(payload), indent=2))
+
+
+def _plural(count: int, singular: str) -> str:
+    """Inflect a count phrase: ``1 result`` / ``2 results`` (L1)."""
+    return f"{count} {singular}" if count == 1 else f"{count} {singular}s"
+
+
+def _load_bundle_for_read(bundle_path: Path) -> Bundle:
+    """Load a bundle, converting unreadable files to a clean CliError (C8).
+
+    ``Bundle.load`` raises :class:`BundleError` (naming the offending file)
+    for non-UTF-8 ``.md`` reads; translate it to the standard
+    ``error [io-error]`` + hint contract instead of a traceback.
+    """
+    try:
+        return Bundle.load(bundle_path)
+    except BundleError as exc:
+        raise CliError(
+            "io-error",
+            f"cannot read bundle '{bundle_path}': {exc}",
+            "Fix or remove the unreadable file, or exclude it from the bundle.",
+        ) from None
+
+
+def _check_with_bundle(check: Any, bundle_path: Path, bundle_obj: Bundle) -> Any:
+    """Run ``validate.check()``, reusing the already-loaded bundle (M17).
+
+    The validator agent adds a keyword-only ``bundle`` parameter to
+    ``check()``; older implementations accept only the path. Passing the
+    loaded bundle avoids parsing every file's frontmatter twice.
+    """
+    try:
+        use_bundle_kwarg = "bundle" in inspect.signature(check).parameters
+    except (TypeError, ValueError):
+        use_bundle_kwarg = False
+    try:
+        if use_bundle_kwarg:
+            return check(bundle_path, bundle=bundle_obj)
+        return check(bundle_path)
+    except BundleError as exc:
+        raise CliError(
+            "io-error",
+            f"cannot validate bundle '{bundle_path}': {exc}",
+            "Fix or remove the unreadable file, or exclude it from the bundle.",
+        ) from None
+
+
+_MISSING_EXTRA_MARKERS = (
+    # (message fragment, extra name) — M19: an explicitly named source that
+    # needs an uninstalled optional extra must fail loudly, not warn-and-skip.
+    ("markitdown is not installed", "office"),
+    ("docling is not installed", "ocr"),
+)
+
+
+def _raise_if_missing_extra(path: Path, error: str) -> None:
+    """Raise CliError when *error* is a missing-extra parse failure (M19)."""
+    lowered = error.lower()
+    for marker, extra in _MISSING_EXTRA_MARKERS:
+        if marker in lowered:
+            raise CliError(
+                "missing-extra",
+                f"cannot ingest '{path}': {marker}.",
+                _install_extra_hint(extra),
+            )
+
+
+def _write_output_file(path: Path, text: str) -> None:
+    """Write ``graph --output`` content, creating missing parents (H8).
+
+    A directory target is rejected before this is called; an OSError (e.g.
+    an unwritable parent) becomes a clean CliError, never a traceback.
+    """
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+    except OSError as exc:
+        raise CliError(
+            "io-error",
+            f"cannot write output file '{path}': {exc}",
+            "Choose a writable --output path.",
+        ) from None
 
 
 def _handle_cli_error(exc: CliError, as_json: bool) -> NoReturn:
@@ -253,11 +357,26 @@ _RESERVED_NAMES = frozenset({"index.md", "log.md"})
 def _collect_inputs(source: Path, recursive: bool) -> list[Path]:
     if source.is_file():
         return [source]
+    if not source.is_dir():
+        # H10: FIFOs, /dev/zero, sockets and friends are neither files nor
+        # directories — fail cleanly instead of a NotADirectoryError traceback.
+        raise CliError(
+            "not-a-directory",
+            f"source '{source}' is not a file or directory.",
+            "Pass a file, or a directory (with --recursive to descend).",
+        )
     iterator = source.rglob("*") if recursive else source.iterdir()
     # Reserved bundle files are infrastructure, never knowledge sources.
-    return sorted(
-        p for p in iterator if p.is_file() and p.name not in _RESERVED_NAMES
-    )
+    try:
+        return sorted(
+            p for p in iterator if p.is_file() and p.name not in _RESERVED_NAMES
+        )
+    except OSError as exc:
+        raise CliError(
+            "io-error",
+            f"cannot scan source '{source}': {exc}",
+            "Check the directory is readable.",
+        ) from None
 
 
 # ---------------------------------------------------------------------------
@@ -308,13 +427,22 @@ def init(
         if not typer.confirm("Continue?", default=False):
             typer.echo("aborted.", err=True)
             raise typer.Exit(code=1)
-    bundle.mkdir(parents=True, exist_ok=True)
     bundle_path = bundle
-    bundle = Bundle(bundle_path)
-    index_path = indexlog.ensure_index(bundle)
-    log_path = indexlog.append_log(
-        bundle, kind="Creation", message="Bundle created with `okfsmith init`."
-    )
+    # H11: I/O failures (unwritable dir, read-only filesystem) become
+    # error [io-error], never a traceback.
+    try:
+        bundle_path.mkdir(parents=True, exist_ok=True)
+        bundle_obj = Bundle(bundle_path)
+        index_path = indexlog.ensure_index(bundle_obj)
+        log_path = indexlog.append_log(
+            bundle_obj, kind="Creation", message="Bundle created with `okfsmith init`."
+        )
+    except OSError as exc:
+        raise CliError(
+            "io-error",
+            f"could not initialize bundle in '{bundle_path}': {exc}",
+            "Check the path is writable and not on a read-only filesystem.",
+        ) from None
     typer.echo(f"Initialized OKF bundle in {bundle_path}")
     typer.echo(f"  index: {index_path}")
     typer.echo(f"  log:   {log_path}")
@@ -337,12 +465,25 @@ def _ingest_no_llm_one(
     already_ingested: Any,
     record_ingested: Any,
     sectioning: Any,
+    explicit: bool = False,
 ) -> tuple[str, int]:
-    """Ingest one file via deterministic sectioning. Returns (status, count)."""
+    """Ingest one file via deterministic sectioning. Returns (status, count).
+
+    *explicit* marks a source the user named directly (vs. one discovered by
+    scanning a directory); explicit sources escalate missing-extra failures
+    instead of warn-and-skipping (M19).
+    """
     digest = sha256_of(path)
     if already_ingested(target, digest):
         return "skipped (already ingested)", 0
     parsed = parse_file(path)
+    # M2: parse failures report the real reason first — a corrupt source is
+    # not a stub-prevention skip (the dry run already orders it this way).
+    error = (parsed.meta or {}).get("error")
+    if error:
+        if explicit:
+            _raise_if_missing_extra(path, str(error))
+        return f"skipped ({error})", 0
     # Stub prevention: sources under the char minimum produce no concepts.
     # Say so explicitly instead of reporting a hollow "ok", and do not record
     # the digest — the file was not ingested, so a later retry must surface
@@ -372,9 +513,15 @@ def _ingest_llm_one(
     provider: str | None = None,
     api_base: str | None = None,
     api_key: str | None = None,
+    explicit: bool = False,
 ) -> tuple[str, int]:
     """Ingest one file via the LLM extraction pipeline. Returns (status, count)."""
     parsed = parse_file(path)
+    # M19: an explicitly named source that needs an uninstalled extra fails
+    # loudly (the no-LLM path does the same via _ingest_no_llm_one).
+    error = (parsed.meta or {}).get("error")
+    if error and explicit:
+        _raise_if_missing_extra(path, str(error))
     sectioned = section(parsed)
     doc_title = (parsed.meta or {}).get("title") or path.stem
     sections = [
@@ -490,7 +637,16 @@ def ingest(
             )
     if api_key is not None:
         _warn_api_key_flag()
+    # H9: a file passed as the bundle is a usage error, not a FileExistsError
+    # traceback from Bundle.load's mkdir.
+    if bundle.exists() and not bundle.is_dir():
+        fail(
+            "not-a-directory",
+            f"'{bundle}' exists but is not a directory.",
+            "Pass a bundle directory (created if missing), not a file.",
+        )
     files: list[Path] = []
+    explicit_paths: set[Path] = set()
     for source in sources:
         if not source.exists():
             fail(
@@ -505,9 +661,21 @@ def ingest(
                 f"no input files found under '{source}'.",
                 "Pass a file, or add --recursive for directories.",
             )
+        # M19: remember sources the user named directly — they escalate
+        # missing-extra parse failures instead of warn-and-skipping.
+        if source.is_file():
+            explicit_paths.add(source.resolve())
         files.extend(found)
 
-    parse_file = _lazy_attr("okfsmith.parsers", "parse_file")
+    _parse_file = _lazy_attr("okfsmith.parsers", "parse_file")
+    if quiet and "quiet" in inspect.signature(_parse_file).parameters:
+        # M27: --quiet suppresses the per-file parse skip notices (parse_file
+        # logs them); the error is still recorded in meta["error"] and shown
+        # in the summary table. The signature check keeps this working with
+        # older parse_file callables that lack the keyword.
+        parse_file = functools.partial(_parse_file, quiet=True)
+    else:
+        parse_file = _parse_file
     if no_llm:
         ingest_no_llm = _lazy_attr("okfsmith.parsers.ingest_no_llm", "ingest_no_llm")
         already_ingested = _lazy_attr("okfsmith.parsers.dedup", "already_ingested")
@@ -523,13 +691,27 @@ def ingest(
         LLMUnavailableError = _lazy_attr("okfsmith.extract", "LLMUnavailableError")
         mode = f"LLM extraction (model={model or 'default'})"
 
+    digest_of = _lazy_attr("okfsmith.parsers.dedup", "sha256_of")
+
     if dry_run:
         _ingest_dry_run(bundle, files, no_llm=no_llm, parse_file=parse_file,
-                        section=section if not no_llm else None, quiet=quiet)
+                        section=section if not no_llm else None, quiet=quiet,
+                        # M18: the dry run consults the dedup manifest so it
+                        # predicts "already ingested" like the real run does.
+                        sha256_of=digest_of if no_llm else None,
+                        already_ingested=already_ingested if no_llm else None)
         return
 
-    target = Bundle.load(bundle)
-    digest_of = _lazy_attr("okfsmith.parsers.dedup", "sha256_of")
+    # L24: an unwritable bundle directory is a clean CliError, not a
+    # traceback from mkdir/write_text.
+    try:
+        target = Bundle.load(bundle)
+    except OSError as exc:
+        raise CliError(
+            "io-error",
+            f"cannot open bundle directory '{bundle}': {exc}",
+            "Check the path is writable and not on a read-only filesystem.",
+        ) from None
     failures: list[Path] = []
     created_total = 0
     rows: list[tuple[str, str, str, str]] = []
@@ -544,8 +726,12 @@ def ingest(
     with progress:
         task = progress.add_task(f"ingesting {len(files)} file(s) — {mode}", total=len(files))
         for path in files:
-            digest = digest_of(path)[:12]
+            digest = ""
             try:
+                # H1: hashing happens inside the per-file try so one
+                # unreadable file cannot abort the whole batch.
+                digest = digest_of(path)[:12]
+                explicit = path.resolve() in explicit_paths
                 if no_llm:
                     status, count = _ingest_no_llm_one(
                         path,
@@ -556,6 +742,7 @@ def ingest(
                         already_ingested=already_ingested,
                         record_ingested=record_ingested,
                         sectioning=sectioning,
+                        explicit=explicit,
                     )
                 else:
                     try:
@@ -570,6 +757,7 @@ def ingest(
                             provider=provider,
                             api_base=api_base,
                             api_key=api_key,
+                            explicit=explicit,
                         )
                     except LLMUnavailableError as exc:
                         raise CliError(
@@ -607,15 +795,24 @@ def ingest(
         console.print(table)
 
     if created_total:
-        indexlog.ensure_index(target)
-        indexlog.append_log(
-            target,
-            kind="Update",
-            message=(
-                f"Ingested {created_total} draft concept(s) from "
-                f"{len(files) - len(failures)} source file(s)."
-            ),
-        )
+        # L24: bundle-level write failures are a clean CliError, not a
+        # traceback (per-file write failures are already caught per file).
+        try:
+            indexlog.ensure_index(target)
+            indexlog.append_log(
+                target,
+                kind="Update",
+                message=(
+                    f"Ingested {created_total} draft concept(s) from "
+                    f"{len(files) - len(failures)} source file(s)."
+                ),
+            )
+        except OSError as exc:
+            raise CliError(
+                "io-error",
+                f"could not update bundle '{bundle}': {exc}",
+                "Check the bundle directory is writable.",
+            ) from None
     summary = (
         f"ingested {created_total} concept(s) from {len(files)} file(s)"
         + (f", {len(failures)} failed" if failures else "")
@@ -639,8 +836,15 @@ def _ingest_dry_run(
     parse_file: Any,
     section: Any,
     quiet: bool,
+    sha256_of: Any = None,
+    already_ingested: Any = None,
 ) -> None:
-    """Parse and plan an ingest without writing anything."""
+    """Parse and plan an ingest without writing anything.
+
+    When *sha256_of*/*already_ingested* are given (no-LLM mode), the dedup
+    manifest is consulted so a dry run after a real ingest predicts
+    "already ingested" instead of phantom draft concepts (M18).
+    """
     typer.echo(f"dry run: would ingest {len(files)} file(s) into {bundle} (nothing written)")
     section_fn = section
     too_small_chars = None
@@ -648,7 +852,21 @@ def _ingest_dry_run(
         sectioning = importlib.import_module("okfsmith.parsers.sectioning")
         section_fn = sectioning.section
         too_small_chars = sectioning.TOO_SMALL_CHARS
+    # Bundle() does no I/O — the manifest is read lazily, never written.
+    manifest_bundle = (
+        Bundle(bundle)
+        if (sha256_of is not None and already_ingested is not None)
+        else None
+    )
     for path in files:
+        if manifest_bundle is not None:
+            try:
+                digest = sha256_of(path)
+            except OSError:
+                digest = None  # unreadable file: parse_file reports it below
+            if digest is not None and already_ingested(manifest_bundle, digest):
+                typer.echo(f"  {path}: would skip (already ingested)")
+                continue
         try:
             parsed = parse_file(path)
         except Exception as exc:  # noqa: BLE001 — dry run reports, never raises
@@ -711,15 +929,24 @@ def validate(
     # check(bundle_path) -> ValidationReport with .errors / .warnings as
     # Finding objects; serialize each via Finding.as_dict().
     check = _lazy_attr("okfsmith.validate", "check")
-    result = check(bundle)
+    # M17: load the bundle once and hand it to check() (when the validator
+    # supports the `bundle` keyword) so frontmatter isn't parsed twice; the
+    # same object feeds the concept count below. C8: unreadable files become
+    # error [io-error], never a traceback.
+    bundle_path = bundle
+    bundle_obj = _load_bundle_for_read(bundle_path)
+    result = _check_with_bundle(check, bundle_path, bundle_obj)
     errors = [finding.as_dict() for finding in result.errors]
     warnings = [finding.as_dict() for finding in result.warnings]
-    n_concepts = sum(1 for _ in Bundle.load(bundle).iter_concepts())
+    n_concepts = sum(1 for _ in bundle_obj.iter_concepts())
 
     if as_json:
         status = "invalid" if errors or (strict and warnings) else "conformant"
         _dump_json({
             "status": status,
+            # L25: the count key is standardized on "count"; "concepts" is a
+            # deprecated alias kept for back-compat.
+            "count": n_concepts,
             "concepts": n_concepts,
             "error_count": len(errors),
             "warning_count": len(warnings),
@@ -727,13 +954,13 @@ def validate(
             "warnings": warnings,
         })
     else:
-        _print_report(errors, warnings)
+        _print_report(errors, warnings, strict=strict)
 
     if errors or (strict and warnings):
         raise typer.Exit(code=1)
 
 
-def _print_report(errors: list[dict], warnings: list[dict]) -> None:
+def _print_report(errors: list[dict], warnings: list[dict], *, strict: bool = False) -> None:
     for title, items, style in (
         ("Errors", errors, "red"),
         ("Warnings", warnings, "yellow"),
@@ -751,6 +978,13 @@ def _print_report(errors: list[dict], warnings: list[dict]) -> None:
         console.print(table)
     if errors:
         typer.echo(f"INVALID: {len(errors)} error(s), {len(warnings)} warning(s).")
+    elif warnings and strict:
+        # M7: under --strict warnings are failures (exit 1) — never print
+        # "Conformant" for a failing run.
+        typer.echo(
+            f"INVALID under --strict: {len(warnings)} warning(s) "
+            "treated as failures."
+        )
     elif warnings:
         typer.echo(f"Conformant with {len(warnings)} warning(s).")
     else:
@@ -794,7 +1028,7 @@ def list_concepts(
     except CliError as exc:
         _handle_cli_error(exc, as_json)
     bundle_path = bundle
-    bundle = Bundle.load(bundle_path)
+    bundle = _load_bundle_for_read(bundle_path)
     rows = []
     for concept in bundle.iter_concepts():
         ctype = str(concept.frontmatter.get("type") or "")
@@ -856,7 +1090,7 @@ def read(
     except CliError as exc:
         _handle_cli_error(exc, as_json)
     bundle_path = bundle
-    bundle = Bundle.load(bundle_path)
+    bundle = _load_bundle_for_read(bundle_path)
     concept = bundle.get(concept_id)
     if concept is None:
         if as_json:
@@ -899,6 +1133,11 @@ def graph(
         "--output",
         help="Write output to this file instead of stdout (default for html: <bundle>/viz.html).",
     ),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="Overwrite the --output file if it already exists.",
+    ),
 ) -> None:
     """Show the concept link graph (nodes, edges, orphans, dead links).
 
@@ -906,20 +1145,35 @@ def graph(
     Examples:
         okfsmith graph ./kb
         okfsmith graph ./kb --format html --output graph.html
+        okfsmith graph ./kb --format json --output graph.json --force
     """
     as_json = output_format == "json"
     try:
         _require_bundle_dir(bundle)
     except CliError as exc:
         _handle_cli_error(exc, as_json)
-    if output_format == "html" and output is not None and output.exists() and not output.is_file():
-        fail(
-            "invalid-output",
-            f"--output '{output}' is not a file path.",
-            "Give a path to a file (it will be created), not a directory.",
-        )
     bundle_path = bundle
-    bundle = Bundle.load(bundle_path)
+    # Resolve the output target up front so every format enforces the same
+    # rules: a directory is never a valid target (H8), and an existing file
+    # — including the default <bundle>/viz.html — is never overwritten
+    # without --force (H7).
+    target: Path | None = output
+    if output_format == "html" and target is None:
+        target = bundle_path / "viz.html"
+    if target is not None:
+        if target.exists() and not target.is_file():
+            fail(
+                "invalid-output",
+                f"--output '{target}' is not a file path.",
+                "Give a path to a file (it will be created), not a directory.",
+            )
+        if target.is_file() and not force:
+            fail(
+                "output-exists",
+                f"--output '{target}' already exists.",
+                "Pass --force to overwrite it, or choose a different path.",
+            )
+    bundle = _load_bundle_for_read(bundle_path)
     data = _links.build_graph(bundle)
 
     if output_format == "json":
@@ -933,28 +1187,28 @@ def graph(
             "adjacency": adjacency,
             "dead_links": data["dead_links"],
         }
-        if output is not None:
-            output.write_text(
-                json.dumps(_jsonable(payload), indent=2), encoding="utf-8"
+        if target is not None:
+            _write_output_file(
+                target, json.dumps(_jsonable(payload), indent=2)
             )
-            typer.echo(f"Wrote {output}")
+            typer.echo(f"Wrote {target}")
         else:
             _dump_json(payload)
     elif output_format == "mermaid":
         text = _links.mermaid_flowchart(data)
-        if output is not None:
-            output.write_text(text, encoding="utf-8")
-            typer.echo(f"Wrote {output}")
+        if target is not None:
+            _write_output_file(target, text)
+            typer.echo(f"Wrote {target}")
         else:
             typer.echo(text, nl=False)
     elif output_format == "html":
-        # render_html(root, output) -> Path
+        # render_html(root, output) -> Path; target is always set for html.
+        assert target is not None
         render_html = _lazy_attr("okfsmith.viz", "render_html")
-        out_path = output or (bundle_path / "viz.html")
-        written = render_html(bundle_path, out_path)
+        written = render_html(bundle_path, target)
         typer.echo(f"Wrote {written}")
     elif output_format == "text":
-        if output is not None:
+        if target is not None:
             # Capture the text report and write it to the file.
             import io
             from contextlib import redirect_stdout
@@ -962,16 +1216,17 @@ def graph(
             buf = io.StringIO()
             with redirect_stdout(buf):
                 _print_graph_text(bundle, data)
-            output.write_text(buf.getvalue(), encoding="utf-8")
-            typer.echo(f"Wrote {output}")
+            _write_output_file(target, buf.getvalue())
+            typer.echo(f"Wrote {target}")
         else:
             _print_graph_text(bundle, data)
 
 
 def _print_graph_text(bundle: Bundle, data: dict) -> None:
     typer.echo(
-        f"{len(data['nodes'])} concept(s), {len(data['edges'])} link(s), "
-        f"{len(data['dead_links'])} dead link(s)."
+        f"{_plural(len(data['nodes']), 'concept')}, "
+        f"{_plural(len(data['edges']), 'link')}, "
+        f"{_plural(len(data['dead_links']), 'dead link')}."
     )
     orphan_ids = _links.orphans(bundle)
     typer.echo(f"\nOrphans ({len(orphan_ids)}):")
@@ -1236,6 +1491,13 @@ def chat(
             api_base=api_base,
             api_key=api_key,
         )
+    except BundleError as exc:
+        # C8: chat-adjacent bundle read — unreadable files fail cleanly.
+        raise CliError(
+            "io-error",
+            f"cannot read bundle '{root}': {exc}",
+            "Fix or remove the unreadable file, or exclude it from the bundle.",
+        ) from None
     except _LLMError as exc:
         # Configuration mistakes (e.g. unknown --provider) fail loudly here
         # rather than silently degrading to extractive mode.
