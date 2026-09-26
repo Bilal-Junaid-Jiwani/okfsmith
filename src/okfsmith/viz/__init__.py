@@ -378,6 +378,10 @@ function typeColor(t) { return PALETTE[(TYPE_INDEX.get(t) || 0) % PALETTE.length
    Links are scheme-restricted: only http/https/mailto, fragments, and
    relative URLs become anchors; anything else renders as plain text. */
 function safeHref(u) {
+  // Browsers strip leading C0 controls / spaces before parsing a URL, so
+  // normalize the same way first: otherwise "\x01javascript:..." would sail
+  // through the scheme checks below and execute on click.
+  u = String(u).replace(/^[\\u0000-\\u0020\\u007F]+/, "");
   if (/^(https?:|mailto:)/i.test(u)) return u;
   if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(u)) return "";
   if (u.indexOf("//") === 0) return "";

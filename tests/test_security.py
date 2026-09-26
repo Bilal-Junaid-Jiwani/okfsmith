@@ -214,3 +214,60 @@ def test_viz_markdown_links_restrict_url_schemes(tmp_path):
     assert "safeHref(u)" in text
     # ... and the old unguarded replacement is gone.
     assert "'<a href=\"$2\"'" not in text
+
+
+def test_viz_markdown_links_behavioral_node(tmp_path):
+    """Behavioral: run the shipped md() in node; evil schemes (incl. leading
+    C0 controls, which browsers strip per WHATWG URL) must not produce anchors.
+    """
+    import json
+    import re
+    import shutil
+    import subprocess
+
+    from okfsmith.viz import render_html
+
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node not available for behavioral JS test")
+
+    out = render_html(FIXTURES / "valid", tmp_path / "viz.html")
+    text = out.read_text(encoding="utf-8")
+    esc = re.search(r"function esc\(s\) \{.*?\n\}", text, re.S).group(0)
+    safe = re.search(r"function safeHref\(u\) \{.*?\n\}", text, re.S).group(0)
+    md = re.search(r"function md\(s\) \{.*?\n\}", text, re.S).group(0)
+
+    evil = [
+        "[x](javascript:alert(1))",
+        "[x](JaVaScRiPt:alert(1))",
+        "[x](data:text/html;base64,PHNjcmlwdD4=)",
+        "[x](vbscript:msgbox(1))",
+        "[x](//evil.com/x)",
+        "[x](\x01javascript:alert(1))",
+        "[x](\x0ejavascript:alert(1))",
+        "[x](\x07javascript:alert(1))",
+    ]
+    good = [
+        "[x](https://example.com)",
+        "[x](http://example.com/a?b=1&c=2)",
+        "[x](mailto:a@b.c)",
+        "[x](#frag)",
+        "[x](rel/path.md)",
+    ]
+    driver = (
+        esc + "\n" + safe + "\n" + md
+        + "\nvar cases = "
+        + json.dumps([["evil", c] for c in evil] + [["good", c] for c in good])
+        + ";\nvar out = cases.map(function(pair){ return pair[0] + ':' + (md(pair[1]).indexOf('<a href=') !== -1 ? 'ANCHOR' : 'TEXT'); });\n"
+        + "console.log(JSON.stringify(out));"
+    )
+    proc = subprocess.run(
+        [node, "-e", driver], capture_output=True, text=True, timeout=30
+    )
+    assert proc.returncode == 0, proc.stderr
+    results = json.loads(proc.stdout)
+    for kind, result in (r.split(":", 1) for r in results):
+        if kind == "evil":
+            assert result == "TEXT", f"evil URL produced an anchor: {result}"
+        else:
+            assert result == "ANCHOR", f"good URL lost its anchor: {result}"
