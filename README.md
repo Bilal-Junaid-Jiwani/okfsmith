@@ -53,7 +53,7 @@ knowledge usually lives, and that's what okfsmith ingests first:
 - **OKF v0.2 native.** Only `type` is required in frontmatter. okfsmith also
   emits `sources[]`/provenance, `generated`/`verified` trust metadata, and
   lifecycle fields.
-- **§11 validator.** The spec's hard conformance rules (E001–E003) plus
+- **§11 validator.** The spec's hard conformance rules (E001–E004) plus
   advisory lints (dead links, orphans, stubs, legacy v0.1 fields). Broken
   links are warnings, never errors (spec §6).
 - **Graph visualization.** `okfsmith graph --format html` renders a
