@@ -181,3 +181,36 @@ def test_tag_list_string_is_not_split_into_characters():
 def test_tag_list_mixed_types_do_not_crash():
     assert _tag_list(["a", 1, None, "b"]) == ["a", "1", "None", "b"]
     assert _tag_list(None) == []
+
+
+# ---------------------------------------------------------------------------
+# Viz markdown renderer: link scheme restriction (XSS regression)
+# ---------------------------------------------------------------------------
+
+
+def test_viz_markdown_links_restrict_url_schemes(tmp_path):
+    """md() must not turn javascript:/data:/vbscript: URLs into clickable anchors.
+
+    Concept descriptions/bodies come from ingested (untrusted) documents and
+    are rendered by the md() JS function. Only http/https/mailto, fragments,
+    and relative URLs may become <a> elements; anything with another scheme
+    must degrade to plain text.
+    """
+    import re
+
+    from okfsmith.viz import render_html
+
+    out = render_html(FIXTURES / "valid", tmp_path / "viz.html")
+    text = out.read_text(encoding="utf-8")
+
+    # The scheme gate exists and allowlists http/https/mailto.
+    assert "function safeHref(u)" in text
+    assert "https?:" in text and "mailto:" in text
+    # A generic scheme detector rejects everything else (javascript:, data:, ...).
+    assert re.search(r"\^?\[a-zA-Z\]\[a-zA-Z0-9", text)
+    # Protocol-relative URLs are rejected too.
+    assert 'indexOf("//")' in text
+    # md() routes every markdown-link href through the gate ...
+    assert "safeHref(u)" in text
+    # ... and the old unguarded replacement is gone.
+    assert "'<a href=\"$2\"'" not in text

@@ -374,13 +374,24 @@ const TYPE_INDEX = new Map(
   [...new Set(BUNDLE.nodes.map(n => n.type))].sort().map((t, i) => [t, i]));
 function typeColor(t) { return PALETTE[(TYPE_INDEX.get(t) || 0) % PALETTE.length]; }
 /* Minimal markdown renderer for descriptions/bodies: escape first, then
-   apply a small safe subset (bold, italic, inline code, links). */
+   apply a small safe subset (bold, italic, inline code, links).
+   Links are scheme-restricted: only http/https/mailto, fragments, and
+   relative URLs become anchors; anything else renders as plain text. */
+function safeHref(u) {
+  if (/^(https?:|mailto:)/i.test(u)) return u;
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(u)) return "";
+  if (u.indexOf("//") === 0) return "";
+  return u;
+}
 function md(s) {
   return esc(s)
     .replace(/`([^`]+)`/g, "<code>$1</code>")
     .replace(/\\*\\*([^*]+)\\*\\*/g, "<strong>$1</strong>")
     .replace(/(^|[\\s(])\\*([^*\\s][^*]*)\\*/g, "$1<em>$2</em>")
-    .replace(/\\[([^\\]]+)\\]\\(([^)\\s]+)\\)/g, '<a href="$2" rel="noopener">$1</a>');
+    .replace(/\\[([^\\]]+)\\]\\(([^)\\s]+)\\)/g, function(m, t, u) {
+      var h = safeHref(u);
+      return h ? '<a href="' + h + '" rel="noopener">' + t + "</a>" : t;
+    });
 }
 function nodeRadius(n) { return 6 + Math.min(9, n.deg); }   // degree-scaled
 
