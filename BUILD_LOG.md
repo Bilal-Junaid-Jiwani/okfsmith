@@ -417,3 +417,32 @@ Final gate: diff-check clean, compileall clean, ruff clean,
 **191 passed, 20 skipped**; `python -m build` → okfsmith-0.2.0 wheel+sdist;
 `twine check` PASSED both; isolated-venv wheel install: `--version` = 0.2.0,
 init → ingest (4 concepts) → validate conformant → graph JSON with dead_links.
+
+## 2026-09-26 — Interactive chat REPL (`okfsmith chat`)
+
+- New `okfsmith chat [BUNDLE]` command (own "Interactive" help panel):
+  Claude Code / Gemini CLI style REPL over a bundle. Plain text = question;
+  retrieval via shared `rank_concepts()` (extracted from
+  `BundleTools.search` so MCP search and chat rank identically); LLM backend
+  (Ollama default, `OPENAI_API_KEY` fallback) synthesizes grounded answers
+  with `[concept-id]` citations + Sources footer; extractive mode when no LLM
+  is reachable (`--no-llm` forces it). Multi-turn follow-ups resolve against
+  recent context. Hallucinated citations are stripped — every cited concept
+  is a real bundle concept.
+- Slash commands: `/help /ingest /list /read /search /validate /graph
+  /doctor /model /clear /exit` (`/quit` alias). `/ingest` reuses the real
+  ingest command and reloads the bundle. Unknown slash → hint, never crash.
+- REPL details: rich banner (version, bundle, concept count, backend status),
+  bundle-aware prompt (`kb › `), stdlib readline with tab-completion and
+  persistent history at `~/.okfsmith/history` (env-overridable), Ctrl-C
+  cancels input, Ctrl-D/EOF exits 0 with goodbye. Piped stdin works
+  (`printf '/list\n/exit\n' | okfsmith chat ./kb`).
+- Commits on `feature/interactive-chat`, merged to master (fast-forward):
+  `42a3d0b` (rank_concepts refactor), `c1de381` (chat feature + 31 tests +
+  README/CHANGELOG/docs/commands.md/man page). Gate: ruff clean,
+  **222 passed, 20 skipped** (191 pre-existing + 31 new).
+- GitHub: plain HTTPS push 401s from this env (as before); the 2 commits
+  were replicated via the Git Data API on top of remote master `b772838`
+  (tree byte-identical to local v0.2.0 base). Remote master is now
+  `084ca67`; remote tree verified byte-identical to local `c1de381`.
+- No version bump, no PyPI publish (release is a separate decision).
