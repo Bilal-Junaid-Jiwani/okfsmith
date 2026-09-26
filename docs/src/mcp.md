@@ -12,9 +12,11 @@ Copilot, Gemini — can search and read your bundle directly. Agents get live
 answers; your bundle is never modified.
 
 > [!NOTE]
-> `search` and `get` are **MCP tools, not CLI commands** — there is no
-> `okfsmith search` or `okfsmith get` on the command line. The CLI analogues
-> are `list` and `read` (see [search and get](cli.html#search-and-get)).
+> `get` is an **MCP tool, not a CLI command** — there is no `okfsmith get`
+> on the command line (the CLI analogue is `read`). `search` exists in both
+> places: the [`okfsmith search`](cli.html#okfsmith-search) CLI command and
+> the MCP `search` tool share the same BM25 engine, so they rank
+> identically.
 
 ## Quick start
 

@@ -77,9 +77,10 @@ knowledge usually lives, and that's what okfsmith ingests first:
 | `okfsmith init BUNDLE` | scaffold `index.md` + `log.md` |
 | `okfsmith ingest BUNDLE SOURCE...` | parse, section, extract → draft concepts |
 | `okfsmith validate BUNDLE` | check OKF §11 conformance (exit 0 = conformant) |
-| `okfsmith list BUNDLE` | list concepts (filter by `--tier`) |
+| `okfsmith list BUNDLE` | list concepts (filter by `--tier`, `--type`) |
 | `okfsmith read BUNDLE ID` | print one concept |
 | `okfsmith graph BUNDLE` | links: text / json / mermaid / html |
+| `okfsmith search BUNDLE QUERY` | BM25 full-text search (flags: `--limit`/`-n`, `--format text\|json`, `--tier`, `--type`) |
 | `okfsmith mcp BUNDLE` | serve over MCP |
 | `okfsmith chat BUNDLE` | interactive Q&A over the bundle (REPL) |
 | `okfsmith doctor` | check dependencies, extras, Ollama |
@@ -105,7 +106,7 @@ $ okfsmith chat ./kb
 █   █ ███   ████   ███  █ █ █   █     █   █████
 █   █ █  █  █         █ █   █   █     █   █   █
  ███  █   █ █     ████  █   █ █████   █   █   █
-okfsmith chat v0.2.0
+okfsmith chat v0.3.0
 Bundle: kb (24 concepts) · openai · qwen3:8b
 
 Tips for getting started:
@@ -203,7 +204,8 @@ pipx install "okfsmith[office,mcp]"
 📚 **Live documentation website:** <https://bilal-junaid-jiwani.github.io/okfsmith/>
 
 [Documentation index](docs/index.md) · [Quickstart](docs/quickstart.md) ·
-[Pipeline](docs/pipeline.md) · [Validation](docs/validation.md) ·
+[Pipeline](docs/pipeline.md) · [Searching](docs/searching.md) ·
+[Validation](docs/validation.md) ·
 [MCP](docs/mcp.md) · [Troubleshooting](docs/troubleshooting.md) ·
 [FAQ](docs/faq.md)
 

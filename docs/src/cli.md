@@ -9,7 +9,7 @@ description: Every okfsmith command on one page — init, ingest, list, read, va
 One page, every command. New here? Start with [the quickstart](quickstart.html) to learn by doing — this page is the cheat sheet you keep open afterwards.
 
 > [!NOTE]
-> **Looking for `search` or `get`?** They are not CLI commands. `search` and `get` exist as **MCP server tools** (see [the MCP server page](mcp.html)) and as **chat slash commands** (`/search`, `/read` inside [chat](chat.html)). The CLI analogues are [`list`](#okfsmith-list) and [`read`](#okfsmith-read). Shell completion is not a command either — it's the global `--install-completion` flag (see [Global flags](#global-flags)).
+> **Looking for `get`?** It is not a CLI command — `get` exists as an **MCP server tool** (see [the MCP server page](mcp.html)) and as the `/read` chat slash command (inside [chat](chat.html)); the CLI analogue is [`read`](#okfsmith-read). Full-text search *is* a CLI command now: [`okfsmith search`](#okfsmith-search). Shell completion is not a command either — it's the global `--install-completion` flag (see [Global flags](#global-flags)).
 
 All examples assume a bundle at `./kb` created with `init` (paths like `kb` and `big.md` come straight from verified runs — adapt them to your own files).
 
@@ -207,20 +207,46 @@ Run `okfsmith init ./kb` to create a new bundle, then ingest documents.
 
 ---
 
-## search and get
+## okfsmith search
+
+Full-text search over a bundle: id, title, description, tags, and body,
+ranked with BM25 (stdlib-only, no new dependencies). The same engine powers
+the MCP server's `search` tool and chat's `/search`, so all three rank
+identically. See [Searching a bundle](../searching.md) for the query syntax
+(phrases, exclusions, stemming) and scoring details.
+
+```bash
+okfsmith search [OPTIONS] {bundle} {query}
+```
+
+```bash
+okfsmith search ./kb "knowledge graph"
+okfsmith search ./kb "quarterly revenue" --tier human-reviewed -n 5
+okfsmith search ./kb "api design" --format json
+```
+
+Results print as a `Score | ID | Type | Title | Tier` table (IDs never
+truncated) plus an `N result(s)` line; zero results exit 0 with
+`0 result(s)` and a stderr hint. An empty query is a usage error (exit 2).
+
+### Common options {#search-options}
+| Flag | What it does |
+|---|---|
+| `--limit <n>` / `-n` | Maximum results (default `10`, must be ≥ 1). |
+| `--format <text\|json>` | Output format (default `text`). |
+| `--type <str>` | Only concepts of this type. |
+| `--tier <str>` | Only this trust tier: `unverified`, `machine-confirmed`, `human-reviewed`. |
 
 > [!NOTE]
-> **`okfsmith search` and `okfsmith get` do not exist.** Typing them gives `No such command` (`get` even suggests *"Did you mean 'ingest'?"*). Both live in two other places:
+> **`okfsmith get` does not exist.** Typing it gives `No such command`
+> (it even suggests *"Did you mean 'ingest'?"*). `get` lives in two other
+> places:
 >
 > | What you want | Where to find it |
 > |---|---|
-> | **Search concepts from the terminal** | [`okfsmith list`](#okfsmith-list) — filter with `--type` / `--tier` and grep |
 > | **Read a concept from the terminal** | [`okfsmith read`](#okfsmith-read) — e.g. `okfsmith read ./kb big/installation` |
 > | **Search interactively** | `/search <keywords>` inside [`okfsmith chat`](#okfsmith-chat) |
 > | **Search/get as an agent** | The `search` and `get` **MCP tools** on the [`okfsmith mcp`](#okfsmith-mcp) server — see [MCP server](mcp.html) |
->
-> This is deliberate: the CLI works on files on disk; `search`/`get` are
-> server-side tools for connected agents and the REPL.
 
 ---
 
@@ -451,7 +477,7 @@ hint: Install it with: pip install "okfsmith[mcp]" (or pipx: pipx install "okfsm
 |---|---|
 | `--transport <stdio\|sse\|streamable-http>` | Transport (default `stdio`). |
 
-The server exposes five **MCP tools** — `index`, `list`, `search`, `get`, `neighbors`. These are tools for connected agents, not CLI commands (that's why there's no `okfsmith search`). Client config examples for Claude Code/Desktop, Cursor, Copilot, and Gemini are on [MCP server](mcp.html).
+The server exposes five **MCP tools** — `index`, `list`, `search`, `get`, `neighbors`. These are tools for connected agents; `search` is also a CLI command (`okfsmith search`), while `get` remains MCP-only (the CLI analogue is `read`). Client config examples for Claude Code/Desktop, Cursor, Copilot, and Gemini are on [MCP server](mcp.html).
 
 ---
 
@@ -461,7 +487,7 @@ The server exposes five **MCP tools** — `index`, `list`, `search`, `get`, `nei
 |---|---|
 | `0` | Success — `validate` prints `Conformant: no errors, no warnings.` |
 | `1` | Validation failed (errors, or warnings under `--strict`); or a general command error. |
-| `2` | CLI usage error — e.g. `No such command` for `okfsmith search`. |
+| `2` | CLI usage error — e.g. `No such command` for `okfsmith get`. |
 
 ---
 

@@ -3,6 +3,88 @@
 All notable changes to okfsmith. Format follows Keep a Changelog; versions
 follow SemVer.
 
+## [Unreleased]
+
+### Added
+- `okfsmith search BUNDLE QUERY`: BM25 full-text search over a bundle,
+  stdlib-only (no new dependencies). Query syntax: bare terms, quoted
+  phrases (`"knowledge graph"`), exclusions (`-deprecated`); an
+  unbalanced quote is treated as a phrase, never an error. Tokenizer
+  lowercases, splits on non-alphanumeric runs, drops ~40 English
+  stopwords, and applies a small deterministic suffix stemmer
+  (`sses→ss`, `ies→i`, `ing`/`ed`/`s` with length guards), so `running`
+  matches `run`. Field weights: concept id/title ×3, description/tags
+  ×2, body ×1; BM25 with k1=1.2, b=0.75; scores sort descending, ties
+  broken by concept id for deterministic ordering. Flags: `--limit`/`-n`
+  (default 10, must be ≥1), `--format text|json`, `--tier`, `--type`
+  (same semantics as `list`). Text output is a rich table
+  `Score | ID | Type | Title | Tier` (IDs never truncated) plus an
+  `N result(s)` line; zero results exits 0 with `0 result(s)` and a
+  stderr hint. JSON shape: `{"query", "results":
+  [{"id","type","title","tier","score"}], "count"}`. Empty query is a
+  usage error (exit 2); all failures print `error [CODE]:` + hint, never
+  a traceback. The MCP server's `search` tool and the chat REPL's
+  `/search` use the same engine, so CLI/MCP/chat results rank
+  identically; `rank_concepts` is kept as a deprecated thin shim.
+  No persistent on-disk index in v1 (built in memory per invocation;
+  once at MCP startup). Guide: `docs/searching.md`.
+- Docs: new `docs/searching.md` user guide (query syntax, tokenization,
+  field weights, JSON shape, CLI/MCP/chat parity); README CLI table now
+  lists `search`, documents `list --type`, and shows the correct
+  `okfsmith chat v0.3.0` banner.
+
+### Fixed
+Fixed in this cycle from the pre-release QA audit (full details in the
+QA bug report); criticals and highs listed, mediums/lows summarized.
+- **Critical (10):** symlink escapes confined to the bundle root in
+  `ensure_index`/`append_log` (C1); concept ids `index`/`log` no longer
+  overwrite the reserved files (C2); same-stem files in different
+  directories no longer silently overwrite each other on ingest (C3);
+  non-mapping/invalid-YAML frontmatter is preserved, not silently
+  discarded on load+resave (C4); UTF-16 sources no longer ingest as
+  NUL-garbage concepts (C5); validator no longer follows symlinked
+  `.md` files or blesses escaping links (C6); slug collisions no longer
+  silently overwrite concepts (C7); non-UTF-8 `.md` now yields
+  `error [unreadable-file]` naming the file instead of a
+  `UnicodeDecodeError` traceback in `read`/`validate`/`list`/`graph`/
+  `chat` (C8); impossible YAML dates report E001 instead of crashing
+  with `ValueError` (C9); scalar `verified`/`tags` frontmatter
+  (e.g. `verified: yes`) no longer crash MCP tools and CLI trust paths
+  with `TypeError` (C10).
+- **High (17):** unreadable directory-discovered files report a per-file
+  "failed" row instead of aborting the batch with `PermissionError`
+  (H1); concurrent ingests no longer lose index entries (H2);
+  quadratic link regexes hardened against crafted-input DoS (H3); deep
+  YAML nesting is caught instead of crashing with `RecursionError`
+  (H4); text-only Notion exports (no `_files/` dir) are recognized
+  (H5); nested ZIPs are parsed to documented depth 1 instead of being
+  silently skipped (H6); `graph --output` no longer silently overwrites
+  existing files (H7) and handles directory/missing-parent targets
+  cleanly across formats (H8); `ingest` with a file path as the bundle
+  emits `error [not-a-directory]` (H9); FIFO/non-file ingest sources
+  get a clean error instead of `NotADirectoryError` (H10); `init` I/O
+  failures surface `error [io-error]` (H11); directories named `*.md`
+  no longer crash `list`/`read`/`validate` (H12); `read --format json`
+  handles non-JSON-native frontmatter values (H13); null bytes in link
+  targets no longer crash `graph` (H14); over-long titles are truncated
+  to filesystem-safe lengths (H15); LLM transport failures retry instead
+  of aborting the whole extraction run (H16); `Bundle.load` no longer
+  hangs on a FIFO named `*.md` (H17).
+- **Medium/low (30 + 25):** summary of the remaining audit fixes —
+  BOM handling in titles/frontmatter (M9), latin-1 mojibake flagged not
+  silently corrupted (M10), binary-file detection on ingest (M11), ghost
+  concepts pruned on re-ingest (M1), `--dry-run` dedup-manifest parity
+  (M18), parse errors reported accurately instead of the stub-prevention
+  message (M2), phantom `'---'` concepts from frontmatter'd sources
+  (M3), non-UTF-8 filename log encoding (M8), `validate --strict` output
+  matches its exit code (M7), titled-link W001/W002 false positives
+  (M12), code-block/graph-vs-validator link disagreements (M13, L3),
+  mermaid node-ID collisions (M15), `check()` no longer creates missing
+  dirs (M16), chat `/model` typo no longer kills the REPL session
+  (M25), `graph --format text` inflection and other low-severity
+  polish (L1–L25); stale `--bundle` flag usage removed from the MCP
+  README (M26).
+
 ## [0.3.0] — 2026-09-26
 
 ### Added
