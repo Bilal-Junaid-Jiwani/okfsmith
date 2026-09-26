@@ -237,3 +237,36 @@ troubleshooting/faq) + README rewritten to match the real CLI grammar;
 (no secrets, no `extractall`, no PyMuPDF); ruff clean on all touched files
 (83 pre-existing errors elsewhere in tree left untouched); rendered-JS
 `node --check` OK.
+
+## 2026-09-26 — Polish round 1, follow-up fixes
+
+**Security fix (reviewer-found, release-blocking):** the viz `md()` JS renderer
+turned markdown links into `<a href>` without scheme restriction — a
+`javascript:` URL in an ingested document's description/body became a clickable
+XSS payload. Fixed with a `safeHref()` gate: only `http:`/`https:`/`mailto:`,
+fragments, and relative URLs become anchors; anything else (including
+`data:`, `vbscript:`, protocol-relative) degrades to plain text. Verified with
+node: `javascript:`/`data:` render as text, https/mailto/fragment/relative
+still link, `node --check` clean. Regression test added
+(`test_viz_markdown_links_restrict_url_schemes`).
+
+**Parser regression fix (clean-install smoke found it):** moving MarkItDown to
+the `office` extra had routed `.md`/`.txt` through `office.parse_office`, so a
+base install could not ingest markdown at all. New `parsers/text.py` reads
+`.md`/`.markdown`/`.txt` with the stdlib (UTF-8, `errors="replace"`, pipe
+tables extracted); `parse_file` routes there before the office fallback.
+Proven with markitdown import-blocked
+(`test_txt_and_md_parse_without_office_extra`); clean-venv sdist install now
+ingests `.md` → 2 concepts, conformant.
+
+**Also:** `python -m okfsmith.cli` entry point (no more runpy warning);
+`add_completion=True` + static `completions/` scripts (bash/zsh/fish, dynamic
+shims verified: commands and enum values complete); `man/okfsmith.1`;
+`.github/workflows/ci.yml` (test matrix 3 OS × 4 Python, ruff, CLI smoke,
+build+twine, pip-audit + secret/forbidden-content scan); `MANIFEST.in`
+extended to ship docs/completions/man in the sdist; install.md completion
+docs corrected for Click 8.5.
+
+**Verification:** 183 passed, 20 skipped; ruff clean on touched files;
+`python -m build` + `twine check` PASSED; sdist contains completions/man/docs;
+clean-venv install smoke green (init/ingest/validate/graph-html).

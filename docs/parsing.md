@@ -8,8 +8,8 @@ by file type, in tiers.
 
 | Tier | What | When |
 |------|------|------|
-| 1 — local, always available | **LiteParse** for PDFs (text-based; constructed with `ocr_enabled=False`, never calls paid OCR APIs); stdlib markdown/text | default for `.pdf`, `.md`, `.txt` |
-| 1 — local, optional extra | **MarkItDown** for Office files (`okfsmith[office]`): `.docx`, `.pptx`, `.xlsx` | Office formats |
+| 1 — local, always available | **LiteParse** for PDFs (text-based; constructed with `ocr_enabled=False`, never calls paid OCR APIs); **stdlib reader** for `.md` / `.txt` | default for `.pdf`, `.md`, `.txt` |
+| 1 — local, optional extra | **MarkItDown** for Office files (`okfsmith[office]`): `.docx`, `.pptx`, `.xlsx`, plus `.html`, `.csv`, images | Office formats |
 | 2 — sidecar | **Docling** (`okfsmith[ocr]`) for scanned/image PDFs | `--ocr` escalation path |
 | 3 — opt-in | cloud OCR | scans only, explicit opt-in |
 

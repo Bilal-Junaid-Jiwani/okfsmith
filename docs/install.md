@@ -39,18 +39,25 @@ writability as OK / MISSING / WARN. A missing extra tells you the exact
 
 ## Shell completion
 
+Static scripts ship in `completions/` (also in the sdist):
+
 ```bash
 # bash — add to ~/.bashrc
-eval "$(_OKFSMITH_COMPLETE=bash_source okfsmith)"
+source /path/to/okfsmith/completions/okfsmith.bash
 
 # zsh — add to ~/.zshrc
-eval "$(_OKFSMITH_COMPLETE=zsh_source okfsmith)"
+source /path/to/okfsmith/completions/okfsmith.zsh
 
 # fish — add to ~/.config/fish/config.fish
-_OKFSMITH_COMPLETE=fish_source okfsmith | source
+source /path/to/okfsmith/completions/okfsmith.fish
 ```
 
-(Completion is provided by Typer/Click's standard completion hook.)
+Or generate on the fly, or install permanently:
+
+```bash
+eval "$(okfsmith --show-completion bash)"   # bash/zsh/fish
+okfsmith --install-completion               # writes to your shell rc file
+```
 
 ## Uninstall
 

@@ -1,0 +1,117 @@
+.TH OKFSMITH 1 "September 2026" "okfsmith 0.1.0" "User Commands"
+.SH NAME
+okfsmith \- forge messy documents into OKF v0.2 knowledge bundles
+.SH SYNOPSIS
+.B okfsmith
+.RI [ OPTIONS ]
+.I COMMAND
+.RI [ ARGS ]...
+.SH DESCRIPTION
+.B okfsmith
+is a Python CLI that ingests messy documents (PDFs, markdown, wiki dumps,
+Notion exports) and emits spec-conformant OKF v0.2 knowledge bundles:
+markdown files with YAML frontmatter, plus reserved
+.B index.md
+and
+.B log.md
+files. Every concept carries provenance
+.RI ( sources[] ),
+a trust tier, and lifecycle metadata, and every bundle is checked by a
+built-in \(sc11 validator. The bundle is always the first positional
+argument.
+.SH COMMANDS
+.TP
+.B init \fIBUNDLE\fR [\-\-force] [\-\-yes]
+Scaffold
+.B index.md
+and
+.B log.md
+in
+.IR BUNDLE .
+Refuses a non-empty directory unless
+.B \-\-force
+is given (asks for confirmation unless
+.BR \-\-yes ).
+.TP
+.B ingest \fIBUNDLE\fR \fISOURCE\fR... [\-\-recursive] [\-\-no\-llm] [\-\-model \fINAME\fR] [\-\-dry\-run] [\-\-quiet]
+Parse, section, and extract each
+.I SOURCE
+(file or directory) into draft concepts. Sources are SHA-256 fingerprinted:
+already-ingested files are skipped.
+.B \-\-no\-llm
+writes one draft concept per section, fully offline.
+.TP
+.B validate \fIBUNDLE\fR [\-\-format text|json] [\-\-strict]
+Check OKF \(sc11 conformance. Exit 0 means conformant.
+.B \-\-strict
+also fails on warnings.
+.TP
+.B list \fIBUNDLE\fR [\-\-format text|json] [\-\-tier \fITIER\fR]
+List concepts, optionally filtered by trust tier
+.RI ( unverified ,
+.IR machine-confirmed ,
+.IR human-reviewed ).
+.TP
+.B read \fIBUNDLE\fR \fICONCEPT_ID\fR [\-\-format text|json]
+Print one concept (id is the bundle-relative path without
+.BR .md ).
+.TP
+.B graph \fIBUNDLE\fR [\-\-format text|json|mermaid|html] [\-\-output \fIFILE\fR]
+Show concept links. The
+.B html
+format writes a self-contained offline viewer
+.RI ( viz.html ).
+.TP
+.B mcp \fIBUNDLE\fR [\-\-transport stdio|sse|streamable\-http]
+Serve the bundle to AI agents over MCP. Requires the
+.B mcp
+extra.
+.TP
+.B doctor
+Check dependencies, optional extras, Ollama reachability, and temp-dir
+writability.
+.SH EXIT STATUS
+.TP
+.B 0
+Success (for
+.BR validate :
+conformant).
+.TP
+.B 1
+Expected failure; the message starts with
+.BR "error [CODE]:" ,
+e.g.
+.BR "error [bundle-not-found]:" ,
+and includes a hint. No tracebacks.
+.TP
+.B 2
+Usage error (bad flags, invalid enum choices, conflicting options).
+.SH ENVIRONMENT
+.TP
+.B OKFSMITH_MODEL
+Default model name for LLM extraction.
+.TP
+.B OPENAI_API_KEY
+API key for OpenAI-compatible backends (never read from files).
+.TP
+.B OKFSMITH_BASE_URL
+Base URL for OpenAI-compatible backends.
+.SH FILES
+.TP
+.I completions/okfsmith.bash
+.TQ
+.I completions/okfsmith.zsh
+.TQ
+.I completions/okfsmith.fish
+Shell completion scripts (source from your shell rc file, or run
+.BR "okfsmith --install-completion" ).
+.SH "SEE ALSO"
+Full guides in
+.BR docs/ ,
+plus
+.BR llms.txt .
+Project home:
+.UR https://github.com/Bilal-Junaid-Jiwani/okfsmith
+.UE
+.SH AUTHOR
+Written by the okfsmith contributors. License: Apache-2.0.

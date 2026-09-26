@@ -6,3 +6,10 @@ exclude BUILD_LOG.md
 exclude MANIFEST.in
 global-exclude __pycache__
 global-exclude *.py[cod]
+
+# Public docs shipped in the sdist.
+include README.md CHANGELOG.md CONTRIBUTING.md SECURITY.md llms.txt LICENSE
+include man/okfsmith.1
+include completions/okfsmith.bash completions/okfsmith.zsh completions/okfsmith.fish
+recursive-include docs *.md
+recursive-include skills *.md

@@ -12,7 +12,7 @@ from okfsmith import __version__
 
 app = typer.Typer(
     help="Convert messy documents into OKF v0.2 knowledge bundles.",
-    add_completion=False,
+    add_completion=True,
     # invoke_without_command=True lets the callback run on a bare `okfsmith`
     # so it can print help and exit 0 instead of "Missing command." (exit 2).
     invoke_without_command=True,
