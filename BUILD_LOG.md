@@ -51,7 +51,7 @@ no vector DB, no attestation execution runtime.
   verifies (contradictions, claim fidelity, stub detection). Claims → `[^source-id]` footnotes →
   `sources[]` entries. `generated: {by: <tool>/<model>, at}` stamped; `verified` only after review.
   Trust tiers derive: unverified → machine-confirmed → human-reviewed.
-- **Dedup:** SHA-256 source dedup + normalized-title/resource match + embedding similarity, LLM adjudicates merges.
+- **Dedup:** SHA-256 source dedup + normalized-title/resource match + ~~embedding similarity~~ [superseded: embedding similarity is a v1 TODO, not implemented — see 2026-09-26 correction], LLM adjudicates merges.
 - **Conformance:** implement OKF §11 natively (3 hard rules) + advisory lints (orphans, dead links, stubs,
   missing recommended fields, legacy v0.1 fields). Broken links = warnings, never errors (spec §6).
 - **MCP:** FastMCP, stdio default, tools `search/get/list/neighbors/index`; `okfsmith mcp --bundle ./kb`.

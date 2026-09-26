@@ -743,7 +743,8 @@ def list_concepts(
         _dump_json({"concepts": rows, "count": len(rows)})
         return
     table = Table(title=f"Concepts in {bundle_path}")
-    table.add_column("ID")
+    # IDs must never truncate: users copy-paste them into `read`.
+    table.add_column("ID", no_wrap=True, overflow="fold")
     table.add_column("Type")
     table.add_column("Title")
     table.add_column("Trust tier")

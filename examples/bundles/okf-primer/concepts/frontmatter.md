@@ -9,7 +9,7 @@ sources:
     title: OKF spec repository
     author: team:google-cloud
   - id: spec-md
-    resource: https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md
+    resource: https://github.com/GoogleCloudPlatform/open-knowledge-format/blob/main/SPEC.md
     title: OKF v0.2 SPEC.md
     author: team:google-cloud
 generated:
