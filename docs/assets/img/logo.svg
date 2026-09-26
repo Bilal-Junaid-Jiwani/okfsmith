@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 224 44" role="img" aria-label="okfsmith Docs">
+  <title>okfsmith Docs</title>
+  <!-- Forge/anvil mark: face bar, tapered waist, flared foot, spark above -->
+  <g fill="#D97757">
+    <rect x="6" y="12" width="28" height="7" rx="1.5"/>
+    <polygon points="15,19 25,19 28,32 12,32"/>
+    <rect x="8" y="32" width="24" height="5" rx="1.5"/>
+    <!-- spark: 4-point star -->
+    <path d="M34 4 l1.6 3.4 3.4 1.6 -3.4 1.6 -1.6 3.4 -1.6 -3.4 -3.4 -1.6 3.4 -1.6 Z"/>
+  </g>
+  <!-- wordmark: inherits surrounding text color (set light on the dark top bar) -->
+  <text x="48" y="29" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif"
+        font-size="21" font-weight="600" letter-spacing="0.2" fill="currentColor">okfsmith</text>
+  <!-- "Docs" label pill -->
+  <g>
+    <rect x="164" y="12" width="46" height="20" rx="5" fill="none" stroke="#D97757" stroke-width="1.5"/>
+    <text x="187" y="26.5" text-anchor="middle" font-family="Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif"
+          font-size="12.5" font-weight="500" fill="#D97757">Docs</text>
+  </g>
+</svg>

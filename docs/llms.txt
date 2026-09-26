@@ -1,0 +1,25 @@
+# okfsmith docs
+
+> okfsmith is an open-source command-line tool (pip install okfsmith) that
+> turns messy documentation — Markdown files, PDFs, Office docs, whole
+> folders — into a knowledge bundle following the Open Knowledge Format
+> (OKF). This is the documentation index.
+
+Canonical base: https://bilal-junaid-jiwani.github.io/okfsmith/docs/
+Source: https://github.com/Bilal-Junaid-Jiwani/okfsmith
+
+## Pages
+
+- [Installation](https://bilal-junaid-jiwani.github.io/okfsmith/docs/install.html): Install okfsmith from PyPI, add optional extras for Office docs, MCP, and OCR, set up shell completion, and verify everything with okfsmith doctor.
+- [Quickstart](https://bilal-junaid-jiwani.github.io/okfsmith/docs/quickstart.html): Five minutes from zero to a validated knowledge bundle: init, ingest with --no-llm, validate, and graph — every command copy-paste ready.
+- [Interactive chat](https://bilal-junaid-jiwani.github.io/okfsmith/docs/chat.html): Ask questions over your knowledge bundle in the Claude-Code-style REPL — with citations, slash commands, and an extractive mode that needs no API key.
+- [Ingesting documents](https://bilal-junaid-jiwani.github.io/okfsmith/docs/ingesting.html): How okfsmith ingest turns PDFs, Markdown, Office files and more into draft concepts — the free --no-llm path first, then LLM extraction when you need it.
+- [Validation & error codes](https://bilal-junaid-jiwani.github.io/okfsmith/docs/validation.html): Check your bundle against OKF v0.2 conformance — errors E001–E004, warnings W001–W015, trust tiers, and how to fix the common findings.
+- [Visualizing the knowledge graph](https://bilal-junaid-jiwani.github.io/okfsmith/docs/graph.html): See how your concepts link together — okfsmith graph reports nodes, edges, orphans and dead links, and can render an interactive HTML viewer.
+- [Agent skill pack](https://bilal-junaid-jiwani.github.io/okfsmith/docs/skill.html): The okfsmith-build skill pack teaches AI agents the init-ingest-validate-serve loop for OKF bundles, with references and a stdlib validator.
+- [FAQ](https://bilal-junaid-jiwani.github.io/okfsmith/docs/faq.html): Short answers to the most common beginner questions: cost, API keys, supported files, privacy, Python versions, trust tiers, and where to get help.
+- [CLI reference](https://bilal-junaid-jiwani.github.io/okfsmith/docs/cli.html): Every okfsmith command on one page — init, ingest, list, read, validate, graph, doctor, chat, mcp — with real syntax, flags, and runnable examples.
+- [Providers & API keys](https://bilal-junaid-jiwani.github.io/okfsmith/docs/providers.html): Use any OpenAI-compatible model with okfsmith — 15 provider presets, API keys via environment variables, local Ollama by default.
+- [MCP server](https://bilal-junaid-jiwani.github.io/okfsmith/docs/mcp.html): Serve a knowledge bundle to AI agents over the Model Context Protocol — read-only tools, stdio/SSE/streamable-HTTP transports, client config examples.
+- [Troubleshooting](https://bilal-junaid-jiwani.github.io/okfsmith/docs/troubleshooting.html): Fix every common okfsmith failure — start with okfsmith doctor, then match your error to its fix.
+- [Changelog](https://bilal-junaid-jiwani.github.io/okfsmith/docs/changelog.html): Release history for okfsmith — what changed in each version, what's coming next, and upgrade notes. Follows Keep a Changelog and Semantic Versioning.

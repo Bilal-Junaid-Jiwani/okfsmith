@@ -41,3 +41,6 @@ Thumbs.db
 credentials*.json
 *secret*.json
 secrets/
+
+# Docs QA screenshots (local only, not committed)
+docs-qa/

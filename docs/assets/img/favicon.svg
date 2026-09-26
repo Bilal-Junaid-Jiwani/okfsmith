@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="okfsmith">
+  <title>okfsmith</title>
+  <!-- Simplified anvil mark, readable at 16x16, terracotta on transparent -->
+  <g fill="#D97757">
+    <rect x="10" y="18" width="44" height="11" rx="2"/>
+    <polygon points="24,29 40,29 44,48 20,48"/>
+    <rect x="13" y="48" width="38" height="8" rx="2"/>
+    <!-- spark: 4-point star -->
+    <path d="M53 5 l2.4 5.1 5.1 2.4 -5.1 2.4 -2.4 5.1 -2.4 -5.1 -5.1 -2.4 5.1 -2.4 Z"/>
+  </g>
+</svg>

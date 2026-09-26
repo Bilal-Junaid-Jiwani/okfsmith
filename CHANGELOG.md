@@ -43,6 +43,14 @@ follow SemVer.
   (`kb ›`), and a subtle `✦` marker before answers. Piped / `NO_COLOR`
   output stays plain ASCII with zero escape codes. The banner no longer
   shows LLM key status (still in `/model` and `doctor`, masked).
+- Documentation website: new static docs site in `docs/` (13 pages +
+  `index.html`), styled after the Claude Code docs — warm dark theme, sticky
+  topbar with search (Ctrl/Cmd+K), six-tab section bar, grouped sidebar nav,
+  sticky "On this page" TOC, per-code-block and per-page copy buttons.
+  Built by `python3 docs/build.py` (no npm, no build step); deploys as-is
+  from GitHub Pages with `/docs` as the source folder. Includes
+  `sitemap.xml`, `robots.txt`, `llms.txt`, JSON-LD metadata, `404.html`,
+  and client-side search over a generated index.
 
 ## [0.2.0] — 2026-09-26
 

@@ -1,0 +1,527 @@
+[
+ {
+  "url": "install.html",
+  "title": "Installation",
+  "eyebrow": "Getting started",
+  "description": "Install okfsmith from PyPI, add optional extras for Office docs, MCP, and OCR, set up shell completion, and verify everything with okfsmith doctor.",
+  "headings": [
+   {
+    "id": "open-terminal",
+    "text": "Open a terminal"
+   },
+   {
+    "id": "check-python",
+    "text": "Check Python"
+   },
+   {
+    "id": "install",
+    "text": "Install okfsmith"
+   },
+   {
+    "id": "extras",
+    "text": "Optional extras"
+   },
+   {
+    "id": "verify",
+    "text": "Verify the install"
+   },
+   {
+    "id": "upgrade-uninstall",
+    "text": "Upgrade and uninstall"
+   }
+  ],
+  "text": "Open a terminal Everything below runs in a terminal (a command line). If you have never opened one: macOS: press Cmd + Space , type Terminal , press Enter. Windows: press the Win key, type PowerShell (or Terminal ), press Enter. Linux: press Ctrl + Alt + T , or search for \"Terminal\" in your apps. You will type commands after the prompt and press Enter. Nothing here can harm your computer — installing a Python package and creating files in a folder you choose. Check Python okfsmith needs Python 3.10 or newer . Check yours: python --version If that says command not found , try python3 --version instead. On Windows, py --version also works. If your version is older than 3.10 (or Python is missing entirely), install the latest Python from python.org/downloads and come back here. Python 3.12.3 Any 3.10+ works — 3.11, 3.12, 3.13 are all fine. Install okfsmith Install from PyPI (the standard Python package index) with one command: pip install okfsmith Tip If pip is not found, use pip3 install okfsmith . On Windows, py -m pip install okfsmith always works. That's the whole install. No accounts, no API keys, no configuration files — the default workflow runs entirely on your machine. Optional extras Extras unlock extra capabilities. Install any of them together with the base package: pip install \"okfsmith[office]\" # Word/Excel/PowerPoint docs via MarkItDown pip install \"okfsmith[mcp]\" # serve bundles to AI agents over MCP pip install \"okfsmith[ocr]\" # text extraction from scanned PDFs/images Note The quotes around okfsmith[mcp] matter on macOS and Linux (zsh/bash treat square brackets specially). On Windows PowerShell you can write the quotes too — they are harmless there. Wondering which extra you need? Ingesting documents explains the parser tiers each extra powers. You can combine extras: pip install \"okfsmith[office,mcp,ocr]\" . Verify the install Run these two commands. The first prints the installed version: okfsmith --version okfsmith 0.2.0 The second checks your whole environment — dependencies, extras, Ollama, and whether your API keys are configured: okfsmith doctor okfsmith doctor ┏━━━━━━━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓ ┃ Check ┃ Status ┃ Detail ┃ ┡━━━━━━━━━━━━━━━━╇━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩ │ python >= 3.10 │ OK │ 3.12.3 │ │ okfsmith │ OK │ 0.2.0 │ │ ... │ ... │ ... │ │ extra: mcp │ MISSING │ Install the 'mcp' extra: pip install │ │ │ │ 'okfsmith[mcp]' ... │ │ ollama │ WARN │ not reachable at http://localhost:11434 — │ │ │ │ use --no-llm or set OPENAI_API_KEY │ │ llm api key │ MISSING │ not needed for local Ollama; set │ │ │ │ OKFSMITH_API_KEY for hosted providers │ │ tmp writable │ OK │ /tmp │ └────────────────┴━━━━━━━━━┴━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┘ Note doctor never prints your keys — it only shows set (hidden) plus where the key came from. A MISSING or WARN here is usually fine: MISSING extras mean an optional feature is off, and the Ollama WARN only matters if you plan to use LLM features. The no-LLM workflow you are about to try needs none of it. If doctor shows OK for Python and okfsmith, you are ready. Upgrade and uninstall To get the newest version later: pip install --upgrade okfsmith To remove okfsmith completely: pip uninstall okfsmith Advanced **Virtual environments.** If you manage Python projects with virtual environments, install okfsmith inside one like any other package: ```bash python -m venv .venv source .venv/bin/activate # macOS/Linux # .venv\\Scripts\\activate # Windows pip install okfsmith ``` **Shell completion.** Tab-completion for commands and flags is available via Typer's built-in support: ```bash okfsmith --install-completion # install completion for your shell okfsmith --show-completion # preview the completion script ``` Restart your shell after installing completion for it to take effect. **Installing a specific version:** ```bash pip install \"okfsmith==0.2.0\" ``` Next: Quickstart → — build your first knowledge"
+ },
+ {
+  "url": "quickstart.html",
+  "title": "Quickstart",
+  "eyebrow": "Getting started",
+  "description": "Five minutes from zero to a validated knowledge bundle: init, ingest with --no-llm, validate, and graph — every command copy-paste ready.",
+  "headings": [
+   {
+    "id": "what-you-will-build",
+    "text": "What you will build"
+   },
+   {
+    "id": "step-1-document",
+    "text": "Step 1 — Create a document to ingest"
+   },
+   {
+    "id": "step-2-init",
+    "text": "Step 2 — Create the bundle"
+   },
+   {
+    "id": "step-3-ingest",
+    "text": "Step 3 — Ingest the document"
+   },
+   {
+    "id": "step-4-validate",
+    "text": "Step 4 — Validate the bundle"
+   },
+   {
+    "id": "step-5-graph",
+    "text": "Step 5 — Look at the concept graph"
+   },
+   {
+    "id": "done",
+    "text": "You did it"
+   }
+  ],
+  "text": "What you will build In under five minutes you will create a knowledge bundle from a document, check that it conforms to the OKF v0.2 specification, and look at its concept graph. Every command below is copy-paste ready, and the --no-llm flag means no API key, no model, no internet — it all runs on your machine. The four commands: okfsmith init ./kb okfsmith ingest ./kb guide.md --no-llm okfsmith validate ./kb okfsmith graph ./kb Step 1 — Create a document to ingest First, make a small Markdown document. Run this exactly as written — the file must be over ~1,000 characters (shorter files are skipped on purpose, see FAQ ): mkdir -p ~/okfsmith-demo && cd ~/okfsmith-demo cat > guide.md <<'EOF' # Getting started with okfsmith okfsmith turns messy documentation into a structured knowledge bundle using the Open Knowledge Format (OKF). A bundle is a folder of Markdown files with machine-readable frontmatter, so everything stays readable by humans and by agents alike. ## Installation Install from PyPI with `pip install okfsmith`. You need Python 3.10 or newer. Verify the install with `okfsmith --version` and `okfsmith doctor`, which checks your dependencies, optional extras, Ollama reachability, and whether your API keys are configured (it never prints the keys themselves). ## Your first bundle Run `okfsmith init ./kb` to create a bundle. Then run `okfsmith ingest ./kb guide.md --no-llm` to ingest this very file. The `--no-llm` flag uses deterministic sectioning: it splits documents on headings and needs no API key and no model. It is the fastest way to get a feel for the whole workflow. ## Validation After ingesting, run `okfsmith validate ./kb`. It checks the bundle against the OKF v0.2 specification: error codes E001 through E004 and warning codes W001 through W015. A clean bundle exits with code 0. ## Trust tiers Every concept carries a trust tier: `unverified`, `machine-confirmed`, or `human-reviewed`. No-LLM ingests land at `unverified`, which tells every reader exactly how much trust to place in the content. Promote tiers as concepts get reviewed and confirmed. EOF Tip On Windows, save the file as guide.md with Notepad instead of using the cat command — then cd to that folder in PowerShell and continue from Step 2. Step 2 — Create the bundle okfsmith init ./kb Initialized OKF bundle in kb index: /path/to/okfsmith-demo/kb/index.md log: /path/to/okfsmith-demo/kb/log.md Next: add sources with 'okfsmith ingest kb <file-or-dir> --no-llm'. A bundle is a folder. init creates exactly two files inside it: index.md (the bundle manifest) and log.md (the activity log). Step 3 — Ingest the document okfsmith ingest ./kb guide.md --no-llm Ingest summary — sectioning (no LLM) ┏━━━━━━━━━━┳━━━━━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━┓ ┃ File ┃ SHA-256 ┃ Concepts ┃ Status ┃ ┡━━━━━━━━━━╇━━━━━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━┩ │ guide.md │ 00902a6ea326 │ 5 │ ok │ └──────────┴──────────────┴──────────┴────────┘ ingested 5 concept(s) from 1 file(s) into kb The --no-llm flag splits the document on its headings — one concept per section. No model is called, so nothing leaves your machine. Let's see what landed in the bundle: okfsmith list ./kb Concepts in kb ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━┳━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━┓ ┃ ID ┃ Type ┃ Title ┃ Trust tier ┃ ┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━╇━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━┩ │ guide/getting-started-with-okfsmith │ Draft │ Getting started │ unverified │ │ │ │ with okfsmith │ │ │ guide/installation │ Draft │ Installation │ unverified │ │ guide/trust-tiers │ Draft │ Trust tiers │ unverified │ │ guide/validation │ Draft │ Validation │ unverified │ │ guide/your-first-bundle │ Draft │ Your first bundle │ unverified │ └─────────────────────────────────────┴───────┴───────────────────┴────────────┘ 5 concept(s) Concept IDs are file-slug/heading-slug . Read any concept in full: okfsmith read ./kb guide/trust-tiers --- type: Draft title: Trust tiers description: Draft concept extracted without LLM; n"
+ },
+ {
+  "url": "chat.html",
+  "title": "Interactive chat",
+  "eyebrow": "Getting started",
+  "description": "Ask questions over your knowledge bundle in the Claude-Code-style REPL — with citations, slash commands, and an extractive mode that needs no API key.",
+  "headings": [
+   {
+    "id": "start-chatting-in-10-seconds",
+    "text": "Start chatting in 10 seconds"
+   },
+   {
+    "id": "the-startup-screen",
+    "text": "The startup screen"
+   },
+   {
+    "id": "asking-questions",
+    "text": "Asking questions"
+   },
+   {
+    "id": "extractive-vs-generative-answers",
+    "text": "Extractive vs generative answers"
+   },
+   {
+    "id": "all-slash-commands",
+    "text": "All slash commands"
+   },
+   {
+    "id": "history-quitting-and-keys",
+    "text": "History, quitting, and keys"
+   }
+  ],
+  "text": "Start chatting in 10 seconds okfsmith chat opens a REPL (an interactive prompt — you type, it answers) where you ask natural-language questions over your bundle. With --no-llm it works with zero setup — no API keys, no local model: okfsmith chat ./kb --no-llm The bundle argument is optional — if your current directory is a bundle, run okfsmith chat . The startup screen Here is the real startup banner — the command, then exactly what prints (the version line shows your installed version): okfsmith chat ./kb --no-llm ███ █ █ █████ ████ █ █ █████ █████ █ █ █ █ █ █ █ █ ██ ██ █ █ █ █ █ █ ███ ████ ███ █ █ █ █ █ █████ █ █ █ █ █ █ █ █ █ █ █ █ ███ █ █ █ ████ █ █ █████ █ █ █ okfsmith chat v0.2.0 Bundle: kb (18 concepts) · extractive mode Extractive mode — no LLM reachable. Answers are keyword-matched excerpts. Start Ollama, set OKFSMITH_API_KEY + OKFSMITH_PROVIDER, or pass --provider, for generative answers. Tips for getting started: 1. Ask questions about your documents. 2. Type /help for chat commands. 3. Type /ingest <path> to add more documents. kb › What you're looking at: ASCII logo — the block-letter \"OKF\" banner prints first. Version line — okfsmith chat v0.2.0 , your installed version. Bundle info line — Bundle: kb (18 concepts) · extractive mode : bundle name, concept count, and which answer mode is active. Mode explainer — in extractive mode you get two lines telling you exactly how to upgrade to generative answers (start Ollama, set OKFSMITH_API_KEY + OKFSMITH_PROVIDER , or pass --provider ). Three tips — what to do next. Prompt — kb › : bundle name plus › . Tip For generative (LLM) answers, either start Ollama locally or pass a hosted provider: okfsmith chat ./kb --provider openrouter --model anthropic/claude-sonnet-4 . Set your key as an env var — never as a flag: export OKFSMITH_API_KEY=your-key-here . See Providers . Asking questions Start typing. Plain English goes to the question-answer path; lines starting with / are slash commands: kb › what is the 1000-char rule? kb › /help kb › /search trust tiers Note There is no okfsmith search CLI command . Search inside chat is the /search slash command (keyword search over concepts). The same search exists as an MCP tool on the server — see MCP server . The CLI equivalent of get is read , mirrored by /read here. Extractive vs generative answers Chat has two answer modes, shown on the bundle info line: Extractive mode Generative mode Activated by --no-llm , or no LLM reachable Default when an LLM is reachable How answers are built Keyword-matched excerpts from your concepts LLM composes an answer over retrieved context Needs Nothing — fully offline Ollama running, or --provider + OKFSMITH_API_KEY Citations Match table shows concept IDs Answers cite concepts as [concept-id] Extractive answers look like this: ✦ Matches for: trust tiers ┏━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━┓ ┃ Concept ┃ Trust tier ┃ Excerpt ┃ ┡━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━┩ │ big/trust-tiers │ unverified │ ...three trust tiers... │ └───────────────────┴────────────┴───────────────────────────┘ Extractive mode: excerpts above, no generative summary. Use /read <id> for the full concept. In generative mode , answers cite their sources inline as [concept-id] — e.g. The 1000-char rule [big/stub-prevention] prevents stub concepts. — so you can verify any claim with /read <id> . In extractive mode you get the excerpt table instead of a summary; use /read big/trust-tiers to see the full concept. Warning --model cannot be combined with --no-llm — the CLI raises a parameter error. Pick one mode: extractive ( --no-llm ) or generative ( --provider / --model ). All slash commands /help inside chat prints this table: Command What it does /help Show this table. /ingest <path> [--recursive] Ingest a file or directory into the bundle. /list List concepts in the bundle. /read <id> Print a concept in full. /search <keywords> Keyword-search concepts. /validate Validate the bundle"
+ },
+ {
+  "url": "ingesting.html",
+  "title": "Ingesting documents",
+  "eyebrow": "User guide",
+  "description": "How okfsmith ingest turns PDFs, Markdown, Office files and more into draft concepts — the free --no-llm path first, then LLM extraction when you need it.",
+  "headings": [
+   {
+    "id": "ingest-your-first-document",
+    "text": "Ingest your first document"
+   },
+   {
+    "id": "supported-formats",
+    "text": "Supported formats"
+   },
+   {
+    "id": "the---no-llm-free-first-flow",
+    "text": "The --no-llm free-first flow"
+   },
+   {
+    "id": "what-happens-under-the-hood",
+    "text": "What happens under the hood"
+   },
+   {
+    "id": "parser-tiers",
+    "text": "Parser tiers"
+   },
+   {
+    "id": "notion-exports-zip-files-and-plain-text",
+    "text": "Notion exports, zip files, and plain text"
+   },
+   {
+    "id": "the-1000-char-skip-rule-stub-prevention",
+    "text": "The 1000-char skip rule (stub prevention)"
+   },
+   {
+    "id": "duplicate-headings-get--2--3-suffixes",
+    "text": "Duplicate headings get -2, -3 suffixes"
+   },
+   {
+    "id": "dry-run-parse-and-plan-only",
+    "text": "--dry-run: parse and plan only"
+   }
+  ],
+  "text": "Ingest your first document The --no-llm path is free, deterministic, and needs no API key — it's the recommended first step: okfsmith init ./kb okfsmith ingest ./kb guide.md --no-llm ( guide.md is the sample document from the Quickstart — or point it at any of your own Markdown files.) Real output (verified run — your SHA and concept count will differ per file): Ingest summary — sectioning (no LLM) ┏━━━━━━━━━━┳━━━━━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━┓ ┃ File ┃ SHA-256 ┃ Concepts ┃ Status ┃ ┡━━━━━━━━━━╇━━━━━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━┩ │ guide.md │ 00902a6ea326 │ 5 │ ok │ └──────────┴──────────────┴──────────┴────────┘ ingested 5 concept(s) from 1 file(s) into kb Supported formats The parser is tiered and free-first — it routes each file by type: Input Parser Cost / setup .md , .txt LiteParse-free text parser (stdlib only) Free, built in .pdf LiteParse Free, built in, fully offline Notion export (zip) Notion parser Free, built in .docx , .pptx , .xlsx , .html , .csv , .zip , images MarkItDown Needs pip install \"okfsmith[office]\" Scanned/image-only PDFs OCR sidecar Needs pip install \"okfsmith[ocr]\" # a directory of files at once (add --recursive for subdirectories) okfsmith ingest ./kb docs/ --recursive --no-llm Tip Not sure which extras you have? Run okfsmith doctor — it shows each extra as OK or MISSING with the install command. Office support is the markitdown extra. The --no-llm free-first flow With --no-llm , okfsmith uses deterministic sectioning instead of a language model: You pass one or more files (or directories). Each file is parsed to text. The text is split into sections by headings. Each section becomes one draft concept with a generated id like big/installation (file slug / heading slug). Concept files are written into the bundle. Because it's deterministic, running it twice on the same file gives the same result — and per-file SHA-256 dedup means re-ingesting the same file changes nothing (the bundle manifest tracks digests). What happens under the hood Every source runs through the same ordered stages — each stage's output is the next stage's input: source file │ 1. COLLECT — gather files (recursive if asked), skip already-ingested │ via SHA-256 fingerprints ▼ │ 2. PARSE — bytes → structured document (pages, text, tables, metadata) ▼ │ 3. SECTION — split into titled sections (headings / page spans) ▼ │ 4. EXTRACT — sections → concept drafts │ • --no-llm: one draft concept per section (offline, fast) │ • LLM: two-pass draft + critic; claims cite [^source-id] ▼ │ 5. WRITE — concepts land as <bundle>/<source-slug>/<slug>.md with │ YAML frontmatter: `type: Draft`, `title`, `description`, │ `resource` (source file), `generated` (by/at), `status: draft`, │ tags `draft` / `no-llm` (the LLM path also records `sources[]`) ▼ │ 6. INDEX/LOG — index.md refreshed, log.md appended (provenance) Concept ids follow file-slug/heading-slug , e.g. big/first-bundle . Note Without --no-llm , ingest uses the LLM extraction path by default (model, provider, and API-key flags apply). If no LLM is reachable in that mode, ingest errors — it never silently falls back to --no-llm . Parser tiers Parsers are chosen by file type, in tiers: Tier What When 1 — local, always available LiteParse for PDFs (text-based; constructed with ocr_enabled=False , never calls paid OCR APIs); stdlib reader for .md / .txt default for .pdf , .md , .txt 1 — local, optional extra MarkItDown for Office files ( okfsmith[office] ): .docx , .pptx , .xlsx , plus .html , .csv , images Office formats 2 — sidecar Docling ( okfsmith[ocr] ) for scanned/image PDFs image-only pages are flagged ( needs_ocr ) and reported as OCR escalation candidates 3 — classification only OCR/vision tier (no provider in v1) scans/images flagged needs_ocr and reported; nothing leaves the machine PyMuPDF is deliberately not used (AGPL license). Notion exports, zip files, and plain text Notion exports — Notion HTML/CSV exports are parsed directly: each page (and each per-database CSV file) becomes"
+ },
+ {
+  "url": "validation.html",
+  "title": "Validation & error codes",
+  "eyebrow": "User guide",
+  "description": "Check your bundle against OKF v0.2 conformance — errors E001–E004, warnings W001–W015, trust tiers, and how to fix the common findings.",
+  "headings": [
+   {
+    "id": "validate-your-bundle",
+    "text": "Validate your bundle"
+   },
+   {
+    "id": "errors-e001e004",
+    "text": "Errors E001–E004"
+   },
+   {
+    "id": "warnings-w001w015",
+    "text": "Warnings W001–W015"
+   },
+   {
+    "id": "trust-tiers",
+    "text": "Trust tiers"
+   },
+   {
+    "id": "fixing-common-errors",
+    "text": "Fixing common errors"
+   }
+  ],
+  "text": "Validate your bundle okfsmith validate ./kb A conformant bundle prints empty tables and exits with code 0 — even under --strict : Errors (0) ┏━━━━━━┳━━━━━━┳━━━━━━━━━┓ ┃ Code ┃ File ┃ Message ┃ ┡━━━━━━╇━━━━━━╇━━━━━━━━━┩ └──────┴──────┴────────┘ Warnings (0) ┏━━━━━━┳━━━━━━┳━━━━━━━━━┓ ┃ Code ┃ File ┃ Message ┃ ┡━━━━━━╇━━━━━━╇━━━━━━━━━┩ └──────┴──────┴────────┘ Conformant: no errors, no warnings. Validation checks OKF v0.2 §11 conformance. Findings come in two severities: Errors (E001–E004) — hard conformance failures. Any error means the bundle is not conformant. Warnings (W001–W015) — advisory only; they never affect conformance, and --strict treats them as failures when you want a clean bill of health. Tip Validate after every ingest: okfsmith ingest ./kb guide.md --no-llm && okfsmith validate ./kb . New concepts are Drafts, but they should still be conformant. Errors E001–E004 Code What it means Where in OKF E001 Concept has no parseable YAML frontmatter block (missing, or not valid YAML) §11.1 E002 Frontmatter is not a YAML mapping, or the required type is missing/empty §11.2 E003 A non-root index.md contains frontmatter, or the bundle-root index.md frontmatter has keys other than okf_version §8, §12 E004 A log.md date heading is not ISO YYYY-MM-DD §9 Warnings W001–W015 Code What it means Where in OKF W001 Body link target resolves to no file in the bundle (broken link) §6.1 W002 Concept not reachable from any index.md entry §8 W003 Recommended title / description missing from frontmatter §4.1 W004 Body footnote [^id] has no matching sources[].id §5.1 W005 A sources entry is missing id §5.1 W006 now >= stale_after — concept content is stale (informational) §5.5 W007 index.md declares an unknown okf_version (expected \"0.2\" ) §12 W008 A sources entry is missing REQUIRED resource §5.1 W009 generated is missing REQUIRED by , or a verified entry is missing by §5.2 W010 type: Attested Computation without REQUIRED runtime §10.2 W011 Timestamp-valued keys not ISO 8601 with an explicit UTC offset, or malformed generated / verified / sources / usage_window §5 W012 v0.1 legacy timestamp field or body # Citations list still present §13.1 W013 log.md date headings not newest-first §9 W014 status is not one of draft / stable / deprecated §5.4 W015 Duplicate sources[].id within one concept §5.1 Trust tiers Every concept carries a trust tier (visible in okfsmith list ): Tier Meaning unverified Default — everything fresh out of --no-llm ingest. Draft material, not yet confirmed. machine-confirmed A machine process (LLM extraction, cross-checks) confirmed the content. human-reviewed A human reviewed and signed off on the concept. New concepts start as type: Draft with tier unverified . Promoting tiers is a review workflow you do by editing concept files — the CLI records what you assert; it doesn't second-guess it. Fixing common errors E001 — no parseable frontmatter The concept file must start with --- , then YAML, then --- . Check for a missing closing fence or a tab character (YAML forbids tabs). E002 — frontmatter not a mapping / type missing Every concept needs type: <something> in frontmatter (ingest writes type: Draft ). Make sure the frontmatter parses to key/value pairs, not a list. E004 — log date heading not ISO log.md headings must be calendar dates like 2026-09-26 , not Sep 26 or 26/09/2026 . W002 — concept not reachable from index Link the concept from an index.md entry so it's discoverable from the bundle's entry points. W011 — timestamp without UTC offset Write timestamps as full ISO 8601 with offset: 2026-09-26T12:18:20+00:00 , not 2026-09-26 12:18 or a date without a timezone. W012 — legacy v0.1 fields Rename timestamp: to the v0.2 field structure and move # Citations body lists into sources frontmatter. W014 — bad status Use exactly draft , stable , or deprecated (lowercase). Note Warnings never block conformance. Fix the E-codes first; treat warnings as a quality checklist. If warnings bother you in CI, gate on okfsmith val"
+ },
+ {
+  "url": "graph.html",
+  "title": "Visualizing the knowledge graph",
+  "eyebrow": "User guide",
+  "description": "See how your concepts link together — okfsmith graph reports nodes, edges, orphans and dead links, and can render an interactive HTML viewer.",
+  "headings": [
+   {
+    "id": "see-the-graph",
+    "text": "See the graph"
+   },
+   {
+    "id": "orphans-and-dead-links",
+    "text": "Orphans and dead links"
+   },
+   {
+    "id": "output-formats",
+    "text": "Output formats"
+   }
+  ],
+  "text": "See the graph okfsmith graph ./kb Real output for a fresh --no-llm bundle: 18 concept(s), 0 link(s), 0 dead link(s). Orphans (0): (none) Dead links (0): (none) What each number means: concepts — nodes in the graph (one per concept file). links — edges: a concept's body links to another concept in the bundle. dead links — link targets that resolve to no file (matches W001 from Validation ). A freshly ingested --no-llm bundle has 0 links — deterministic sectioning doesn't create inter-concept links, so every concept is standalone. That's normal, and it still validates. Orphans and dead links Orphans — concepts nothing links to . They're valid but isolated: readers can only reach them via list or search. Dead links — links pointing at targets that don't exist in the bundle (typos in hand-written links, renamed concept files). To fix them: Run okfsmith graph ./kb to list the offenders. For dead links: open the source concept and correct the link target (or create the missing concept). For orphans: link to them from related concepts, or add them to an index.md entry — note that index.md -reachability is what validation rule W002 checks. Tip Links between concepts are the edges that turn a pile of drafts into a knowledge graph . When you write concept bodies by hand, link freely — graph will tell you when a target is wrong. Output formats graph renders four ways: --format Output text (default) The summary above, printed to stdout json Machine-readable: nodes, edges, orphans, dead links mermaid flowchart LR — one node per concept, e.g. big_first_bundle[\"big/first-bundle — First Bundle\"] . Paste it into any Mermaid renderer. html An interactive visualization written to <bundle>/viz.html # write a Mermaid diagram to a file okfsmith graph ./kb --format mermaid --output graph.mmd # render the interactive viewer (offline: colorblind-safe palette, backlinks, search) okfsmith graph ./kb --format html The HTML viewer needs no server — open kb/viz.html in a browser. It shows the graph with a colorblind-safe palette, per-concept backlinks, a search box, and keyboard access. (Chat's /graph runs the same command inside the REPL.) Advanced - `--output ` writes to a file instead of stdout for any `--format` — combine with `--format html` to place the viewer somewhere specific: `okfsmith graph ./kb --format html --output ./site/viz.html`. - JSON shape is `{\"nodes\": [...], \"adjacency\": {\" \": [\" \", ...]}, \"dead_links\": [...]}` — stable for scripting and CI checks. - The default HTML output is always ` /viz.html`; pass `--output` to change it. - Link analysis also runs inside `validate` (E001–E004/W001–W015), but `graph` is the tool for *exploring* the graph, not only conformance-checking it. Next: Agent skill pack → — teach agents the init → ingest → validate → serve workflow."
+ },
+ {
+  "url": "skill.html",
+  "title": "Agent skill pack",
+  "eyebrow": "User guide",
+  "description": "The okfsmith-build skill pack teaches AI agents the init-ingest-validate-serve loop for OKF bundles, with references and a stdlib validator.",
+  "headings": [
+   {
+    "id": "agent-skill-pack",
+    "text": "Agent skill pack"
+   },
+   {
+    "id": "what-it-is",
+    "text": "What it is"
+   },
+   {
+    "id": "where-it-lives",
+    "text": "Where it lives"
+   },
+   {
+    "id": "how-agents-use-it",
+    "text": "How agents use it"
+   },
+   {
+    "id": "trigger-phrases",
+    "text": "Trigger phrases"
+   },
+   {
+    "id": "next",
+    "text": "Next →"
+   }
+  ],
+  "text": "Agent skill pack The okfsmith-build skill pack teaches an AI agent (Claude Code, Cursor, Copilot, Gemini CLI, or any agent with skill support) how to build OKF v0.2 knowledge bundles with okfsmith — the full loop: scaffold → ingest → validate → serve. Note This page is for agent builders and power users who want an agent to do the bundle-building work. If you're a human following the beginner flow, start at Quickstart instead. What it is An agent skill is a folder of instructions an agent loads when it needs a capability. okfsmith-build covers: When to use it — converting PDFs, wiki dumps, Notion exports, and markdown collections into OKF v0.2 bundles; validating bundles against the OKF §11 conformance rules; serving finished bundles over MCP. When NOT to use it — code-graph extraction from repos (that's a code-graph tool's job), executing attested computations, already-clean markdown pipelines, or general document search. The workflow — init → ingest → validate → mcp , with a decision table for situations like scanned-image PDFs (escalate parsing) or existing bundles (validate only). The gotchas — spec subtleties an agent must not get wrong: only type is required on a concept, broken links are warnings not errors, the human: prefix drives trust tiers, concept IDs are paths minus .md , and more. Where it lives In the okfsmith repo at skills/okfsmith-build/ : skills/okfsmith-build/ ├── SKILL.md # the skill: workflow, decision table, gotchas ├── references/ │ ├── okf-v02-cheatsheet.md # condensed v0.2 frontmatter/index/log/linking rules │ ├── parsing-tiers.md # which parser for which input │ └── mcp-recipes.md # client configs to attach `okfsmith mcp` └── scripts/ └── validate.py # stdlib-only OKF §11 validator scripts/validate.py is the standout: a stdlib-only validator that works even without okfsmith installed (uses okfsmith.validate.check when the package is present, otherwise a minimal E001–E004 check). It emits machine-readable JSON ( {bundle, engine, conformant, errors[], warnings[]} ) with exit codes 0 = conformant, 1 = errors, 2 = usage/IO failure — perfect for an agent's verification step. How agents use it An agent with the skill installed follows this loop: # 1. init — scaffold a new OKF v0.2 bundle okfsmith init ./kb # 2. ingest — parse sources → extract concepts # deterministic sectioning: no API key, works offline okfsmith ingest ./kb ./docs --no-llm # 3. validate — check OKF §11 conformance (hard rules + advisory lints) okfsmith validate ./kb # or, without okfsmith installed: python3 scripts/validate.py ./kb # 4. mcp — serve the bundle to other agents over stdio okfsmith mcp ./kb # tools exposed: search, get, list, neighbors, index Zip archives and Notion exports ingest the same way — e.g. okfsmith ingest ./kb ./exports/notion-export.zip --no-llm . Add --recursive when a source is a directory with subdirectories. Newly ingested concepts land as unverified ; extraction Pass 2 promotes them to machine-confirmed ; a human stamping verified: promotes them to human-reviewed . Trigger phrases The skill fires on requests like: \"build a knowledge bundle from these docs\" , \"convert this PDF collection to OKF\" , \"validate my bundle\" , \"ingest these wiki dumps\" . Keywords: okf , knowledge bundle , convert docs to OKF , ingest PDF to knowledge base , bundle validator , open knowledge format . Advanced: installing the skill How the skill gets into an agent depends on the agent. For Claude Code, skills live in `~/.claude/skills/` (personal) or ` /.claude/skills/` (project); for other agents, see their skill/plugin docs. Copy or symlink the whole `skills/okfsmith-build/` directory — the skill is self-contained, and `references/` is loaded one level deep on demand. Nothing needs to be installed on PyPI for the skill itself; the agent needs `okfsmith` (`pip install okfsmith`) for the `init`/`ingest`/`validate`/`mcp` commands. For LLM-based extraction instead of `--no-llm`, the agent drops the `--no-llm` flag and configures a prov"
+ },
+ {
+  "url": "faq.html",
+  "title": "FAQ",
+  "eyebrow": "User guide",
+  "description": "Short answers to the most common beginner questions: cost, API keys, supported files, privacy, Python versions, trust tiers, and where to get help.",
+  "headings": [
+   {
+    "id": "what-is-okfsmith",
+    "text": "What is okfsmith, and what is an OKF bundle?"
+   },
+   {
+    "id": "cost",
+    "text": "Does okfsmith cost anything?"
+   },
+   {
+    "id": "api-key",
+    "text": "Do I need an API key or an LLM to use it?"
+   },
+   {
+    "id": "file-types",
+    "text": "Which file types can I ingest?"
+   },
+   {
+    "id": "privacy",
+    "text": "Does my data leave my computer?"
+   },
+   {
+    "id": "python-versions",
+    "text": "Which Python versions are supported?"
+   },
+   {
+    "id": "safe",
+    "text": "Will okfsmith change or delete my original documents?"
+   },
+   {
+    "id": "trust-tiers",
+    "text": "What do \"Draft\" and \"unverified\" mean?"
+   },
+   {
+    "id": "why-skipped",
+    "text": "Why was my file skipped during ingest?"
+   },
+   {
+    "id": "help",
+    "text": "Where do I go when something breaks?"
+   }
+  ],
+  "text": "What is okfsmith, and what is an OKF bundle? okfsmith is a command-line tool that turns messy documentation — Markdown files, PDFs, Office docs, whole folders — into a knowledge bundle following the Open Knowledge Format (OKF). A bundle is deliberately boring technology: a folder of Markdown files with machine-readable frontmatter (type, title, trust tier, source). Humans can read it with any text editor; agents can consume it over MCP or in the interactive chat . Nothing proprietary, nothing locked in. Does okfsmith cost anything? No. okfsmith is free and open-source (Apache-2.0) and local-first. The default --no-llm workflow needs no account, no subscription, and no API key. If you later choose LLM-powered extraction or generative chat answers, you pay whatever your own model provider charges — okfsmith itself adds no fee. Do I need an API key or an LLM to use it? No. Everything in the Quickstart works with --no-llm , which uses deterministic sectioning instead of a model. Concepts created this way are marked unverified so readers know how they were made. An API key only becomes relevant when you want richer behavior: LLM extraction: run ingest without --no-llm to have a model pull out concepts, links, and summaries instead of splitting on headings. Generative chat: chat without --no-llm answers in natural language instead of keyword-matched excerpts. Both work with any of the 15 OpenAI-compatible provider presets — see Providers & API keys . Warning ingest without --no-llm calls an LLM by default. If no LLM is reachable it errors — it does not silently fall back to deterministic sectioning. Which file types can I ingest? Out of the box: Markdown (and plain text) via the built-in LiteParse parser. With optional extras: Extra Unlocks pip install \"okfsmith[office]\" Word, Excel, PowerPoint via MarkItDown pip install \"okfsmith[ocr]\" Scanned PDFs and images via OCR You can also point ingest at PDFs, Notion exports, zip archives, and whole directories ( --recursive ). The full breakdown of parser tiers is in Ingesting documents . Does my data leave my computer? Not unless you ask it to. In --no-llm / extractive mode every byte stays local — there is no telemetry and no cloud call. Your documents only travel to a third party when you explicitly configure a hosted provider (via OKFSMITH_API_KEY or --provider ) for LLM extraction or generative chat. Even then, okfsmith doctor reports key status as set (hidden) — it never prints your keys. Which Python versions are supported? Python 3.10 or newer (3.10, 3.11, 3.12, 3.13). Check yours with python --version ; installation help is on the Installation page. Will okfsmith change or delete my original documents? No. ingest only reads your source files — it copies content into the bundle and never modifies the originals. There is also no CLI command that deletes, renames, or edits concepts; the bundle only grows by ingestion. The chat REPL even says goodbye with Goodbye — your bundle is untouched . Re-ingesting the same file is safe too: okfsmith tracks each file's SHA-256 hash and skips files it has already ingested. What do \"Draft\" and \"unverified\" mean? Every concept carries two honesty labels: Type Draft — the concept came from automated extraction and has not been curated yet. Trust tier unverified — nobody (human or machine) has confirmed the content yet. Other tiers are machine-confirmed and human-reviewed . These labels are the point: a reader (or an agent) can see at a glance exactly how much trust to place in each concept, instead of guessing. Why was my file skipped during ingest? If you see skipped (below 1000-char minimum; stub prevention) , the file was under ~1,000 characters. In --no-llm mode tiny files produce meaningless one-line \"concepts\", so okfsmith refuses to ingest them rather than polluting your bundle with stubs. Combine small notes into a larger document, or use LLM extraction for short files. Where do I go when something breaks? Run okfsmith doctor — it pinpoints "
+ },
+ {
+  "url": "cli.html",
+  "title": "CLI reference",
+  "eyebrow": "CLI reference",
+  "description": "Every okfsmith command on one page — init, ingest, list, read, validate, graph, doctor, chat, mcp — with real syntax, flags, and runnable examples.",
+  "headings": [
+   {
+    "id": "cli-reference",
+    "text": "CLI reference"
+   },
+   {
+    "id": "global-flags",
+    "text": "Global flags"
+   },
+   {
+    "id": "okfsmith-init",
+    "text": "okfsmith init"
+   },
+   {
+    "id": "init-options",
+    "text": "Common options"
+   },
+   {
+    "id": "okfsmith-ingest",
+    "text": "okfsmith ingest"
+   },
+   {
+    "id": "ingest-options",
+    "text": "Common options"
+   },
+   {
+    "id": "okfsmith-list",
+    "text": "okfsmith list"
+   },
+   {
+    "id": "list-options",
+    "text": "Common options"
+   },
+   {
+    "id": "okfsmith-read",
+    "text": "okfsmith read"
+   },
+   {
+    "id": "read-options",
+    "text": "Common options"
+   },
+   {
+    "id": "search-and-get",
+    "text": "search and get"
+   },
+   {
+    "id": "okfsmith-validate",
+    "text": "okfsmith validate"
+   },
+   {
+    "id": "validate-options",
+    "text": "Common options"
+   },
+   {
+    "id": "okfsmith-graph",
+    "text": "okfsmith graph"
+   },
+   {
+    "id": "graph-options",
+    "text": "Common options"
+   },
+   {
+    "id": "okfsmith-doctor",
+    "text": "okfsmith doctor"
+   },
+   {
+    "id": "okfsmith-chat",
+    "text": "okfsmith chat"
+   },
+   {
+    "id": "chat-options",
+    "text": "Common options"
+   },
+   {
+    "id": "okfsmith-mcp",
+    "text": "okfsmith mcp"
+   },
+   {
+    "id": "mcp-options",
+    "text": "Common options"
+   },
+   {
+    "id": "exit-codes",
+    "text": "Exit codes"
+   }
+  ],
+  "text": "CLI reference One page, every command. New here? Start with the quickstart to learn by doing — this page is the cheat sheet you keep open afterwards. Note Looking for search or get ? They are not CLI commands. search and get exist as MCP server tools (see the MCP server page ) and as chat slash commands ( /search , /read inside chat ). The CLI analogues are list and read . Shell completion is not a command either — it's the global --install-completion flag (see Global flags ). All examples assume a bundle at ./kb created with init (paths like kb and big.md come straight from verified runs — adapt them to your own files). Global flags These work on every command, including with no subcommand: Flag What it does --help Show help for the CLI or a specific command ( okfsmith ingest --help ). --version Print the version (e.g. 0.2.0 ) and exit. --format json Where supported ( list , read , validate , graph ): emit machine-readable JSON instead of rich text. --no-llm Where supported ( ingest , chat ): run fully deterministic, no LLM involved. --install-completion Install shell completion for the current shell. --show-completion Print the completion script instead of installing it. Tip JSON output always has a stable top-level shape, e.g. {\"concepts\": [{\"id\", \"type\", \"title\", \"tier\"}]} for list . Pipe it to jq in scripts. okfsmith init Create a new, empty OKF bundle in BUNDLE. okfsmith init [OPTIONS] {bundle} okfsmith init ./kb Real output — init scaffolds exactly two files, index.md and log.md , nothing else: Initialized OKF bundle in kb index: /path/to/kb/index.md log: /path/to/kb/log.md Next: add sources with 'okfsmith ingest kb <file-or-dir> --no-llm'. Common options Flag What it does --force Scaffold even if the bundle exists and is non-empty (asks for confirmation). --yes , -y Answer \"yes\" to the --force prompt — for non-interactive use. okfsmith ingest Ingest documents into BUNDLE as draft concepts. okfsmith ingest [OPTIONS] {bundle} {sources}... # Deterministic, no-LLM path — the recommended first run okfsmith ingest ./kb big.md --no-llm # Ingest a whole directory tree okfsmith ingest ./kb ./docs --recursive --no-llm Real output (the table and summary line are exactly what you see): Ingest summary — sectioning (no LLM) ┏━━━━━━━━┳━━━━━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━┓ ┃ File ┃ SHA-256 ┃ Concepts ┃ Status ┃ ┡━━━━━━━━╇━━━━━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━┩ │ big.md │ 34a0dca378f8 │ 18 │ ok │ └────────┴──────────────┴━━━━━━━━━━┴━━━━━━━━┘ ingested 18 concept(s) from 1 file(s) into kb Common options Flag What it does --no-llm Deterministic sectioning, no LLM needed. Start here. --dry-run Parse and plan only — write nothing. --quiet , -q Only warnings, errors, and the final summary line. --recursive Recurse into subdirectories when a SOURCE is a directory. --provider , --model , --api-base , --api-key LLM extraction settings (default path when --no-llm is not passed). See Providers & API keys . Advanced - Re-ingesting the same file is deduplicated via per-file SHA-256 (manifest-tracked). - `--no-llm` files below ~1000 characters are **skipped** with `skipped (below 1000-char minimum; stub prevention)` — tiny files are never ingested. - Without `--no-llm`, `ingest` calls an LLM; if none is reachable it **errors** — there is no silent fallback. See [Ingesting documents](ingesting.html) and [Troubleshooting](troubleshooting.html) (`llm-unavailable`). - `--model` cannot be combined with `--no-llm`. Note OKFSMITH_API_KEY is preferred over --api-key — the latter lands in your shell history. okfsmith list List concepts in the bundle: id, type, title, trust tier. okfsmith list [OPTIONS] {bundle} okfsmith list ./kb # JSON output only, for scripts okfsmith list ./kb --format json | jq '.concepts[].id' # Only human-reviewed concepts okfsmith list ./kb --tier human-reviewed Real output (trimmed — the real table had 18 rows): Concepts in kb ┏━━━━━━━━━━━━━━━━━━━━┳━━━━━━━┳━━━━━━━━━━━━━━┳━━━━━━━━━━━━┓ ┃ ID ┃ Type ┃ Title ┃ Trust tier ┃ ┡━━━━━━━━━━━━━━━━━━━"
+ },
+ {
+  "url": "providers.html",
+  "title": "Providers & API keys",
+  "eyebrow": "Providers",
+  "description": "Use any OpenAI-compatible model with okfsmith — 15 provider presets, API keys via environment variables, local Ollama by default.",
+  "headings": [
+   {
+    "id": "providers-api-keys",
+    "text": "Providers & API keys"
+   },
+   {
+    "id": "quick-setup-a-hosted-provider-in-60-seconds",
+    "text": "Quick setup: a hosted provider in 60 seconds"
+   },
+   {
+    "id": "the-15-provider-presets",
+    "text": "The 15 provider presets"
+   },
+   {
+    "id": "environment-variables",
+    "text": "Environment variables"
+   },
+   {
+    "id": "example-agent-router",
+    "text": "Example: Agent Router"
+   },
+   {
+    "id": "flags",
+    "text": "Flags"
+   },
+   {
+    "id": "example-anything-else-via---api-base",
+    "text": "Example: anything else via --api-base"
+   },
+   {
+    "id": "precedence-order",
+    "text": "Precedence order"
+   },
+   {
+    "id": "ollama-the-local-default",
+    "text": "Ollama: the local default"
+   },
+   {
+    "id": "anthropics-native-api",
+    "text": "Anthropic's native API"
+   },
+   {
+    "id": "next",
+    "text": "Next →"
+   }
+  ],
+  "text": "Providers & API keys okfsmith's LLM mode ( ingest extraction, chat generative answers) works with any OpenAI-compatible endpoint . Out of the box, the default is local and free: Ollama . When you're ready for hosted models, pick one of the 15 presets and add an API key. Note Don't have an LLM available? You can skip this page entirely. ingest --no-llm and chat --no-llm work with zero setup — see quickstart.html . Quick setup: a hosted provider in 60 seconds export OKFSMITH_PROVIDER=openrouter export OKFSMITH_API_KEY=your-key-here export OKFSMITH_MODEL=openai/gpt-4o-mini okfsmith chat ./kb That's it. Verify your key is detected (without ever seeing the key) with: okfsmith doctor The 15 provider presets --provider accepts any of these. Each maps to the provider's OpenAI-compatible base URL: Preset What it's for ollama Local models via Ollama — the default, free, private lmstudio Local models via LM Studio openai OpenAI's API (GPT models) groq Groq's fast inference API mistral Mistral AI's API deepseek DeepSeek's API openrouter OpenRouter — one key, hundreds of models together Together AI inference fireworks Fireworks AI inference deepinfra DeepInfra inference anyscale Anyscale endpoints perplexity Perplexity's API xai xAI's API (Grok) gemini Google's Gemini via its OpenAI-compatible endpoint agentrouter Agent Router — gateway to many providers # Same command, any provider — change only the preset okfsmith ingest ./kb report.pdf --provider groq --model llama-3.3-70b-versatile Environment variables Variable Purpose OKFSMITH_API_KEY API key for the hosted endpoint (preferred) OKFSMITH_PROVIDER Provider preset name (e.g. openrouter ) OKFSMITH_API_BASE Custom OpenAI-compatible base URL (see below) OKFSMITH_MODEL Default model name (overridden by --model ) AGENTROUTER_API_KEY Honored when the provider resolves to agentrouter OPENAI_API_KEY Legacy fallback for hosted OpenAI-compatible endpoints Example: Agent Router export OKFSMITH_PROVIDER=agentrouter export AGENTROUTER_API_KEY=your-key-here okfsmith chat ./kb --model anthropic/claude-sonnet-4 Tip Set the variables in your shell profile ( ~/.bashrc , ~/.zshrc ) so they persist between sessions — or use a .env file with a tool like direnv . Keep the key out of your shell history. Flags Flag What it does --provider <name> Choose a preset (e.g. openrouter ) --model <id> Model id for extraction/chat answers --api-base <url> Any other OpenAI-compatible endpoint — overrides --provider --api-key <key> Pass a key directly ⚠️ warns: this lands in your shell history Example: anything else via --api-base Azure OpenAI, self-hosted vLLM or llama.cpp, any compat proxy — all work: # keep the key in an env var — never as a flag (flags land in shell history) export OKFSMITH_API_KEY=your-key-here okfsmith ingest ./kb docs/ --api-base https://my-proxy.example.com/v1 \\ --model my-model Precedence order When several sources are set, okfsmith resolves them in this order: Flags — --provider , --model , --api-base , --api-key Environment variables — OKFSMITH_PROVIDER , OKFSMITH_MODEL , OKFSMITH_API_BASE , OKFSMITH_API_KEY Defaults — Ollama at http://localhost:11434/v1 , model qwen3:8b So a flag always wins over an env var, which wins over the built-in default. Ollama: the local default With no keys and no flags, okfsmith expects Ollama on your machine: # 1. Install Ollama from https://ollama.com, then pull a model ollama pull qwen3:8b # 2. Use okfsmith as-is — no keys, no env vars okfsmith ingest ./kb report.pdf doctor reports the Ollama reachability, provider, base URL, and model it's using — handy when something feels off ( cli.html#okfsmith-doctor ). Warning okfsmith doctor never prints your key. The key row shows set (hidden) plus the source, e.g. set (hidden) (via OKFSMITH_API_KEY) . If you only see set (hidden) and expected your actual key to be shown — that's by design, and it's working correctly. Anthropic's native API Anthropic's own API is not OpenAI-compatible, so there is no --provider anthropic "
+ },
+ {
+  "url": "mcp.html",
+  "title": "MCP server",
+  "eyebrow": "MCP",
+  "description": "Serve a knowledge bundle to AI agents over the Model Context Protocol — read-only tools, stdio/SSE/streamable-HTTP transports, client config examples.",
+  "headings": [
+   {
+    "id": "mcp-server",
+    "text": "MCP server"
+   },
+   {
+    "id": "quick-start",
+    "text": "Quick start"
+   },
+   {
+    "id": "the-five-tools",
+    "text": "The five tools"
+   },
+   {
+    "id": "claude-desktop-config",
+    "text": "Claude Desktop config"
+   },
+   {
+    "id": "next",
+    "text": "Next →"
+   }
+  ],
+  "text": "MCP server okfsmith mcp exposes your knowledge bundle as a read-only MCP (Model Context Protocol) server so AI agents — Claude Code, Claude Desktop, Cursor, Copilot, Gemini — can search and read your bundle directly. Agents get live answers; your bundle is never modified. Note search and get are MCP tools, not CLI commands — there is no okfsmith search or okfsmith get on the command line. The CLI analogues are list and read (see search and get ). Quick start pip install \"okfsmith[mcp]\" okfsmith mcp ./kb The server starts on stdio (the standard transport: your MCP client launches it as a subprocess) and exposes five tools. Pick one: okfsmith mcp ./kb --transport stdio # default okfsmith mcp ./kb --transport sse # Server-Sent Events okfsmith mcp ./kb --transport streamable-http # streamable HTTP The five tools Tool outputs are compact markdown (not giant JSON) — designed as an agent's reading UI. The intended flow is progressive disclosure: index → search → get . Tool What it does index Return the bundle's root index.md — the map of the whole knowledge base. Read this first to orient. list List every concept: id, type, trust tier, title. Optional filter_type narrows by concept type; limit caps rows. search Keyword-search concepts by id, title, description, tags, and body. Case-insensitive; title matches rank highest, body lowest. get Read one concept in full: YAML frontmatter followed by its markdown body. Unknown ids produce an error — never fabricated content. neighbors Show a concept's link graph neighborhood: outgoing links and incoming backlinks, so agents can walk the knowledge graph. A typical agent session looks like this: index — \"what's in this bundle?\" search with \"billing retries\" — ranked hits with excerpts get with billing/retries — the full concept neighbors with billing/retries — related concepts via links Claude Desktop config Add okfsmith as an MCP server in your Claude Desktop config file ( claude_desktop_config.json ): { \"mcpServers\": { \"okfsmith-kb\": { \"command\": \"okfsmith\", \"args\": [\"mcp\", \"/absolute/path/to/kb\"] } } } Restart Claude Desktop and the five tools ( index , list , search , get , neighbors ) appear in its tool list. Advanced: other clients and transports - **Claude Code** and **Cursor** accept the same stdio command shape (`okfsmith mcp `); check their MCP server docs for the exact config file location. - For **SSE** or **streamable-http** transports, point your client at the server's URL — the bundle is loaded once at server startup, and every tool call afterwards reads from the in-memory bundle, so responses are fast. - The same five tools back the interactive chat's `/search` and `/read` commands, so chat and MCP rank identically. Tip The server is fully read-only — there is no tool that writes, edits, or deletes concepts. You can point it at a bundle you care about without fear. Next → Troubleshooting →"
+ },
+ {
+  "url": "troubleshooting.html",
+  "title": "Troubleshooting",
+  "eyebrow": "Troubleshooting",
+  "description": "Fix every common okfsmith failure — start with okfsmith doctor, then match your error to its fix.",
+  "headings": [
+   {
+    "id": "troubleshooting",
+    "text": "Troubleshooting"
+   },
+   {
+    "id": "common-errors-and-fixes",
+    "text": "Common errors and fixes"
+   },
+   {
+    "id": "zero-concept-ingests",
+    "text": "Zero-concept ingests"
+   },
+   {
+    "id": "still-stuck",
+    "text": "Still stuck?"
+   },
+   {
+    "id": "next",
+    "text": "Next →"
+   }
+  ],
+  "text": "Troubleshooting Something broken? Run okfsmith doctor first. It checks your Python, dependencies, optional extras, Ollama reachability, LLM provider/key status, and tmp writability in one table — most problems reveal themselves there. okfsmith doctor Then find your symptom in the table below. Common errors and fixes Symptom Fix command not found: okfsmith It's not on your PATH. Reinstall with pip install okfsmith (or check pipx / uvx shims), then open a new terminal. See Installation . okfsmith mcp ./kb → error [missing-extra] Install the MCP extra: pip install \"okfsmith[mcp]\" . doctor flags this row as MISSING when it's absent. ingest fails: LLM unreachable / connection refused No LLM is reachable and LLM extraction is the default. Either start Ollama ( ollama serve ), set OKFSMITH_API_KEY + OKFSMITH_PROVIDER (see Providers ), or run with --no-llm . ollama row shows WARN: not reachable Ollama isn't running. Start it ( ollama serve ) or use --no-llm . This is a warning, not a failure — --no-llm mode works fine without it. Small files ingest as \"skipped (below 1000-char minimum; stub prevention)\" Expected. In --no-llm mode, files under ~1000 characters are skipped to prevent stub concepts. Add more content or ingest a larger file. okfsmith search ... → No such command search is not a CLI command. Inside chat , use the /search slash command; over MCP, use the search tool; on the CLI, list concepts with okfsmith list and read one with okfsmith read . See search and get . okfsmith get ... → No such command (suggests ingest ) get is not a CLI command — it's an MCP tool. The CLI equivalent is okfsmith read ./kb <concept-id> . doctor shows set (hidden) instead of my key That's the fix working: keys are never echoed. set (hidden) means your key was detected (with its source, e.g. via OKFSMITH_API_KEY ). --model + --no-llm → parameter error --no-llm does deterministic extraction and never calls a model, so the combination is rejected. Drop --model . validate reports E001–E004 errors Hard conformance failures — the bundle isn't OKF v0.2 conformant. See Validation for what each code means. validate reports W001–W015 warnings Advisory lints. The bundle is conformant; add --strict to treat warnings as failures. See Validation . graph shows 0 links / 0 orphans Normal for a fresh --no-llm bundle: deterministic sectioning produces no inter-concept links. LLM extraction adds links. mcp / chat says a bundle id \"not found\" You're pointing at a directory that isn't a bundle (missing index.md / log.md ). Run okfsmith init <dir> first, or check the path. Re-ingesting produces nothing new Ingest deduplicates by per-file SHA-256 (manifest-tracked). Already-ingested files are skipped — edit the file or use --force where available. Zero-concept ingests If ingest finishes but list shows nothing: Check the ingest summary table — files may be skipped (too small, already ingested, or unparseable). Confirm the source path actually contains files ( --recursive helps with directories). Verify with okfsmith doctor that parsing dependencies are present. Still stuck? Re-run okfsmith doctor and read the Status column top to bottom. Check whether the problem is fixed in a newer version . File an issue on the okfsmith repo — include the full doctor table output (keys are masked, so it's safe to paste) plus the exact command and error text. Note Never paste an actual API key into an issue or chat message — keep keys in environment variables only (see Providers ). Next → Changelog →"
+ },
+ {
+  "url": "changelog.html",
+  "title": "Changelog",
+  "eyebrow": "Troubleshooting",
+  "description": "Release history for okfsmith — what changed in each version, what's coming next, and upgrade notes. Follows Keep a Changelog and Semantic Versioning.",
+  "headings": [
+   {
+    "id": "unreleased",
+    "text": "Unreleased"
+   },
+   {
+    "id": "unreleased-added",
+    "text": "Added"
+   },
+   {
+    "id": "v0-2-0",
+    "text": "[0.2.0] — 2026-09-26"
+   },
+   {
+    "id": "v020-added",
+    "text": "Added"
+   },
+   {
+    "id": "fixed",
+    "text": "Fixed"
+   },
+   {
+    "id": "security",
+    "text": "Security"
+   },
+   {
+    "id": "upgrade-notes",
+    "text": "Upgrade notes"
+   },
+   {
+    "id": "links",
+    "text": "Links"
+   }
+  ],
+  "text": "Unreleased Added Interactive chat REPL ( okfsmith chat ) — ask questions over your bundle in natural language, Claude-Code style: citations, slash commands ( /search , /read , /validate , /graph , /doctor , …), extractive fallback when no LLM is reachable, and generative answers via Ollama or any OpenAI-compatible provider. See Interactive chat . Any-model provider system — 15 --provider presets ( ollama , lmstudio , openai , groq , mistral , deepseek , openrouter , together , fireworks , deepinfra , anyscale , perplexity , xai , gemini , agentrouter ), plus --api-base / OKFSMITH_API_BASE for any other OpenAI-compatible endpoint. See Providers & API keys . [0.2.0] — 2026-09-26 Added okfsmith doctor — environment check covering dependencies, optional extras, Ollama reachability, and API-key status (keys are always reported as set (hidden) , never echoed). --format json output for list , read , validate , and graph for scripting and CI. --dry-run for ingest — parse and plan without writing anything. Shell completion via okfsmith --install-completion / --show-completion , plus a man page. Progress bars for long ingests. Fixed Graph viewer ( viz.html ) pointer-event bug — click and drag now work in the interactive visualization. README/CLI help-text mismatches — documented commands and flags now match the real CLI exactly. Security Link containment in ingested content. Zip-bomb guards on archive inputs. Symlink skipping during directory ingestion. Fixed a HIGH-severity CVE in the MarkItDown dependency. Upgrade notes Upgrade with pip install --upgrade okfsmith . No bundle migration is needed — bundles created by earlier versions validate unchanged. okfsmith search , okfsmith get , and okfsmith completions were never CLI commands (search/get are MCP tools and chat slash commands; completion uses --install-completion ). Links Full release history with downloadable artifacts: github.com/Bilal-Junaid-Jiwani/okfsmith/releases Source repository: github.com/Bilal-Junaid-Jiwani/okfsmith"
+ }
+]

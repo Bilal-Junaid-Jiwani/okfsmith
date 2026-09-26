@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Troubleshooting — okfsmith docs</title>
+  <meta name="description" content="Fix every common okfsmith failure — start with okfsmith doctor, then match your error to its fix.">
+  <meta property="og:title" content="Troubleshooting — okfsmith docs">
+  <meta property="og:description" content="Fix every common okfsmith failure — start with okfsmith doctor, then match your error to its fix.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://bilal-junaid-jiwani.github.io/okfsmith/docs/troubleshooting.html">
+  <meta property="og:site_name" content="okfsmith docs">
+  <meta property="og:locale" content="en_US">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="Troubleshooting — okfsmith docs">
+  <meta name="twitter:description" content="Fix every common okfsmith failure — start with okfsmith doctor, then match your error to its fix.">
+  <link rel="canonical" href="https://bilal-junaid-jiwani.github.io/okfsmith/docs/troubleshooting.html">
+  <link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="assets/css/docs.css">
+  <script type="application/ld+json">
+[
+  {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    "name": "okfsmith docs",
+    "url": "https://bilal-junaid-jiwani.github.io/okfsmith/docs/"
+  },
+  {
+    "@context": "https://schema.org",
+    "@type": "TechArticle",
+    "headline": "Troubleshooting",
+    "description": "Fix every common okfsmith failure — start with okfsmith doctor, then match your error to its fix.",
+    "inLanguage": "en",
+    "isPartOf": {
+      "@type": "WebSite",
+      "name": "okfsmith docs",
+      "url": "https://bilal-junaid-jiwani.github.io/okfsmith/docs/"
+    },
+    "mainEntityOfPage": "https://bilal-junaid-jiwani.github.io/okfsmith/docs/troubleshooting.html"
+  }
+]
+  </script></head>
+<body data-page="troubleshooting">
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="topbar">
+    <button id="drawer-open" class="hamburger" type="button" aria-label="Open navigation" aria-expanded="false" aria-controls="sidebar">
+      <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true"><path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"/></svg>
+    </button>
+    <a class="brand" href="install.html">
+      <img src="assets/img/logo.svg" alt="okfsmith logo" width="28" height="28">
+      <span class="wordmark">okfsmith</span>
+    </a>
+    <span class="brand-divider" aria-hidden="true"></span>
+    <span class="docs-label">Docs</span>
+    <span class="lang-chip" aria-label="Language: English">EN</span>
+    <button id="search-open" class="search-trigger" type="button" aria-haspopup="dialog" aria-controls="search-modal">
+      <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M10.5 10.5L14 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      <span class="search-placeholder">Search docs&hellip;</span>
+      <span class="search-kbd"><kbd>Ctrl</kbd><kbd>K</kbd></span>
+    </button>
+    <a class="cta" href="https://github.com/Bilal-Junaid-Jiwani/okfsmith">Open okfsmith</a>
+  </header>
+
+  <nav class="tabs" aria-label="Documentation sections">
+    <div class="tabs-inner">
+      <ul class="tab-list">
+        <li class="tab-item"><a class="tab-link" href="install.html">Getting started</a></li>
+<li class="tab-item"><a class="tab-link" href="ingesting.html">User guide</a></li>
+<li class="tab-item"><a class="tab-link" href="cli.html">CLI reference</a></li>
+<li class="tab-item"><a class="tab-link" href="providers.html">Providers</a></li>
+<li class="tab-item"><a class="tab-link" href="mcp.html">MCP</a></li>
+<li class="tab-item"><a class="tab-link" href="troubleshooting.html" data-active="true" aria-current="page">Troubleshooting</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <div class="layout docs-shell">
+    <aside class="sidebar" id="sidebar" aria-label="Page navigation">
+      <button id="drawer-close" class="drawer-close" type="button" aria-label="Close navigation">
+        <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><path d="M4 4l10 10M14 4L4 14" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"/></svg>
+      </button>
+      <div class="nav-group">
+<p class="nav-group-label">Help</p>
+<ul class="nav-list">
+<li><a class="nav-item" href="troubleshooting.html" data-active="true" aria-current="page">Troubleshooting</a></li>
+<li><a class="nav-item" href="changelog.html">Changelog</a></li>
+</ul></div>
+    </aside>
+    <div class="drawer-scrim" id="drawer-scrim" hidden></div>
+
+    <main class="content" id="main" tabindex="-1">
+      <details class="toc-mobile">
+        <summary>On this page</summary>
+        <ul class="toc-list">
+<li><a href="#troubleshooting">Troubleshooting</a>
+</li>
+<li><a href="#common-errors-and-fixes">Common errors and fixes</a>
+</li>
+<li><a href="#zero-concept-ingests">Zero-concept ingests</a>
+</li>
+<li><a href="#still-stuck">Still stuck?</a>
+</li>
+<li><a href="#next">Next →</a>
+</li>
+</ul>
+      </details>
+      <p class="eyebrow">Troubleshooting</p>
+      <div class="title-row">
+        <h1>Troubleshooting</h1>
+        <button id="copy-page" class="copy-page" type="button" aria-label="Copy this page as text">
+          <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><rect x="4.5" y="4.5" width="8" height="8" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.25"/><path d="M9.5 4.5v-2a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2" fill="none" stroke="currentColor" stroke-width="1.25"/></svg>
+          <span>Copy page</span>
+        </button>
+      </div>
+      <div class="prose">
+        <h2 id="troubleshooting">Troubleshooting</h2>
+<p>Something broken? <strong>Run <code>okfsmith doctor</code> first.</strong> It checks your Python, dependencies, optional extras, Ollama reachability, LLM provider/key status, and tmp writability in one table — most problems reveal themselves there.</p>
+<pre class="codeblock" data-lang="bash"><code>okfsmith doctor
+</code></pre>
+<p>Then find your symptom in the table below.</p>
+<h2 id="common-errors-and-fixes">Common errors and fixes</h2>
+<div class="table-wrap"><table><thead><tr><th>Symptom</th><th>Fix</th></tr></thead><tbody><tr><td><code>command not found: okfsmith</code></td><td>It's not on your PATH. Reinstall with <code>pip install okfsmith</code> (or check <code>pipx</code>/<code>uvx</code> shims), then open a new terminal. See <a href="install.html">Installation</a>.</td></tr><tr><td><code>okfsmith mcp ./kb</code> → <code>error [missing-extra]</code></td><td>Install the MCP extra: <code>pip install "okfsmith[mcp]"</code>. <code>doctor</code> flags this row as <code>MISSING</code> when it's absent.</td></tr><tr><td><code>ingest</code> fails: LLM unreachable / connection refused</td><td>No LLM is reachable and LLM extraction is the default. Either start Ollama (<code>ollama serve</code>), set <code>OKFSMITH_API_KEY</code> + <code>OKFSMITH_PROVIDER</code> (see <a href="providers.html">Providers</a>), or run with <code>--no-llm</code>.</td></tr><tr><td><code>ollama</code> row shows <code>WARN: not reachable</code></td><td>Ollama isn't running. Start it (<code>ollama serve</code>) or use <code>--no-llm</code>. This is a warning, not a failure — <code>--no-llm</code> mode works fine without it.</td></tr><tr><td>Small files ingest as "skipped (below 1000-char minimum; stub prevention)"</td><td>Expected. In <code>--no-llm</code> mode, files under ~1000 characters are skipped to prevent stub concepts. Add more content or ingest a larger file.</td></tr><tr><td><code>okfsmith search ...</code> → <code>No such command</code></td><td><code>search</code> is not a CLI command. Inside <code>chat</code>, use the <code>/search</code> slash command; over MCP, use the <code>search</code> tool; on the CLI, list concepts with <code>okfsmith list</code> and read one with <code>okfsmith read</code>. See <a href="cli.html#search-and-get">search and get</a>.</td></tr><tr><td><code>okfsmith get ...</code> → <code>No such command</code> (suggests <code>ingest</code>)</td><td><code>get</code> is not a CLI command — it's an MCP tool. The CLI equivalent is <code>okfsmith read ./kb &lt;concept-id&gt;</code>.</td></tr><tr><td><code>doctor</code> shows <code>set (hidden)</code> instead of my key</td><td>That's the fix working: keys are never echoed. <code>set (hidden)</code> means your key <strong>was</strong> detected (with its source, e.g. <code>via OKFSMITH_API_KEY</code>).</td></tr><tr><td><code>--model</code> + <code>--no-llm</code> → parameter error</td><td><code>--no-llm</code> does deterministic extraction and never calls a model, so the combination is rejected. Drop <code>--model</code>.</td></tr><tr><td><code>validate</code> reports E001–E004 errors</td><td>Hard conformance failures — the bundle isn't OKF v0.2 conformant. See <a href="validation.html">Validation</a> for what each code means.</td></tr><tr><td><code>validate</code> reports W001–W015 warnings</td><td>Advisory lints. The bundle is conformant; add <code>--strict</code> to treat warnings as failures. See <a href="validation.html">Validation</a>.</td></tr><tr><td><code>graph</code> shows 0 links / 0 orphans</td><td>Normal for a fresh <code>--no-llm</code> bundle: deterministic sectioning produces no inter-concept links. LLM extraction adds links.</td></tr><tr><td><code>mcp</code> / <code>chat</code> says a bundle id "not found"</td><td>You're pointing at a directory that isn't a bundle (missing <code>index.md</code>/<code>log.md</code>). Run <code>okfsmith init &lt;dir&gt;</code> first, or check the path.</td></tr><tr><td>Re-ingesting produces nothing new</td><td>Ingest deduplicates by per-file SHA-256 (manifest-tracked). Already-ingested files are skipped — edit the file or use <code>--force</code> where available.</td></tr></tbody></table></div>
+<h2 id="zero-concept-ingests">Zero-concept ingests</h2>
+<p>If <code>ingest</code> finishes but <code>list</code> shows nothing:</p>
+<ol>
+<li>Check the ingest summary table — files may be <strong>skipped</strong> (too small, already ingested, or unparseable).
+</li>
+<li>Confirm the source path actually contains files (<code>--recursive</code> helps with directories).
+</li>
+<li>Verify with <code>okfsmith doctor</code> that parsing dependencies are present.
+</li>
+</ol>
+<h2 id="still-stuck">Still stuck?</h2>
+<ol>
+<li>Re-run <code>okfsmith doctor</code> and read the <code>Status</code> column top to bottom.
+</li>
+<li>Check whether the problem is <a href="changelog.html">fixed in a newer version</a>.
+</li>
+<li>File an issue on the okfsmith repo — include the <strong>full</strong> <code>doctor</code> table output (keys are masked, so it's safe to paste) plus the exact command and error text.
+</li>
+</ol>
+<aside class="admonition note"><span class="admon-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.75" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 7.25v3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="5" r="0.9" fill="currentColor"/></svg></span><div class="admon-body"><p class="admon-title">Note</p><p>Never paste an actual API key into an issue or chat message — keep keys in environment variables only (see <a href="providers.html">Providers</a>).</p></div></aside>
+<h2 id="next">Next →</h2>
+<p><a href="changelog.html">Changelog →</a></p>
+      </div>
+      <nav class="prev-next" aria-label="Previous and next page">
+        <a class="page-prev" href="mcp.html"><span class="prev-next-label">Previous</span><span class="prev-next-title">&larr; MCP server</span></a>
+        <a class="page-next" href="changelog.html"><span class="prev-next-label">Next</span><span class="prev-next-title">Changelog &rarr;</span></a>
+      </nav>
+    </main>
+
+    <aside class="toc" aria-label="On this page">
+      <p class="toc-title">On this page</p>
+      <ul class="toc-list">
+<li><a href="#troubleshooting">Troubleshooting</a>
+</li>
+<li><a href="#common-errors-and-fixes">Common errors and fixes</a>
+</li>
+<li><a href="#zero-concept-ingests">Zero-concept ingests</a>
+</li>
+<li><a href="#still-stuck">Still stuck?</a>
+</li>
+<li><a href="#next">Next →</a>
+</li>
+</ul>
+    </aside>
+  </div>
+
+  <div class="search-scrim" id="search-scrim" hidden></div>
+  <div class="search-modal" id="search-modal" role="dialog" aria-modal="true" aria-label="Search docs" hidden>
+    <div class="search-box">
+      <svg class="search-icon" width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M10.5 10.5L14 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      <input id="search-input" type="text" placeholder="Search docs&hellip;" aria-label="Search docs" role="combobox" aria-expanded="false" aria-controls="search-results" aria-autocomplete="list" autocomplete="off" spellcheck="false">
+      <button id="search-close" class="search-close" type="button" aria-label="Close search">
+        <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 3.5l9 9M12.5 3.5l-9 9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+    <!-- Search results list is rendered by assets/js/search.js, which owns
+         #search-input input handling and #search-results content.
+         docs.js owns only open/close of this modal. -->
+    <div id="search-results" class="search-results" role="listbox" aria-label="Search results"></div>
+  </div>
+
+  <footer class="footer">
+    <div class="footer-inner">
+      <p class="footer-brand"><strong>okfsmith</strong> — the open knowledge forge.</p>
+      <p class="footer-links">
+        <a href="https://github.com/Bilal-Junaid-Jiwani/okfsmith">GitHub</a>
+        <a href="https://pypi.org/project/okfsmith/">PyPI</a>
+        <a href="install.html">Install</a>
+        <a href="changelog.html">Changelog</a>
+      </p>
+    </div>
+  </footer>
+
+  <script src="assets/js/docs.js" defer></script>
+  <script src="assets/js/search.js" defer></script>
+</body>
+</html>
