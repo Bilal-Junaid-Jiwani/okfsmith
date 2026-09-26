@@ -5,6 +5,7 @@ no heavy writer dependencies, no network.
 """
 
 import hashlib
+import logging
 import warnings
 import zipfile
 from pathlib import Path
@@ -79,15 +80,22 @@ def test_pdf_scanned_page_needs_ocr(tmp_path: Path):
     assert doc.pages[0].needs_ocr is True
 
 
-def test_corrupt_pdf_warns_and_skips(tmp_path: Path):
+def test_corrupt_pdf_warns_and_skips(tmp_path: Path, caplog):
     bad = tmp_path / "bad.pdf"
     bad.write_bytes(b"this is not a pdf at all \x00\x01\x02")
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
-        doc = parse_file(bad)
+    # M27: the skip notice goes through logging only — no warnings.warn, so
+    # no RuntimeWarning and no caller file:line leaked onto stderr.
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")  # any warning becomes an error
+        with caplog.at_level(logging.WARNING, logger="okfsmith.parsers"):
+            doc = parse_file(bad)
     assert doc.pages == []
     assert "error" in doc.meta
-    assert any("skipping" in str(w.message) for w in caught)
+    skipping = [
+        r for r in caplog.records
+        if r.name == "okfsmith.parsers" and "skipping" in r.getMessage()
+    ]
+    assert any("bad.pdf" in r.getMessage() for r in skipping)
 
 
 def test_missing_file_skips(tmp_path: Path):
