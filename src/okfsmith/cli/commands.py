@@ -751,6 +751,11 @@ def list_concepts(
         table.add_row(escape(row["id"]), escape(row["type"]), escape(row["title"]), escape(row["tier"]))
     console.print(table)
     typer.echo(f"{len(rows)} concept(s)")
+    if not rows:
+        typer.echo(
+            f"hint: add sources with 'okfsmith ingest {bundle_path} <file-or-dir> --no-llm'.",
+            err=True,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -837,7 +842,11 @@ def graph(
     except CliError as exc:
         _handle_cli_error(exc, as_json)
     if output_format == "html" and output is not None and output.exists() and not output.is_file():
-        fail("invalid-output", f"--output '{output}' is not a file path.")
+        fail(
+            "invalid-output",
+            f"--output '{output}' is not a file path.",
+            "Give a path to a file (it will be created), not a directory.",
+        )
     bundle_path = bundle
     bundle = Bundle.load(bundle_path)
     data = _links.build_graph(bundle)
@@ -848,7 +857,11 @@ def graph(
             adjacency[node["id"]] = []
         for edge in data["edges"]:
             adjacency.setdefault(edge["from"], []).append(edge["to"])
-        payload = {"nodes": data["nodes"], "adjacency": adjacency}
+        payload = {
+            "nodes": data["nodes"],
+            "adjacency": adjacency,
+            "dead_links": data["dead_links"],
+        }
         if output is not None:
             output.write_text(
                 json.dumps(_jsonable(payload), indent=2), encoding="utf-8"
