@@ -46,13 +46,7 @@ classifiers = [
     "Topic :: Text Processing :: Markup :: Markdown",
     "Topic :: Utilities",
 ]
-urls = {
-    Homepage = "https://github.com/Bilal-Junaid-Jiwani/okfsmith",
-    Repository = "https://github.com/Bilal-Junaid-Jiwani/okfsmith",
-    Documentation = "https://github.com/Bilal-Junaid-Jiwani/okfsmith#readme",
-    Issues = "https://github.com/Bilal-Junaid-Jiwani/okfsmith/issues",
-    Changelog = "https://github.com/Bilal-Junaid-Jiwani/okfsmith/blob/main/CHANGELOG.md",
-}
+
 dependencies = [
     "typer>=0.12,<0.28",
     "pyyaml>=6,<7",
@@ -78,8 +72,26 @@ test = ["pytest>=8,<10"]
 # (patched) and pdfminer-six>=20251230 (patched).
 office = ["markitdown[docx,pptx,xlsx]>=0.1.5,<0.2"]
 
+[project.urls]
+Homepage = "https://github.com/Bilal-Junaid-Jiwani/okfsmith"
+Repository = "https://github.com/Bilal-Junaid-Jiwani/okfsmith"
+Documentation = "https://github.com/Bilal-Junaid-Jiwani/okfsmith#readme"
+Issues = "https://github.com/Bilal-Junaid-Jiwani/okfsmith/issues"
+Changelog = "https://github.com/Bilal-Junaid-Jiwani/okfsmith/blob/main/CHANGELOG.md"
+
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "B", "C4", "UP"]
+ignore = ["E501", "B008"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["okfsmith"]

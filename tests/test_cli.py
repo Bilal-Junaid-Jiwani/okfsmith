@@ -24,8 +24,7 @@ import pytest
 from typer.testing import CliRunner
 
 from okfsmith.cli.app import app
-from okfsmith.core import Bundle
-from okfsmith.core import frontmatter
+from okfsmith.core import Bundle, frontmatter
 from okfsmith.validate import Finding, ValidationReport
 
 runner = CliRunner()
@@ -135,6 +134,7 @@ def stub_failing_parsers(monkeypatch):
     return _stub_parsers_modules(monkeypatch, ingest_no_llm)
 
 
+
 @dataclass
 class _StubSectionInput:
     title: str
@@ -199,6 +199,14 @@ def stub_extract(monkeypatch):
     monkeypatch.setitem(sys.modules, "okfsmith.parsers", parsers_mod)
     monkeypatch.setitem(sys.modules, "okfsmith.parsers.sectioning", sectioning_mod)
     monkeypatch.setitem(sys.modules, "okfsmith.extract", extract_mod)
+    # The ingest command always loads sha256_of from okfsmith.parsers.dedup
+    # (per-file digest shown in the summary table); stub it so test_cli.py
+    # does not depend on another test module importing the real one first.
+    dedup_mod = types.ModuleType("okfsmith.parsers.dedup")
+    dedup_mod.sha256_of = lambda path: hashlib.sha256(
+        Path(path).read_bytes()
+    ).hexdigest()
+    monkeypatch.setitem(sys.modules, "okfsmith.parsers.dedup", dedup_mod)
     return SimpleNamespace(calls=calls, LLMUnavailableError=LLMUnavailableError)
 
 
@@ -287,8 +295,12 @@ def test_init_refuses_nonempty_dir(tmp_path):
     result = runner.invoke(app, ["init", str(target)])
     assert result.exit_code == 1
     assert "not empty" in result.output
-    # --force proceeds
-    result = runner.invoke(app, ["init", str(target), "--force"])
+    # --force without --yes asks for confirmation; declining aborts
+    result = runner.invoke(app, ["init", str(target), "--force"], input="n\n")
+    assert result.exit_code == 1
+    assert not (target / "index.md").is_file()
+    # --force --yes proceeds non-interactively
+    result = runner.invoke(app, ["init", str(target), "--force", "--yes"])
     assert result.exit_code == 0, result.output
     assert (target / "index.md").is_file()
 
@@ -330,8 +342,12 @@ def test_validate_json_format(stub_validate):
     )
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
+    assert payload["status"] == "conformant"
     assert payload["errors"] == []
     assert payload["warnings"][0]["code"] == "W001"
+    assert payload["error_count"] == 0
+    assert payload["warning_count"] == 1
+    assert isinstance(payload["concepts"], int)
 
 
 def test_validate_strict_treats_warnings_as_failures(stub_validate):
@@ -344,10 +360,11 @@ def test_validate_strict_treats_warnings_as_failures(stub_validate):
 
 
 def test_validate_unknown_format(stub_validate):
+    # Invalid --format values are usage errors (exit 2).
     result = runner.invoke(
         app, ["validate", str(FIXTURES / "valid"), "--format", "yaml"]
     )
-    assert result.exit_code == 1
+    assert result.exit_code == 2
 
 
 def test_validate_missing_directory():
@@ -491,10 +508,11 @@ def test_graph_html_default_output(stub_viz):
 
 
 def test_graph_unknown_format():
+    # Invalid --format values are usage errors (exit 2).
     result = runner.invoke(
         app, ["graph", str(FIXTURES / "valid"), "--format", "svg"]
     )
-    assert result.exit_code == 1
+    assert result.exit_code == 2
 
 
 # ---------------------------------------------------------------------------
@@ -504,7 +522,7 @@ def test_graph_unknown_format():
 
 def test_ingest_missing_source(tmp_path):
     result = runner.invoke(
-        app, ["ingest", str(tmp_path / "nope.txt"), "--bundle", str(tmp_path / "b")]
+        app, ["ingest", str(tmp_path / "b"), str(tmp_path / "nope.txt")]
     )
     assert result.exit_code == 1
 
@@ -514,7 +532,7 @@ def test_ingest_no_llm_without_slice_landed(monkeypatch, tmp_path):
     src.write_text("hello", encoding="utf-8")
     _hide_slice(monkeypatch, "okfsmith.parsers")
     result = runner.invoke(
-        app, ["ingest", str(src), "--bundle", str(tmp_path / "b"), "--no-llm"]
+        app, ["ingest", str(tmp_path / "b"), str(src), "--no-llm"]
     )
     assert result.exit_code == 1
     assert "not available" in result.output
@@ -525,7 +543,7 @@ def test_ingest_no_llm_with_stub_parsers(stub_parsers, tmp_path):
     src.write_text("hello", encoding="utf-8")
     bundle_dir = tmp_path / "bundle"
     result = runner.invoke(
-        app, ["ingest", str(src), "--bundle", str(bundle_dir), "--no-llm"]
+        app, ["ingest", str(bundle_dir), str(src), "--no-llm"]
     )
     assert result.exit_code == 0, result.output
     assert (bundle_dir / "draft" / "doc.md").is_file()
@@ -541,11 +559,11 @@ def test_ingest_no_llm_skips_already_ingested(stub_parsers, tmp_path):
     src.write_text("hello", encoding="utf-8")
     bundle_dir = tmp_path / "bundle"
     first = runner.invoke(
-        app, ["ingest", str(src), "--bundle", str(bundle_dir), "--no-llm"]
+        app, ["ingest", str(bundle_dir), str(src), "--no-llm"]
     )
     assert first.exit_code == 0, first.output
     second = runner.invoke(
-        app, ["ingest", str(src), "--bundle", str(bundle_dir), "--no-llm"], env=WIDE
+        app, ["ingest", str(bundle_dir), str(src), "--no-llm"], env=WIDE
     )
     assert second.exit_code == 0, second.output
     assert "already ingested" in second.output
@@ -560,7 +578,7 @@ def test_ingest_directory_recursive(stub_parsers, tmp_path):
     bundle_dir = tmp_path / "bundle"
 
     shallow = runner.invoke(
-        app, ["ingest", str(srcdir), "--bundle", str(bundle_dir), "--no-llm"]
+        app, ["ingest", str(bundle_dir), str(srcdir), "--no-llm"]
     )
     assert shallow.exit_code == 0, shallow.output
     assert (bundle_dir / "draft" / "a.md").is_file()
@@ -568,17 +586,48 @@ def test_ingest_directory_recursive(stub_parsers, tmp_path):
 
     deep = runner.invoke(
         app,
-        ["ingest", str(srcdir), "--bundle", str(bundle_dir), "--no-llm", "--recursive"],
+        ["ingest", str(bundle_dir), str(srcdir), "--no-llm", "--recursive"],
     )
     assert deep.exit_code == 0, deep.output
     assert (bundle_dir / "draft" / "b.md").is_file()
+
+
+def test_ingest_failure_row_escapes_rich_markup(monkeypatch, tmp_path):
+    # Untrusted exception text containing Rich markup must render literally —
+    # no markup injection, no crash. One good + one failing source so the
+    # summary table (with the escaped row) is printed.
+    def ingest_no_llm(bundle: Bundle, parsed, source_id: str) -> list[str]:
+        if source_id.endswith("bad.txt"):
+            raise RuntimeError("[bold]boom[/bold]")
+        concept = bundle.write_concept(
+            f"draft/{Path(source_id).stem}",
+            {"type": "Draft", "title": "x"},
+            "body",
+        )
+        return [concept.id]
+
+    _stub_parsers_modules(monkeypatch, ingest_no_llm)
+    good = tmp_path / "good.txt"
+    bad = tmp_path / "bad.txt"
+    good.write_text("hello", encoding="utf-8")
+    bad.write_text("boom", encoding="utf-8")
+    result = runner.invoke(
+        app,
+        ["ingest", str(tmp_path / "b"), str(good), str(bad), "--no-llm"],
+        env=WIDE,
+    )
+    # Partial failure: warning is printed, exit stays 0 (something was ingested).
+    assert result.exit_code == 0, result.output
+    # Rich escape() renders the brackets literally (backslashes), never as markup.
+    assert "\\[bold]boom\\[/bold]" in result.output
+    assert "Traceback" not in result.output
 
 
 def test_ingest_total_failure_exits_1(stub_failing_parsers, tmp_path):
     src = tmp_path / "doc.txt"
     src.write_text("hello", encoding="utf-8")
     result = runner.invoke(
-        app, ["ingest", str(src), "--bundle", str(tmp_path / "b"), "--no-llm"]
+        app, ["ingest", str(tmp_path / "b"), str(src), "--no-llm"]
     )
     assert result.exit_code == 1
     assert "all inputs failed" in result.output
@@ -589,7 +638,7 @@ def test_ingest_llm_path_without_slice_landed(monkeypatch, tmp_path):
     src.write_text("hello", encoding="utf-8")
     _hide_slice(monkeypatch, "okfsmith.extract")
     result = runner.invoke(
-        app, ["ingest", str(src), "--bundle", str(tmp_path / "b")]
+        app, ["ingest", str(tmp_path / "b"), str(src)]
     )
     assert result.exit_code == 1
     assert "not available" in result.output
@@ -601,7 +650,7 @@ def test_ingest_llm_path_wires_sections(stub_extract, tmp_path):
     bundle_dir = tmp_path / "bundle"
     result = runner.invoke(
         app,
-        ["ingest", str(src), "--bundle", str(bundle_dir), "--model", "test-model"],
+        ["ingest", str(bundle_dir), str(src), "--model", "test-model"],
     )
     assert result.exit_code == 0, result.output
     assert len(stub_extract.calls) == 1
@@ -618,7 +667,7 @@ def test_ingest_llm_unavailable_clean_error(stub_extract_unavailable, tmp_path):
     src = tmp_path / "doc.txt"
     src.write_text("hello", encoding="utf-8")
     result = runner.invoke(
-        app, ["ingest", str(src), "--bundle", str(tmp_path / "b")]
+        app, ["ingest", str(tmp_path / "b"), str(src)]
     )
     assert result.exit_code == 1
     assert "LLM unavailable" in result.output
@@ -632,19 +681,138 @@ def test_ingest_llm_unavailable_clean_error(stub_extract_unavailable, tmp_path):
 
 def test_mcp_without_slice_landed(monkeypatch, tmp_path):
     _hide_slice(monkeypatch, "okfsmith.mcp_server")
-    result = runner.invoke(app, ["mcp", "--bundle", str(tmp_path)])
+    result = runner.invoke(app, ["mcp", str(FIXTURES / "valid")])
     assert result.exit_code == 1
     assert "not available" in result.output
 
 
 def test_mcp_with_stub_server(stub_mcp, tmp_path):
     result = runner.invoke(
-        app, ["mcp", "--bundle", str(tmp_path), "--transport", "stdio"]
+        app, ["mcp", str(FIXTURES / "valid"), "--transport", "stdio"]
     )
     assert result.exit_code == 0, result.output
-    assert stub_mcp.calls == [(str(tmp_path), "stdio")]
+    assert stub_mcp.calls == [(str(FIXTURES / "valid"), "stdio")]
 
 
 def test_mcp_missing_bundle():
-    result = runner.invoke(app, ["mcp", "--bundle", "/does/not/exist"])
+    result = runner.invoke(app, ["mcp", "/does/not/exist"])
     assert result.exit_code == 1
+
+
+# ---------------------------------------------------------------------------
+# New CLI contract (positional bundle, constrained choices, stable errors)
+# ---------------------------------------------------------------------------
+
+
+def test_bare_invocation_prints_help():
+    result = runner.invoke(app, [])
+    assert result.exit_code == 0, result.output
+    assert "init" in result.output
+    assert "ingest" in result.output
+
+
+def test_version_flag():
+    result = runner.invoke(app, ["--version"])
+    assert result.exit_code == 0, result.output
+    assert "okfsmith" in result.output
+
+
+def test_model_with_no_llm_conflicts(tmp_path):
+    src = tmp_path / "doc.txt"
+    src.write_text("hello", encoding="utf-8")
+    result = runner.invoke(
+        app,
+        ["ingest", str(tmp_path / "b"), str(src), "--no-llm", "--model", "x"],
+    )
+    assert result.exit_code == 2
+
+
+def test_validate_not_a_bundle(tmp_path):
+    result = runner.invoke(app, ["validate", str(tmp_path)])
+    assert result.exit_code == 1
+    assert "bundle" in result.output.lower()
+
+
+def test_ingest_dry_run_writes_nothing(stub_parsers, tmp_path):
+    src = tmp_path / "doc.txt"
+    src.write_text("hello", encoding="utf-8")
+    bundle_dir = tmp_path / "bundle"
+    result = runner.invoke(
+        app, ["ingest", str(bundle_dir), str(src), "--no-llm", "--dry-run"]
+    )
+    assert result.exit_code == 0, result.output
+    assert "dry run" in result.output.lower()
+    assert not (bundle_dir / "draft").exists()
+
+
+def test_ingest_quiet(stub_parsers, tmp_path):
+    src = tmp_path / "doc.txt"
+    src.write_text("hello", encoding="utf-8")
+    bundle_dir = tmp_path / "bundle"
+    result = runner.invoke(
+        app, ["ingest", str(bundle_dir), str(src), "--no-llm", "--quiet"]
+    )
+    assert result.exit_code == 0, result.output
+    assert "ingested" in result.output
+
+
+def test_ingest_multiple_sources(stub_parsers, tmp_path):
+    a = tmp_path / "a.txt"
+    b = tmp_path / "b.txt"
+    a.write_text("a", encoding="utf-8")
+    b.write_text("b", encoding="utf-8")
+    bundle_dir = tmp_path / "bundle"
+    result = runner.invoke(
+        app, ["ingest", str(bundle_dir), str(a), str(b), "--no-llm"]
+    )
+    assert result.exit_code == 0, result.output
+    assert (bundle_dir / "draft" / "a.md").is_file()
+    assert (bundle_dir / "draft" / "b.md").is_file()
+
+
+def test_read_json():
+    result = runner.invoke(
+        app, ["read", str(FIXTURES / "valid"), "finance/revenue", "--format", "json"]
+    )
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["id"] == "finance/revenue"
+    assert payload["frontmatter"]["title"] == "Customer Orders"
+
+
+def test_list_json():
+    result = runner.invoke(
+        app, ["list", str(FIXTURES / "valid"), "--format", "json"]
+    )
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["count"] == 4
+    ids = {c["id"] for c in payload["concepts"]}
+    assert "finance/revenue" in ids
+
+
+def test_list_invalid_tier():
+    result = runner.invoke(
+        app, ["list", str(FIXTURES / "valid"), "--tier", "bogus"]
+    )
+    assert result.exit_code == 2
+
+
+def test_mcp_invalid_transport():
+    result = runner.invoke(
+        app, ["mcp", str(FIXTURES / "valid"), "--transport", "bogus"]
+    )
+    assert result.exit_code == 2
+
+
+def test_doctor():
+    result = runner.invoke(app, ["doctor"])
+    assert result.exit_code == 0, result.output
+    assert "okfsmith doctor" in result.output
+    assert "python" in result.output.lower()
+
+
+def test_error_codes_are_stable():
+    result = runner.invoke(app, ["validate", "/does/not/exist"])
+    assert result.exit_code == 1
+    assert "error [bundle-not-found]" in result.output

@@ -4,18 +4,34 @@ This module only wires user input to business logic: the real work lives in
 ``okfsmith.core`` and the sibling slices (``parsers``, ``extract``,
 ``validate``, ``viz``, ``mcp_server``), which are imported lazily so each
 command fails cleanly when its slice is not installed.
+
+Conventions (UX panels A/B, review-gate items 2/4/5/7/8):
+
+- the bundle is always the **first positional** argument;
+- ``--format`` / ``--transport`` values are constrained choices: an invalid
+  value is a usage error (exit 2), not a runtime error;
+- all paths and flags are validated *before* any lazy import runs;
+- expected failures print ``error [CODE]: message`` plus a ``hint:`` line on
+  stderr and exit non-zero — never a traceback. ``CODE`` is a stable,
+  machine-readable error code (``--format json`` commands emit the same
+  failure as JSON on stdout);
+- destructive ``init --force`` asks for confirmation unless ``--yes``.
 """
 
 from __future__ import annotations
 
+import functools
 import importlib
 import json
+import sys
+from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 import typer
 from rich.console import Console
 from rich.markup import escape
+from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 
 from okfsmith import links as _links
@@ -25,6 +41,105 @@ from okfsmith.core import frontmatter as _fm
 from okfsmith.core import spec as _spec
 
 console = Console()
+
+PANEL_BUNDLE = "Bundle"
+PANEL_KNOWLEDGE = "Knowledge"
+PANEL_SERVE = "Serve"
+
+class ValidateFormat(str, Enum):
+    """Constrained ``--format`` values for validate/list/read (exit 2 on misuse)."""
+    text = "text"
+    json = "json"
+
+
+class GraphFormat(str, Enum):
+    """Constrained ``--format`` values for graph (exit 2 on misuse)."""
+    text = "text"
+    json = "json"
+    mermaid = "mermaid"
+    html = "html"
+
+
+class McpTransport(str, Enum):
+    """Constrained ``--transport`` values for mcp (exit 2 on misuse)."""
+    stdio = "stdio"
+    sse = "sse"
+    streamable_http = "streamable-http"
+
+TRUST_TIERS = ("unverified", "machine-confirmed", "human-reviewed")
+
+
+class CliError(Exception):
+    """An expected, user-facing failure with a stable machine-readable code."""
+
+    def __init__(self, code: str, message: str, hint: str | None = None) -> None:
+        super().__init__(message)
+        self.code = code
+        self.message = message
+        self.hint = hint
+
+
+def fail(
+    code: str, message: str, hint: str | None = None, *, exit_code: int = 1
+) -> NoReturn:
+    """Print ``error [CODE]: message`` (+ optional hint) and exit."""
+    typer.echo(f"error [{code}]: {message}", err=True)
+    if hint:
+        typer.echo(f"hint: {hint}", err=True)
+    raise typer.Exit(code=exit_code)
+
+
+def _fail_json(code: str, message: str, hint: str | None = None) -> NoReturn:
+    """Emit a machine-readable error object on stdout and exit 1."""
+    payload: dict[str, Any] = {"status": "error", "code": code, "message": message}
+    if hint:
+        payload["hint"] = hint
+    typer.echo(json.dumps(payload, indent=2))
+    raise typer.Exit(code=1)
+
+
+def _jsonable(value: Any) -> Any:
+    """Make frontmatter values JSON-serializable (datetimes -> ISO 8601)."""
+    import datetime
+
+    if isinstance(value, (datetime.datetime, datetime.date)):
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {k: _jsonable(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_jsonable(v) for v in value]
+    return value
+
+
+def _dump_json(payload: Any) -> None:
+    typer.echo(json.dumps(_jsonable(payload), indent=2))
+
+
+def _handle_cli_error(exc: CliError, as_json: bool) -> NoReturn:
+    if as_json:
+        _fail_json(exc.code, exc.message, exc.hint)
+    fail(exc.code, exc.message, exc.hint)
+    raise AssertionError("unreachable")  # pragma: no cover
+
+
+def _cli(fn):
+    """Command decorator: turn CliError into a clean stderr message (exit 1).
+
+    Commands raising ``fail()``-style errors already exit directly; this
+    catches the remaining structured errors (missing slices, bad bundle
+    shape, LLM outages) so users never see a traceback. JSON-output commands
+    get a JSON error object when ``--format json`` was requested.
+    """
+
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        fmt = kwargs.get("output_format")
+        try:
+            return fn(*args, **kwargs)
+        except CliError as exc:
+            _handle_cli_error(exc, as_json=(fmt == "json"))
+
+    return wrapper
 
 
 def _lazy_attr(module_name: str, attr: str) -> Any:
@@ -42,25 +157,62 @@ def _lazy_attr(module_name: str, attr: str) -> Any:
         missing = exc.name or ""
         # The slice itself (or one of its parents under okfsmith) is absent.
         if module_name == missing or module_name.startswith(missing + "."):
-            typer.echo(
-                f"error: '{module_name}' is not available in this installation.",
-                err=True,
-            )
-            raise typer.Exit(code=1)
+            raise CliError(
+                "slice-not-installed",
+                f"'{module_name}' is not available in this installation.",
+                f"Install the matching extra, e.g. pip install 'okfsmith[{_extra_for(module_name)}]'.",
+            ) from None
         raise
     try:
         return getattr(module, attr)
     except AttributeError:
-        typer.echo(
-            f"error: '{module_name}' does not provide '{attr}'.", err=True
+        raise CliError(
+            "slice-incomplete",
+            f"'{module_name}' does not provide '{attr}'.",
+            "Reinstall okfsmith; if the problem persists, file a bug report.",
+        ) from None
+
+
+def _extra_for(module_name: str) -> str:
+    if module_name.startswith("okfsmith.mcp_server"):
+        return "mcp"
+    if module_name.startswith("okfsmith.parsers.office"):
+        return "office"
+    return "test"
+
+
+def _looks_like_bundle(path: Path) -> bool:
+    """True when *path* contains any bundle signal (concepts or reserved files)."""
+    if (path / "index.md").is_file() or (path / "log.md").is_file():
+        return True
+    return any(path.rglob("*.md"))
+
+
+def _require_bundle_dir(path: Path) -> Path:
+    """Validate *path* as an existing bundle directory (read commands).
+
+    Raises :class:`CliError` distinguishing a missing path, a non-directory,
+    and an existing directory that is not a bundle.
+    """
+    if not path.exists():
+        raise CliError(
+            "bundle-not-found",
+            f"bundle '{path}' does not exist.",
+            f"Run 'okfsmith init {path}' to create one.",
         )
-        raise typer.Exit(code=1)
-
-
-def _require_dir(path: Path, what: str = "directory") -> None:
     if not path.is_dir():
-        typer.echo(f"error: {what} '{path}' does not exist.", err=True)
-        raise typer.Exit(code=1)
+        raise CliError(
+            "not-a-directory",
+            f"'{path}' exists but is not a directory.",
+            "Pass the bundle directory, not a file inside it.",
+        )
+    if not _looks_like_bundle(path):
+        raise CliError(
+            "not-a-bundle",
+            f"'{path}' does not look like an OKF bundle (no markdown files).",
+            f"Run 'okfsmith init {path}' to create one, or pass an existing bundle.",
+        )
+    return path
 
 
 def _collect_inputs(source: Path, recursive: bool) -> list[Path]:
@@ -75,7 +227,8 @@ def _collect_inputs(source: Path, recursive: bool) -> list[Path]:
 # ---------------------------------------------------------------------------
 
 
-@app.command()
+@app.command(rich_help_panel=PANEL_BUNDLE)
+@_cli
 def init(
     directory: Path = typer.Argument(
         ..., help="Directory to scaffold the bundle in."
@@ -83,15 +236,34 @@ def init(
     force: bool = typer.Option(
         False, "--force", help="Scaffold even if the directory exists and is non-empty."
     ),
+    yes: bool = typer.Option(
+        False,
+        "--yes",
+        "-y",
+        help="Answer 'yes' to the --force confirmation prompt (non-interactive use).",
+    ),
 ) -> None:
-    """Create a new, empty OKF bundle in DIRECTORY."""
+    """Create a new, empty OKF bundle in DIRECTORY.
+
+    \b
+    Examples:
+        okfsmith init ./kb
+        okfsmith init ./kb --force --yes   # non-interactive re-scaffold
+    """
     if directory.exists() and any(directory.iterdir()) and not force:
+        fail(
+            "directory-not-empty",
+            f"'{directory}' exists and is not empty.",
+            "Use --force to scaffold anyway (asks for confirmation), or pick another directory.",
+        )
+    if directory.exists() and any(directory.iterdir()) and force and not yes:
         typer.echo(
-            f"error: '{directory}' exists and is not empty "
-            "(use --force to scaffold anyway).",
+            f"warning: '{directory}' is not empty; --force will scaffold over it.",
             err=True,
         )
-        raise typer.Exit(code=1)
+        if not typer.confirm("Continue?", default=False):
+            typer.echo("aborted.", err=True)
+            raise typer.Exit(code=1)
     directory.mkdir(parents=True, exist_ok=True)
     bundle = Bundle(directory)
     index_path = indexlog.ensure_index(bundle)
@@ -101,6 +273,8 @@ def init(
     typer.echo(f"Initialized OKF bundle in {directory}")
     typer.echo(f"  index: {index_path}")
     typer.echo(f"  log:   {log_path}")
+    typer.echo("Next: add sources with 'okfsmith ingest "
+               f"{directory} <file-or-dir> --no-llm'.")
 
 
 # ---------------------------------------------------------------------------
@@ -159,10 +333,15 @@ def _ingest_llm_one(
     return "ok", len(created)
 
 
-@app.command()
+@app.command(rich_help_panel=PANEL_KNOWLEDGE)
+@_cli
 def ingest(
-    source: Path = typer.Argument(..., help="File or directory to ingest."),
-    bundle: Path = typer.Option(..., "--bundle", help="Target bundle directory."),
+    bundle: Path = typer.Argument(
+        ..., help="Bundle directory to ingest into (created if missing)."
+    ),
+    sources: list[Path] = typer.Argument(
+        ..., help="File(s) or directorie(s) to ingest."
+    ),
     model: str | None = typer.Option(
         None, "--model", help="Model to use for LLM extraction."
     ),
@@ -174,30 +353,59 @@ def ingest(
     recursive: bool = typer.Option(
         False,
         "--recursive",
-        help="Recurse into subdirectories when SOURCE is a directory.",
+        help="Recurse into subdirectories when a SOURCE is a directory.",
+    ),
+    quiet: bool = typer.Option(
+        False,
+        "--quiet",
+        "-q",
+        help="Only print warnings, errors, and the final summary line.",
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Parse and plan only; write nothing to the bundle.",
     ),
 ) -> None:
-    """Ingest documents into the bundle as draft concepts.
+    """Ingest documents into BUNDLE as draft concepts.
 
     With ``--no-llm`` the deterministic sectioning path is used
     (``okfsmith.parsers.ingest_no_llm``) with per-file SHA-256 dedup via the
     bundle manifest; otherwise the LLM extraction path
     (``okfsmith.extract.run``) is used.
+
+    \b
+    Examples:
+        okfsmith ingest ./kb docs/report.pdf --no-llm
+        okfsmith ingest ./kb docs/ --recursive --no-llm
+        okfsmith ingest ./kb paper.pdf --dry-run
+        okfsmith ingest ./kb paper.pdf --quiet
     """
-    if not source.exists():
-        typer.echo(f"error: source '{source}' does not exist.", err=True)
-        raise typer.Exit(code=1)
-    files = _collect_inputs(source, recursive)
-    if not files:
-        typer.echo(f"error: no input files found under '{source}'.", err=True)
-        raise typer.Exit(code=1)
+    # --- validate everything before any lazy import (review-gate item 4) ---
+    if model is not None and no_llm:
+        raise typer.BadParameter(
+            "--model cannot be combined with --no-llm: no LLM is used in that mode."
+        )
+    files: list[Path] = []
+    for source in sources:
+        if not source.exists():
+            fail(
+                "source-not-found",
+                f"source '{source}' does not exist.",
+                "Pass an existing file or directory.",
+            )
+        found = _collect_inputs(source, recursive)
+        if not found:
+            fail(
+                "no-input-files",
+                f"no input files found under '{source}'.",
+                "Pass a file, or add --recursive for directories.",
+            )
+        files.extend(found)
 
     parse_file = _lazy_attr("okfsmith.parsers", "parse_file")
     if no_llm:
-        ingest_no_llm = _lazy_attr(
-            "okfsmith.parsers.ingest_no_llm", "ingest_no_llm"
-        )
-        sha256_of = _lazy_attr("okfsmith.parsers.dedup", "sha256_of")
+        ingest_no_llm = _lazy_attr("okfsmith.parsers.ingest_no_llm", "ingest_no_llm")
         already_ingested = _lazy_attr("okfsmith.parsers.dedup", "already_ingested")
         record_ingested = _lazy_attr("okfsmith.parsers.dedup", "record_ingested")
         mode = "sectioning (no LLM)"
@@ -208,56 +416,84 @@ def ingest(
         LLMUnavailableError = _lazy_attr("okfsmith.extract", "LLMUnavailableError")
         mode = f"LLM extraction (model={model or 'default'})"
 
-    target = Bundle.load(bundle)
-    table = Table(title=f"Ingest summary — {mode}")
-    table.add_column("File")
-    table.add_column("SHA-256")
-    table.add_column("Concepts", justify="right")
-    table.add_column("Status")
+    if dry_run:
+        _ingest_dry_run(bundle, files, no_llm=no_llm, parse_file=parse_file,
+                        section=section if not no_llm else None, quiet=quiet)
+        return
 
+    target = Bundle.load(bundle)
     digest_of = _lazy_attr("okfsmith.parsers.dedup", "sha256_of")
     failures: list[Path] = []
     created_total = 0
-    for path in files:
-        digest = digest_of(path)[:12]
-        try:
-            if no_llm:
-                status, count = _ingest_no_llm_one(
-                    path,
-                    target,
-                    parse_file=parse_file,
-                    ingest_no_llm=ingest_no_llm,
-                    sha256_of=digest_of,
-                    already_ingested=already_ingested,
-                    record_ingested=record_ingested,
-                )
-                style = "green" if status == "ok" else "yellow"
-                table.add_row(str(path), digest, str(count), f"[{style}]{status}[/{style}]")
-            else:
-                try:
-                    status, count = _ingest_llm_one(
+    rows: list[tuple[str, str, str, str]] = []
+
+    show_progress = not quiet and sys.stderr.isatty()
+    progress = Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        console=console,
+        disable=not show_progress,
+    )
+    with progress:
+        task = progress.add_task(f"ingesting {len(files)} file(s) — {mode}", total=len(files))
+        for path in files:
+            digest = digest_of(path)[:12]
+            try:
+                if no_llm:
+                    status, count = _ingest_no_llm_one(
                         path,
                         target,
                         parse_file=parse_file,
-                        section=section,
-                        SectionInput=SectionInput,
-                        run=run,
-                        model=model,
+                        ingest_no_llm=ingest_no_llm,
+                        sha256_of=digest_of,
+                        already_ingested=already_ingested,
+                        record_ingested=record_ingested,
                     )
-                except LLMUnavailableError as exc:
-                    typer.echo(f"error: LLM unavailable: {exc}", err=True)
-                    raise typer.Exit(code=1)
-                table.add_row(str(path), digest, str(count), "[green]ok[/green]")
-            created_total += count
-        except typer.Exit:
-            raise
-        except Exception as exc:  # noqa: BLE001 — per-file failure, keep going
-            failures.append(path)
-            # Security (audit-3 finding 4): exception text derives from
-            # untrusted input (filenames, content). Escape it so rich
-            # markup in the message cannot inject styles or crash the CLI.
-            table.add_row(str(path), digest, "0", f"[red]failed: {escape(str(exc))}[/red]")
-    console.print(table)
+                else:
+                    try:
+                        status, count = _ingest_llm_one(
+                            path,
+                            target,
+                            parse_file=parse_file,
+                            section=section,
+                            SectionInput=SectionInput,
+                            run=run,
+                            model=model,
+                        )
+                    except LLMUnavailableError as exc:
+                        raise CliError(
+                            "llm-unavailable",
+                            f"LLM unavailable: {exc}",
+                            "Start Ollama ('ollama serve'), set OKFSMITH_MODEL / "
+                            "OPENAI_API_KEY, or retry with --no-llm.",
+                        ) from None
+                created_total += count
+                rows.append((str(path), digest, str(count), status))
+            except CliError:
+                raise
+            except typer.Exit:
+                raise
+            except Exception as exc:  # noqa: BLE001 — per-file failure, keep going
+                failures.append(path)
+                # Security (audit-3 finding 4): escape untrusted exception text.
+                rows.append((str(path), digest, "0", f"failed: {escape(str(exc))}"))
+            progress.advance(task)
+
+    if not quiet:
+        table = Table(title=f"Ingest summary — {mode}")
+        table.add_column("File")
+        table.add_column("SHA-256")
+        table.add_column("Concepts", justify="right")
+        table.add_column("Status")
+        for file, digest, count, status in rows:
+            if status == "ok":
+                style = "green"
+            elif status.startswith("skipped"):
+                style = "yellow"
+            else:
+                style = "red"
+            table.add_row(escape(file), digest, count, f"[{style}]{escape(status)}[/{style}]")
+        console.print(table)
 
     if created_total:
         indexlog.ensure_index(target)
@@ -269,13 +505,51 @@ def ingest(
                 f"{len(files) - len(failures)} source file(s)."
             ),
         )
-        typer.echo(f"Wrote {created_total} draft concept(s) to {bundle}")
+    summary = (
+        f"ingested {created_total} concept(s) from {len(files)} file(s)"
+        + (f", {len(failures)} failed" if failures else "")
+        + f" into {bundle}"
+    )
+    typer.echo(summary)
     if failures and len(failures) == len(files):
-        typer.echo("error: all inputs failed to ingest.", err=True)
-        raise typer.Exit(code=1)
+        fail("ingest-failed", "all inputs failed to ingest.",
+             "Run with --dry-run to inspect parsing without writing.")
     if failures:
         typer.echo(
             f"warning: {len(failures)} of {len(files)} input(s) failed.", err=True
+        )
+
+
+def _ingest_dry_run(
+    bundle: Path,
+    files: list[Path],
+    *,
+    no_llm: bool,
+    parse_file: Any,
+    section: Any,
+    quiet: bool,
+) -> None:
+    """Parse and plan an ingest without writing anything."""
+    typer.echo(f"dry run: would ingest {len(files)} file(s) into {bundle} (nothing written)")
+    section_fn = section
+    if no_llm:
+        section_fn = _lazy_attr("okfsmith.parsers.sectioning", "section")
+    for path in files:
+        try:
+            parsed = parse_file(path)
+        except Exception as exc:  # noqa: BLE001 — dry run reports, never raises
+            typer.echo(f"  {path}: would skip ({escape(str(exc))})")
+            continue
+        if (parsed.meta or {}).get("error"):
+            typer.echo(f"  {path}: would skip ({escape(str(parsed.meta['error']))})")
+            continue
+        pages = len(parsed.pages or [])
+        try:
+            n_sections = len(section_fn(parsed).sections)
+        except Exception:  # noqa: BLE001
+            n_sections = 0
+        typer.echo(
+            f"  {path}: {pages} page(s), ~{n_sections} section(s) → draft concepts"
         )
 
 
@@ -284,32 +558,50 @@ def ingest(
 # ---------------------------------------------------------------------------
 
 
-@app.command()
+@app.command(rich_help_panel=PANEL_KNOWLEDGE)
+@_cli
 def validate(
     directory: Path = typer.Argument(..., help="Bundle directory to validate."),
     strict: bool = typer.Option(
         False, "--strict", help="Treat warnings as failures."
     ),
-    output_format: str = typer.Option(
-        "text", "--format", help="Output format: text or json."
+    output_format: ValidateFormat = typer.Option(
+        ValidateFormat.text, "--format", help="Output format: text or json."
     ),
 ) -> None:
-    """Validate a bundle against OKF v0.2 (E001–E004 / W001–W015)."""
-    _require_dir(directory)
+    """Validate a bundle against OKF v0.2 (E001–E004 / W001–W015).
+
+    \b
+    Examples:
+        okfsmith validate ./kb
+        okfsmith validate ./kb --format json
+        okfsmith validate ./kb --strict
+    """
+    as_json = output_format == "json"
+    try:
+        _require_bundle_dir(directory)
+    except CliError as exc:
+        _handle_cli_error(exc, as_json)
     # check(bundle_path) -> ValidationReport with .errors / .warnings as
     # Finding objects; serialize each via Finding.as_dict().
     check = _lazy_attr("okfsmith.validate", "check")
     result = check(directory)
     errors = [finding.as_dict() for finding in result.errors]
     warnings = [finding.as_dict() for finding in result.warnings]
+    n_concepts = sum(1 for _ in Bundle.load(directory).iter_concepts())
 
-    if output_format == "json":
-        typer.echo(json.dumps({"errors": errors, "warnings": warnings}, indent=2))
-    elif output_format == "text":
-        _print_report(errors, warnings)
+    if as_json:
+        status = "invalid" if errors or (strict and warnings) else "conformant"
+        _dump_json({
+            "status": status,
+            "concepts": n_concepts,
+            "error_count": len(errors),
+            "warning_count": len(warnings),
+            "errors": errors,
+            "warnings": warnings,
+        })
     else:
-        typer.echo(f"error: unknown --format '{output_format}' (use text or json).", err=True)
-        raise typer.Exit(code=1)
+        _print_report(errors, warnings)
 
     if errors or (strict and warnings):
         raise typer.Exit(code=1)
@@ -326,9 +618,9 @@ def _print_report(errors: list[dict], warnings: list[dict]) -> None:
         table.add_column("Message")
         for item in items:
             table.add_row(
-                str(item.get("code", "")),
-                str(item.get("file", "")),
-                str(item.get("message", "")),
+                escape(str(item.get("code", ""))),
+                escape(str(item.get("file", ""))),
+                escape(str(item.get("message", ""))),
             )
         console.print(table)
     if errors:
@@ -344,25 +636,39 @@ def _print_report(errors: list[dict], warnings: list[dict]) -> None:
 # ---------------------------------------------------------------------------
 
 
-@app.command(name="list")
+@app.command(name="list", rich_help_panel=PANEL_KNOWLEDGE)
+@_cli
 def list_concepts(
     directory: Path = typer.Argument(..., help="Bundle directory to list."),
     type_filter: str | None = typer.Option(
         None, "--type", help="Only show concepts of this type."
     ),
     tier_filter: str | None = typer.Option(
-        None, "--tier", help="Only show concepts with this trust tier."
+        None, "--tier",
+        help=f"Only show concepts with this trust tier ({', '.join(TRUST_TIERS)}).",
+    ),
+    output_format: ValidateFormat = typer.Option(
+        ValidateFormat.text, "--format", help="Output format: text or json."
     ),
 ) -> None:
-    """List concepts in the bundle: id, type, title, trust tier."""
-    _require_dir(directory)
+    """List concepts in the bundle: id, type, title, trust tier.
+
+    \b
+    Examples:
+        okfsmith list ./kb
+        okfsmith list ./kb --tier human-reviewed --format json
+    """
+    as_json = output_format == "json"
+    if tier_filter is not None and tier_filter.casefold() not in TRUST_TIERS:
+        raise typer.BadParameter(
+            f"invalid --tier '{tier_filter}' (choose from: {', '.join(TRUST_TIERS)})"
+        )
+    try:
+        _require_bundle_dir(directory)
+    except CliError as exc:
+        _handle_cli_error(exc, as_json)
     bundle = Bundle.load(directory)
-    table = Table(title=f"Concepts in {directory}")
-    table.add_column("ID")
-    table.add_column("Type")
-    table.add_column("Title")
-    table.add_column("Trust tier")
-    shown = 0
+    rows = []
     for concept in bundle.iter_concepts():
         ctype = str(concept.frontmatter.get("type") or "")
         tier = _spec.trust_tier(concept.frontmatter)
@@ -370,12 +676,24 @@ def list_concepts(
             continue
         if tier_filter and tier.casefold() != tier_filter.casefold():
             continue
-        table.add_row(
-            concept.id, ctype, str(concept.frontmatter.get("title") or ""), tier
-        )
-        shown += 1
+        rows.append({
+            "id": concept.id,
+            "type": ctype,
+            "title": str(concept.frontmatter.get("title") or ""),
+            "tier": tier,
+        })
+    if as_json:
+        _dump_json({"concepts": rows, "count": len(rows)})
+        return
+    table = Table(title=f"Concepts in {directory}")
+    table.add_column("ID")
+    table.add_column("Type")
+    table.add_column("Title")
+    table.add_column("Trust tier")
+    for row in rows:
+        table.add_row(escape(row["id"]), escape(row["type"]), escape(row["title"]), escape(row["tier"]))
     console.print(table)
-    typer.echo(f"{shown} concept(s)")
+    typer.echo(f"{len(rows)} concept(s)")
 
 
 # ---------------------------------------------------------------------------
@@ -383,21 +701,50 @@ def list_concepts(
 # ---------------------------------------------------------------------------
 
 
-@app.command()
+@app.command(rich_help_panel=PANEL_KNOWLEDGE)
+@_cli
 def read(
     directory: Path = typer.Argument(..., help="Bundle directory."),
     concept_id: str = typer.Argument(..., help="Concept id, e.g. finance/revenue."),
+    output_format: ValidateFormat = typer.Option(
+        ValidateFormat.text, "--format", help="Output format: text or json."
+    ),
 ) -> None:
-    """Print a concept: frontmatter as YAML, then the body."""
-    _require_dir(directory)
+    """Print a concept: frontmatter as YAML, then the body.
+
+    \b
+    Examples:
+        okfsmith read ./kb finance/revenue
+        okfsmith read ./kb finance/revenue --format json
+    """
+    as_json = output_format == "json"
+    try:
+        _require_bundle_dir(directory)
+    except CliError as exc:
+        _handle_cli_error(exc, as_json)
     bundle = Bundle.load(directory)
     concept = bundle.get(concept_id)
     if concept is None:
-        typer.echo(
-            f"error: concept '{concept_id}' not found in '{directory}'.", err=True
+        if as_json:
+            _fail_json(
+                "concept-not-found",
+                f"concept '{concept_id}' not found in '{directory}'.",
+                f"Run 'okfsmith list {directory}' to see available ids.",
+            )
+        fail(
+            "concept-not-found",
+            f"concept '{concept_id}' not found in '{directory}'.",
+            f"Run 'okfsmith list {directory}' to see available ids.",
         )
-        raise typer.Exit(code=1)
-    typer.echo(_fm.serialize_frontmatter(concept.frontmatter, concept.body))
+    assert concept is not None  # for type checkers; fail() raises
+    if as_json:
+        _dump_json({
+            "id": concept.id,
+            "frontmatter": concept.frontmatter,
+            "body": concept.body,
+        })
+    else:
+        typer.echo(_fm.serialize_frontmatter(concept.frontmatter, concept.body))
 
 
 # ---------------------------------------------------------------------------
@@ -405,11 +752,13 @@ def read(
 # ---------------------------------------------------------------------------
 
 
-@app.command()
+@app.command(rich_help_panel=PANEL_KNOWLEDGE)
+@_cli
 def graph(
     directory: Path = typer.Argument(..., help="Bundle directory."),
-    output_format: str = typer.Option(
-        "text", "--format", help="Output format: text, json, mermaid, or html."
+    output_format: GraphFormat = typer.Option(
+        GraphFormat.text, "--format",
+        help="Output format: text, json, mermaid, or html.",
     ),
     output: Path | None = typer.Option(
         None,
@@ -417,8 +766,20 @@ def graph(
         help="Output file for --format html (default: <bundle>/viz.html).",
     ),
 ) -> None:
-    """Show the concept link graph (nodes, edges, orphans, dead links)."""
-    _require_dir(directory)
+    """Show the concept link graph (nodes, edges, orphans, dead links).
+
+    \b
+    Examples:
+        okfsmith graph ./kb
+        okfsmith graph ./kb --format html --output graph.html
+    """
+    as_json = output_format == "json"
+    try:
+        _require_bundle_dir(directory)
+    except CliError as exc:
+        _handle_cli_error(exc, as_json)
+    if output_format == "html" and output is not None and output.exists() and not output.is_file():
+        fail("invalid-output", f"--output '{output}' is not a file path.")
     bundle = Bundle.load(directory)
     data = _links.build_graph(bundle)
 
@@ -428,9 +789,7 @@ def graph(
             adjacency[node["id"]] = []
         for edge in data["edges"]:
             adjacency.setdefault(edge["from"], []).append(edge["to"])
-        typer.echo(
-            json.dumps({"nodes": data["nodes"], "adjacency": adjacency}, indent=2)
-        )
+        _dump_json({"nodes": data["nodes"], "adjacency": adjacency})
     elif output_format == "mermaid":
         typer.echo(_links.mermaid_flowchart(data), nl=False)
     elif output_format == "html":
@@ -441,13 +800,6 @@ def graph(
         typer.echo(f"Wrote {written}")
     elif output_format == "text":
         _print_graph_text(bundle, data)
-    else:
-        typer.echo(
-            f"error: unknown --format '{output_format}' "
-            "(use text, json, mermaid, or html).",
-            err=True,
-        )
-        raise typer.Exit(code=1)
 
 
 def _print_graph_text(bundle: Bundle, data: dict) -> None:
@@ -473,15 +825,111 @@ def _print_graph_text(bundle: Bundle, data: dict) -> None:
 # ---------------------------------------------------------------------------
 
 
-@app.command()
+@app.command(rich_help_panel=PANEL_SERVE)
+@_cli
 def mcp(
-    bundle: Path = typer.Option(..., "--bundle", help="Bundle directory to serve."),
-    transport: str = typer.Option(
-        "stdio", "--transport", help="MCP transport to use."
+    bundle: Path = typer.Argument(..., help="Bundle directory to serve."),
+    transport: McpTransport = typer.Option(
+        McpTransport.stdio, "--transport", help="MCP transport to use."
     ),
 ) -> None:
-    """Serve the bundle over MCP (Model Context Protocol)."""
-    _require_dir(bundle, "bundle")
+    """Serve the bundle over MCP (Model Context Protocol).
+
+    \b
+    Examples:
+        okfsmith mcp ./kb
+        uvx "okfsmith[mcp]" mcp ./kb
+    """
+    try:
+        _require_bundle_dir(bundle)
+    except CliError as exc:
+        _handle_cli_error(exc, False)
     # serve(bundle_path, transport) -> None
     serve = _lazy_attr("okfsmith.mcp_server", "serve")
     serve(bundle, transport)
+
+
+# ---------------------------------------------------------------------------
+# doctor
+# ---------------------------------------------------------------------------
+
+
+@app.command(rich_help_panel=PANEL_BUNDLE)
+@_cli
+def doctor() -> None:
+    """Check the environment: dependencies, extras, Ollama, writability.
+
+    Reports OK / MISSING / WARN per check so a broken setup is diagnosable
+    in one command.
+    """
+    import okfsmith
+
+    rows: list[tuple[str, str, str]] = []
+
+    def check(name: str, ok: bool, detail: str = "") -> None:
+        rows.append((name, "OK" if ok else "MISSING", detail))
+
+    py_ok = sys.version_info >= (3, 10)
+    rows.append(("python >= 3.10", "OK" if py_ok else "FAIL",
+                 ".".join(map(str, sys.version_info[:3]))))
+    check("okfsmith", True, okfsmith.__version__)
+    from importlib.metadata import PackageNotFoundError
+    from importlib.metadata import version as _pkg_version
+
+    def _mod_version(mod, dist: str) -> str:
+        v = getattr(mod, "__version__", None)
+        if v:
+            return str(v)
+        try:
+            return _pkg_version(dist)
+        except PackageNotFoundError:
+            return "?"
+
+    for mod, label, dist in (
+        ("typer", "typer", "typer"),
+        ("yaml", "pyyaml", "pyyaml"),
+        ("rich", "rich", "rich"),
+        ("httpx", "httpx", "httpx"),
+        ("liteparse", "liteparse", "liteparse"),
+    ):
+        try:
+            m = importlib.import_module(mod)
+            check(label, True, _mod_version(m, dist))
+        except ImportError:
+            check(label, False, "required dependency")
+    for mod, extra in (
+        ("markitdown", "office"), ("fastmcp", "mcp"), ("docling", "ocr"),
+        ("pytest", "test"),
+    ):
+        try:
+            importlib.import_module(mod)
+            check(f"extra: {extra}", True, mod)
+        except ImportError:
+            rows.append((f"extra: {extra}", "MISSING",
+                         f"pip install 'okfsmith[{extra}]'"))
+
+    try:
+        from okfsmith.extract import llm as _llm
+        reachable = _llm.is_ollama_reachable()
+        rows.append(("ollama", "OK" if reachable else "WARN",
+                     "reachable" if reachable else
+                     f"not reachable at {_llm.DEFAULT_OLLAMA_BASE} — use --no-llm or set OPENAI_API_KEY"))
+    except Exception:  # noqa: BLE001
+        rows.append(("ollama", "WARN", "could not probe"))
+
+    import tempfile
+    try:
+        with tempfile.TemporaryDirectory(prefix="okfsmith-doctor-"):
+            pass
+        rows.append(("tmp writable", "OK", tempfile.gettempdir()))
+    except OSError as exc:
+        rows.append(("tmp writable", "FAIL", str(exc)))
+
+    table = Table(title="okfsmith doctor")
+    table.add_column("Check")
+    table.add_column("Status")
+    table.add_column("Detail")
+    for name, status, detail in rows:
+        style = {"OK": "green", "MISSING": "yellow", "WARN": "yellow", "FAIL": "red"}[status]
+        table.add_row(escape(name), f"[{style}]{status}[/{style}]", escape(detail))
+    console.print(table)
