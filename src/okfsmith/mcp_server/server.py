@@ -16,42 +16,89 @@ reading UI. Entry point for progressive disclosure: ``index()`` → the root
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
 from okfsmith.core import frontmatter as _fm
 from okfsmith.core.bundle import Bundle, Concept
-from okfsmith.core.spec import trust_tier
+from okfsmith.core.spec import MACHINE_CONFIRMED, UNVERIFIED, trust_tier
 
 #: Regex for markdown links ``[text](target)``; footnote refs ``[^x]`` are
 #: excluded by requiring the char before ``[`` to not be ``^``.
 _LINK_RE = re.compile(r"(?<!\^)\[([^\]]+)\]\(([^)\s]+)\)")
 
 
-def rank_concepts(
-    bundle: Bundle, query: str, limit: int = 10
-) -> list[tuple[int, Concept]]:
-    """Score bundle concepts against *query*, best first.
+def _coerce_tags(frontmatter: Mapping) -> list[str]:
+    """Return the concept's ``tags`` frontmatter as a list of strings.
 
-    Case-insensitive substring matching: a word matching the concept id or
-    title scores 3, description/tags 2, body 1. Results are sorted by score
-    descending, then concept id, and capped at *limit*. Shared by
-    :meth:`BundleTools.search` and the interactive chat REPL so both rank
-    identically. Returns ``[]`` for an empty query.
+    Hand-written frontmatter often carries a scalar (``tags: 5``,
+    ``tags: single``) — valid YAML that would otherwise crash iteration.
+    A scalar becomes a single-entry list; ``None`` becomes ``[]``. Never
+    raises on malformed input (C10).
+    """
+    tags = frontmatter.get("tags")
+    if tags is None:
+        return []
+    if isinstance(tags, str):
+        return [tags]
+    if isinstance(tags, list):
+        return [str(t) for t in tags]
+    return [str(tags)]
+
+
+def _trust_tier_safe(frontmatter: Any) -> str:
+    """Derive the trust tier, tolerating scalar ``verified`` frontmatter.
+
+    ``verified: yes`` (a bare YAML bool) is the most natural thing a human
+    writes, but :func:`~okfsmith.core.spec.trust_tier` expects a mapping or
+    list. A non-iterable scalar therefore degrades per the §5.3 trust-tier
+    rules instead of raising: a truthy scalar claims verification without
+    naming a ``human:`` actor → ``"machine-confirmed"``; a falsy/absent
+    scalar → ``"unverified"``. Never raises on malformed input (C10).
+    """
+    if not isinstance(frontmatter, Mapping):
+        return UNVERIFIED
+    verified = frontmatter.get("verified")
+    if verified is None or isinstance(verified, (Mapping, list, tuple, set)):
+        return trust_tier(frontmatter)
+    return MACHINE_CONFIRMED if verified else UNVERIFIED
+
+
+def _coerce_limit(limit: Any, default: int) -> int:
+    """Coerce *limit* to a non-negative int; unparseable input → *default*.
+
+    Direct Python callers (tests, the chat REPL) can pass any object where
+    the MCP transport would normally enforce an int — a clean fallback here
+    keeps the tools' "never an exception" contract (L16).
+    """
+    try:
+        coerced = int(limit)
+    except (TypeError, ValueError):
+        coerced = default
+    return max(coerced, 0)
+
+
+def _rank_concepts_legacy(
+    bundle: Bundle, query: str, limit: int
+) -> list[tuple[float, Concept]]:
+    """Original case-insensitive substring scoring, best first.
+
+    Fallback used when the BM25 engine (``okfsmith.search``) is unavailable
+    or raises on malformed frontmatter. A word matching the concept id or
+    title scores 3, description/tags 2, body 1; results are sorted by score
+    descending, then concept id, and capped at *limit*.
     """
     words = [w for w in query.lower().split() if w]
     if not words:
         return []
-    scored: list[tuple[int, Concept]] = []
+    scored: list[tuple[float, Concept]] = []
     for concept in bundle.iter_concepts():
         fm = concept.frontmatter
         title = str(fm.get("title", ""))
         description = str(fm.get("description", ""))
-        tags = fm.get("tags") or []
-        if isinstance(tags, str):
-            tags = [tags]
-        tag_text = " ".join(str(t) for t in tags)
-        score = 0
+        tag_text = " ".join(_coerce_tags(fm))
+        score = 0.0
         for word in words:
             if word in concept.id.lower() or word in title.lower():
                 score += 3
@@ -63,6 +110,46 @@ def rank_concepts(
             scored.append((score, concept))
     scored.sort(key=lambda item: (-item[0], item[1].id))
     return scored[: max(limit, 0)]
+
+
+def rank_concepts(
+    bundle: Bundle, query: str, limit: int = 10
+) -> list[tuple[float, Concept]]:
+    """Score bundle concepts against *query*, best first.
+
+    Thin shim over the BM25 engine
+    :func:`okfsmith.search.search_bundle` (stdlib-only, shared with the
+    ``okfsmith search`` CLI and the interactive chat REPL so all three rank
+    identically): BM25 with field weights (id/title ×3, description/tags
+    ×2, body ×1), stemming, quoted phrases, and ``-exclusions``. When the
+    engine is not importable — or raises on malformed hand-written
+    frontmatter it does not tolerate yet — the original substring scoring
+    is used as a fallback, so this never raises (C10). Results are always
+    returned score-descending with ties broken by concept id, whatever the
+    engine hands back. The ``(bundle, query, limit=10)`` signature is kept
+    for back-compat. Returns ``[]`` for an empty query.
+    """
+    limit = _coerce_limit(limit, 10)
+    if not isinstance(query, str):
+        query = "" if query is None else str(query)
+    if not query.split():
+        return []
+    try:
+        from okfsmith.search import search_bundle
+    except ImportError:
+        return _rank_concepts_legacy(bundle, query, limit)
+    try:
+        hits = search_bundle(bundle, query, limit)
+    except (TypeError, AttributeError):
+        # Scalar frontmatter (e.g. ``tags: 5``) the engine does not
+        # tolerate: degrade to the legacy scorer rather than crash — the
+        # MCP tools' "never an exception" contract wins over ranking
+        # parity on malformed input (C10).
+        return _rank_concepts_legacy(bundle, query, limit)
+    # Enforce the documented contract (score desc, id tiebreak) on whatever
+    # the engine returns; a no-op once the engine sorts correctly itself.
+    hits.sort(key=lambda item: (-item[0], item[1].id))
+    return hits[:limit]
 
 
 def _require_fastmcp() -> Any:
@@ -88,11 +175,16 @@ def _one_line(text: str, width: int = 140) -> str:
 
 
 def _concept_label(concept: Concept) -> str:
-    """One-line markdown summary of a concept: id, type, title, trust tier."""
+    """One-line markdown summary of a concept: id, type, title, trust tier.
+
+    The trust tier is derived defensively: scalar ``verified`` frontmatter
+    (``verified: yes`` in hand-written YAML) degrades per the §5.3 rules
+    instead of raising (C10).
+    """
     fm = concept.frontmatter
     ctype = str(fm.get("type", "?"))
     title = str(fm.get("title", concept.id))
-    tier = trust_tier(fm)
+    tier = _trust_tier_safe(fm)
     return f"**{concept.id}** — `{ctype}` · *{tier}* — {title}"
 
 
@@ -159,20 +251,21 @@ class BundleTools:
         Use this for a full inventory of the knowledge base, or to narrow
         down by concept type. `filter_type` matches the concept's frontmatter
         `type` (case-insensitive substring, e.g. "Metric", "Playbook",
-        "Attested Computation"). `limit` caps the number of rows returned.
+        "Attested Computation"). `limit` caps the number of rows returned
+        (non-numeric input falls back to the default 50).
 
         Returns a markdown list ordered by concept id. For the full text of
         any concept, pass its id to `get`.
         """
         concepts = list(self.bundle.iter_concepts())
         if filter_type:
-            needle = filter_type.lower()
+            needle = str(filter_type).lower()
             concepts = [
                 c
                 for c in concepts
                 if needle in str(c.frontmatter.get("type", "")).lower()
             ]
-        concepts = concepts[: max(limit, 0)]
+        concepts = concepts[: _coerce_limit(limit, 50)]
         if not concepts:
             return (
                 "No concepts found."
@@ -184,21 +277,24 @@ class BundleTools:
 
     # -- keyword search ------------------------------------------------------
     def search(self, query: str, limit: int = 10) -> str:
-        """Keyword-search concepts by id, title, description, tags, and body text.
+        """Search concepts by id, title, description, tags, and body text.
 
-        The search is case-insensitive substring matching; results are ranked
-        so matches in the title outrank matches in the description or tags,
-        which outrank matches in the body. `limit` caps the number of
-        results (default 10).
+        Full-text BM25 ranking (stdlib-only ``okfsmith.search`` engine,
+        shared with the ``okfsmith search`` CLI and the chat REPL so all
+        three rank identically): field weights id/title ×3,
+        description/tags ×2, body ×1, with stemming, quoted phrases, and
+        ``-exclusions``. `limit` caps the number of results (default 10;
+        non-numeric input falls back to 10).
 
         Returns a compact markdown list: concept id, type, trust tier
         (`human-reviewed` > `machine-confirmed` > `unverified`), title, and
         a one-line description. Use `get` with a result's id to read the
-        full concept.
+        full concept. A missing or blank query returns a clean error,
+        never an exception.
         """
-        words = [w for w in query.lower().split() if w]
-        if not words:
+        if not isinstance(query, str) or not query.split():
             return "Error: `query` is empty — provide a keyword to search for."
+        limit = _coerce_limit(limit, 10)
         hits = rank_concepts(self.bundle, query, limit)
         if not hits:
             return f"No concepts match {query!r}. Try broader keywords or use `list`."
@@ -267,7 +363,13 @@ class BundleTools:
             for text, target in _LINK_RE.findall(other.body):
                 linked_id = _bundle_links(target)
                 if linked_id == concept_id:
-                    incoming.append((other.id, str(other.frontmatter.get("type", "?")), text.strip()))
+                    incoming.append(
+                        (
+                            other.id,
+                            str(other.frontmatter.get("type", "?")),
+                            text.strip(),
+                        )
+                    )
                     break
 
         def _fmt_out(linked_id: str, text: str) -> str:
@@ -300,14 +402,20 @@ def build_server(bundle_path: str | Path):
     The bundle is loaded **once**, right here at startup — every tool call
     afterwards reads from the same in-memory :class:`Bundle`. Raises
     ``RuntimeError`` with an install hint if the ``mcp`` extra is missing,
-    and :class:`FileNotFoundError` if *bundle_path* does not exist.
+    :class:`FileNotFoundError` if *bundle_path* does not exist,
+    :class:`ValueError` if *bundle_path* is empty, and
+    :class:`NotADirectoryError` if *bundle_path* is not a directory.
 
     The returned server is a FastMCP instance with the five read-only tools
     registered: ``index``, ``list``, ``search``, ``get``, ``neighbors``.
     """
+    if str(bundle_path).strip() == "":
+        raise ValueError("bundle_path must not be empty")
     root = Path(bundle_path)
     if not root.exists():
         raise FileNotFoundError(f"Bundle not found: {root}")
+    if not root.is_dir():
+        raise NotADirectoryError(f"Bundle path is not a directory: {root}")
     bundle = Bundle.load(root)
     FastMCP = _require_fastmcp()
     server = FastMCP("okfsmith")
