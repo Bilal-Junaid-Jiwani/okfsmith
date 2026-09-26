@@ -81,7 +81,7 @@ okfsmith --version
 ```
 
 ```text
-okfsmith 0.2.0
+okfsmith 0.3.0
 ```
 
 The second checks your whole environment — dependencies, extras,
@@ -97,7 +97,7 @@ okfsmith doctor
 ┃ Check          ┃ Status  ┃ Detail                                       ┃
 ┡━━━━━━━━━━━━━━━━╇━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
 │ python >= 3.10 │ OK      │ 3.12.3                                       │
-│ okfsmith       │ OK      │ 0.2.0                                        │
+│ okfsmith       │ OK      │ 0.3.0                                        │
 │ ...            │ ...     │ ...                                          │
 │ extra: mcp     │ MISSING │ Install the 'mcp' extra: pip install        │
 │                │         │ 'okfsmith[mcp]' ...                          │
@@ -157,7 +157,7 @@ Restart your shell after installing completion for it to take effect.
 **Installing a specific version:**
 
 ```bash
-pip install "okfsmith==0.2.0"
+pip install "okfsmith==0.3.0"
 ```
 
 </details>

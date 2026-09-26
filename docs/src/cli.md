@@ -22,7 +22,7 @@ These work on every command, including with no subcommand:
 | Flag | What it does |
 |---|---|
 | `--help` | Show help for the CLI or a specific command (`okfsmith ingest --help`). |
-| `--version` | Print the version (e.g. `0.2.0`) and exit. |
+| `--version` | Print the version (e.g. `0.3.0`) and exit. |
 | `--format json` | Where supported (`list`, `read`, `validate`, `graph`): emit machine-readable JSON instead of rich text. |
 | `--no-llm` | Where supported (`ingest`, `chat`): run fully deterministic, no LLM involved. |
 | `--install-completion` | Install shell completion for the current shell. |
@@ -184,7 +184,7 @@ title: First Bundle
 description: Draft concept extracted without LLM; needs review
 resource: big.md
 generated:
-  by: okfsmith/0.2.0
+  by: okfsmith/0.3.0
   at: '2026-09-26T12:18:20.100846+00:00'
 status: draft
 tags:
@@ -336,7 +336,7 @@ Real output (this machine: no Ollama, no `mcp`/`ocr` extras — trimmed):
 ┃ Check          ┃ Status  ┃ Detail                                            ┃
 ┡━━━━━━━━━━━━━━━━╇━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
 │ python >= 3.10 │ OK      │ 3.12.3                                            │
-│ okfsmith       │ OK      │ 0.2.0                                             │
+│ okfsmith       │ OK      │ 0.3.0                                             │
 │ extra: mcp     │ MISSING │ Install the 'mcp' extra: pip install              │
 │                │         │ 'okfsmith[mcp]' ...                               │
 │ extra: ocr     │ MISSING │ Install the 'ocr' extra: pip install              │
@@ -384,7 +384,7 @@ Real startup banner (ASCII logo first, then the version line):
 █   █ ███   ████   ███  █ █ █   █     █   █████
 █   █ █  █  █         █ █   █   █     █   █   █
  ███  █   █ █     ████  █   █ █████   █   █   █
-okfsmith chat v0.2.0
+okfsmith chat v0.3.0
 Bundle: kb (18 concepts) · extractive mode
 Extractive mode — no LLM reachable. Answers are keyword-matched excerpts. Start
 Ollama, set OKFSMITH_API_KEY + OKFSMITH_PROVIDER, or pass --provider, for

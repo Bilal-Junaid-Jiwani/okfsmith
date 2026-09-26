@@ -4,9 +4,9 @@ eyebrow: Troubleshooting
 description: Release history for okfsmith — what changed in each version, what's coming next, and upgrade notes. Follows Keep a Changelog and Semantic Versioning.
 ---
 
-## Unreleased {#unreleased}
+## [0.3.0] — 2026-09-26 {#v0-3-0}
 
-### Added {#unreleased-added}
+### Added {#v030-added}
 
 - **Interactive chat REPL** (`okfsmith chat`) — ask questions over your
   bundle in natural language, Claude-Code style: citations, slash
@@ -18,8 +18,16 @@ description: Release history for okfsmith — what changed in each version, what
   (`ollama`, `lmstudio`, `openai`, `groq`, `mistral`, `deepseek`,
   `openrouter`, `together`, `fireworks`, `deepinfra`, `anyscale`,
   `perplexity`, `xai`, `gemini`, `agentrouter`), plus `--api-base` /
-  `OKFSMITH_API_BASE` for any other OpenAI-compatible endpoint. See
+  `OKFSMITH_API_BASE` for any other OpenAI-compatible endpoint. Keys are
+  never displayed, logged, or saved to disk. See
   [Providers & API keys](providers.html).
+- **Chat startup UI** — Qwen/Claude/Antigravity-style makeover: gradient
+  ASCII `OKFSMITH` banner, bundle-aware `kb ›` prompt, and `✦` answer
+  markers. Piped and `NO_COLOR` output stays plain.
+- **This documentation website** — the Claude-Code-style docs you are
+  reading, now live at
+  [bilal-junaid-jiwani.github.io/okfsmith](https://bilal-junaid-jiwani.github.io/okfsmith/)
+  via GitHub Pages.
 
 ## [0.2.0] — 2026-09-26 {#v0-2-0}
 

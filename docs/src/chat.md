@@ -29,7 +29,7 @@ okfsmith chat ./kb --no-llm
 █   █ ███   ████   ███  █ █ █   █     █   █████
 █   █ █  █  █         █ █   █   █     █   █   █
  ███  █   █ █     ████  █   █ █████   █   █   █
-okfsmith chat v0.2.0
+okfsmith chat v0.3.0
 Bundle: kb (18 concepts) · extractive mode
 Extractive mode — no LLM reachable. Answers are keyword-matched excerpts. Start
 Ollama, set OKFSMITH_API_KEY + OKFSMITH_PROVIDER, or pass --provider, for
@@ -46,7 +46,7 @@ kb ›
 What you're looking at:
 
 - **ASCII logo** — the block-letter "OKF" banner prints first.
-- **Version line** — `okfsmith chat v0.2.0`, your installed version.
+- **Version line** — `okfsmith chat v0.3.0`, your installed version.
 - **Bundle info line** — `Bundle: kb (18 concepts) · extractive mode`: bundle name, concept count, and which answer mode is active.
 - **Mode explainer** — in extractive mode you get two lines telling you exactly how to upgrade to generative answers (start Ollama, set `OKFSMITH_API_KEY` + `OKFSMITH_PROVIDER`, or pass `--provider`).
 - **Three tips** — what to do next.
