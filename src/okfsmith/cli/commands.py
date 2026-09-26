@@ -142,6 +142,15 @@ def _cli(fn):
     return wrapper
 
 
+def _install_extra_hint(extra: str) -> str:
+    """Install guidance for an optional extra across pip / pipx / uvx."""
+    return (
+        f"Install the '{extra}' extra: pip install 'okfsmith[{extra}]' "
+        f"(pipx: pipx install 'okfsmith[{extra}]'; "
+        f"uvx: uvx --with 'okfsmith[{extra}]')."
+    )
+
+
 def _lazy_attr(module_name: str, attr: str) -> Any:
     """Import *attr* from *module_name*, failing cleanly if the slice is absent.
 
@@ -160,7 +169,7 @@ def _lazy_attr(module_name: str, attr: str) -> Any:
             raise CliError(
                 "slice-not-installed",
                 f"'{module_name}' is not available in this installation.",
-                f"Install the matching extra, e.g. pip install 'okfsmith[{_extra_for(module_name)}]'.",
+                _install_extra_hint(_extra_for(module_name)),
             ) from None
         raise
     try:
@@ -347,7 +356,7 @@ def ingest(
         ..., help="Bundle directory to ingest into (created if missing)."
     ),
     sources: list[Path] = typer.Argument(
-        ..., help="File(s) or directorie(s) to ingest."
+        ..., help="File(s) or directories to ingest."
     ),
     model: str | None = typer.Option(
         None, "--model", help="Model to use for LLM extraction."
@@ -916,7 +925,7 @@ def doctor() -> None:
             check(f"extra: {extra}", True, mod)
         except ImportError:
             rows.append((f"extra: {extra}", "MISSING",
-                         f"pip install 'okfsmith[{extra}]'"))
+                         _install_extra_hint(extra)))
 
     try:
         from okfsmith.extract import llm as _llm
