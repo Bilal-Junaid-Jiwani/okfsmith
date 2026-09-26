@@ -14,12 +14,16 @@ Routing by file type:
 Graceful degradation: a corrupt or unreadable file never crashes the run.
 parse_file catches parser exceptions, logs a warning, and returns an empty
 ParsedDocument with meta["error"] set so the caller can skip it.
+
+The skip notice goes through logging only (no ``warnings.warn``: the warnings
+machinery prefixes the *caller's* file:line on stderr, leaking internal
+paths and bypassing quiet output modes). Pass ``quiet=True`` to suppress the
+notice; the error is still recorded in meta["error"] either way.
 """
 
 from __future__ import annotations
 
 import logging
-import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -48,11 +52,16 @@ def _empty(reason: str, source: Path) -> ParsedDocument:
     return ParsedDocument(pages=[], meta={"source": str(source), "error": reason})
 
 
-def parse_file(path: str | Path) -> ParsedDocument:
+def parse_file(path: str | Path, *, quiet: bool = False) -> ParsedDocument:
     """Parse *path* into a ParsedDocument. Never raises on corrupt input.
 
     Returns an empty ParsedDocument with meta["error"] set when the file
     cannot be parsed, so callers can warn-and-skip instead of crashing.
+
+    The skip notice is emitted via ``log.warning`` (not ``warnings.warn``:
+    the warnings machinery renders the caller's file:line onto stderr,
+    leaking internal paths and ignoring quiet output modes). Pass
+    ``quiet=True`` to suppress the notice; meta["error"] is still set.
     """
     from . import notion, office, pdf, text  # local imports: keep import cost lazy
 
@@ -70,9 +79,11 @@ def parse_file(path: str | Path) -> ParsedDocument:
             return notion.parse_notion_zip_as_document(p)
         return office.parse_office(p)
     except Exception as exc:  # graceful degradation: warn + skip, never crash
-        msg = f"skipping {p.name}: could not parse ({type(exc).__name__}: {exc})"
-        log.warning(msg)
-        warnings.warn(msg, RuntimeWarning, stacklevel=2)
+        if not quiet:
+            # Logging only: the message carries just the file name, so no
+            # internal repo paths can leak onto stderr (cf. M27).
+            log.warning("skipping %s: could not parse (%s: %s)",
+                        p.name, type(exc).__name__, exc)
         return _empty(f"{type(exc).__name__}: {exc}", p)
 
 
