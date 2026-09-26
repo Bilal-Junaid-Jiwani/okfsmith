@@ -73,22 +73,36 @@ class ValidationReport:
         }
 
 
-def check(bundle_path: str | Path) -> ValidationReport:
+def check(
+    bundle_path: str | Path | None = None, *, bundle: Bundle | None = None
+) -> ValidationReport:
     """Validate the OKF bundle at *bundle_path* and return a :class:`ValidationReport`.
 
     Findings are deterministic: rule-code order, then bundle-relative file
     path, then position within the file.
 
+    When a pre-loaded *bundle* is given, its root is validated directly and
+    the bundle is not loaded again — callers that already hold a
+    :class:`~okfsmith.core.bundle.Bundle` (e.g. the CLI) avoid parsing every
+    file's frontmatter a second time. The report is identical to
+    ``check(bundle.root)`` because the checks still read from disk. When both
+    are given, *bundle* wins.
+
     Raises:
-        ValueError: if *bundle_path* exists and is not a directory.
+        ValueError: if neither *bundle_path* nor *bundle* is given, or if the
+            path exists and is not a directory.
     """
     from okfsmith.validate import rules as _rules
 
-    root = Path(bundle_path)
+    if bundle is not None:
+        root = bundle.root
+    elif bundle_path is not None:
+        root = Path(bundle_path)
+    else:
+        raise ValueError("check() requires a bundle_path or a pre-loaded bundle")
     if root.exists() and not root.is_dir():
-        raise ValueError(f"bundle_path must be a directory, got: {bundle_path}")
-    bundle = Bundle.load(root)
-    errors, warnings = _rules.run_checks(bundle.root)
+        raise ValueError(f"bundle_path must be a directory, got: {root}")
+    errors, warnings = _rules.run_checks(root)
     return ValidationReport(errors=errors, warnings=warnings)
 
 
