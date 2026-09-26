@@ -647,3 +647,19 @@ Post-build integration and QA pass, all verified in headless Firefox:
   `docs/build.py` (13 pages, 233 internal links resolve, JS syntax OK).
 - Pushed via Git Data API: remote master `f9f3a8a1`, tree byte-identical to
   local `2a9c2ea`. GitHub Pages rebuilt (`built`) from the new commit.
+
+## 2026-09-26 — Brand: new anvil logo (user-requested)
+
+- User asked for a nice logo ("koi achha sa logoo bana kr dal dooo").
+- Designed 3 concepts (side-profile anvil / app-icon / hexagon badge),
+  previewed at 28/64/160px on dark + light; side-profile anvil won —
+  clearest at every size on both backgrounds.
+- New mark: geometric side-profile blacksmith anvil (tapered horn left,
+  flat face right, waist, flared foot) + 4-point forge spark, terracotta
+  #D97757 on transparent, square 64x64 viewBox. Replaces the old wide
+  224x44 lockup that was being squeezed into the 28x28 header img slot
+  (it rendered as a clipped sliver).
+- Installed in `docs/assets/img/logo.svg`, `docs/assets/img/favicon.svg`,
+  and centered 96px in README.md. Header screenshot-verified at 1440px.
+- Pushed via Git Data API (remote master `b65e98ec`, tree byte-identical);
+  GitHub Pages rebuilt from the new commit.
