@@ -606,3 +606,25 @@ Post-build integration and QA pass, all verified in headless Firefox:
 - Remaining user step: GitHub → repo Settings → Pages → "Deploy from a
   branch" → `master` + `/docs` → Save. Public URL once enabled:
   `https://bilal-junaid-jiwani.github.io/okfsmith/docs/`
+
+## 2026-09-26 — v0.3.0 released to PyPI (user-authorized)
+
+- User said "iss ko PyPi pr update kr dooo" — explicit authorization to publish.
+- Bump 0.2.0 -> 0.3.0 (`pyproject.toml`, `src/okfsmith/__init__.py`); CHANGELOG
+  `[Unreleased]` -> `[0.3.0] — 2026-09-26`. Fixed hardcoded version assert in
+  `tests/test_core_smoke.py::test_version`.
+- Verification: 277 passed, 20 skipped; ruff clean; twine check PASSED on both
+  artifacts; fresh-venv smoke test (init/ingest/chat --no-llm/validate/doctor)
+  PASSED from the built wheel.
+- PyPI upload via pypi skill: wheel + sdist HTTP 200; JSON API confirms
+  `0.3.0` with both files; `pip install okfsmith==0.3.0` in a clean venv works
+  (`okfsmith 0.3.0`, ingest/chat/validate all pass from the PyPI install).
+- GitHub: local commit `33f3dc2` replicated via Git Data API (4 blobs verified
+  against local SHAs; remote tree byte-identical to local
+  `c0e12584b35f5ad96ce0cc4a7473f1d72f9ff1b4`). Remote master:
+  `987cae44b28cb4f576e28079a4d91a060373ce1e`. Annotated tag `v0.3.0`
+  (`c50d9d47835fded038b207d21695cb5342aadd0f`) + public release created:
+  https://github.com/Bilal-Junaid-Jiwani/okfsmith/releases/tag/v0.3.0
+- v0.3.0 contents: interactive `okfsmith chat` REPL, 15 any-model provider
+  presets + `--api-base`, Qwen/Claude/Antigravity-style chat startup UI,
+  full docs website (`docs/`, live on GitHub Pages).
