@@ -7,6 +7,7 @@
 [![PyPI](https://img.shields.io/pypi/v/okfsmith.svg)](https://pypi.org/project/okfsmith/)
 [![Python](https://img.shields.io/pypi/pyversions/okfsmith.svg)](https://pypi.org/project/okfsmith/)
 [![License](https://img.shields.io/github/license/Bilal-Junaid-Jiwani/okfsmith.svg)](https://github.com/Bilal-Junaid-Jiwani/okfsmith/blob/master/LICENSE)
+[![Docs](https://img.shields.io/badge/docs-website-D97757)](https://bilal-junaid-jiwani.github.io/okfsmith/)
 
 **Forge messy documents into [OKF v0.2](https://github.com/GoogleCloudPlatform/open-knowledge-format) knowledge bundles.**
 
@@ -198,6 +199,8 @@ pipx install "okfsmith[office,mcp]"
 `okfsmith doctor` verifies your setup.
 
 ## Docs
+
+📚 **Live documentation website:** <https://bilal-junaid-jiwani.github.io/okfsmith/>
 
 [Documentation index](docs/index.md) · [Quickstart](docs/quickstart.md) ·
 [Pipeline](docs/pipeline.md) · [Validation](docs/validation.md) ·
