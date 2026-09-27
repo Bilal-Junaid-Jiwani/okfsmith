@@ -44,7 +44,7 @@ reading UI. The intended flow is progressive disclosure: `index` → `search` �
 |---|---|
 | `index` | Return the bundle's root `index.md` — the map of the whole knowledge base. Read this first to orient. |
 | `list` | List every concept: id, type, trust tier, title. Optional `filter_type` narrows by concept type; `limit` caps rows. |
-| `search` | Keyword-search concepts by id, title, description, tags, and body. Case-insensitive; title matches rank highest, body lowest. |
+| `search` | BM25-ranked keyword search over concept id, title, description, tags, and body. Title matches rank highest, body lowest; results carry excerpts. |
 | `get` | Read one concept in full: YAML frontmatter followed by its markdown body. Unknown ids produce an error — never fabricated content. |
 | `neighbors` | Show a concept's link graph neighborhood: outgoing links and incoming backlinks, so agents can walk the knowledge graph. |
 | `traverse` | Breadth-first neighborhood expansion over markdown links (depth ≤ 3, cycle-safe), with an optional `relation_filter` and currency-aware ordering — superseded concepts hidden by default. |
@@ -67,9 +67,18 @@ evidence instead of unbounded context:
 
 | Parameter | Meaning |
 |---|---|
-| `max_chunks` | Max items (or 50-line text chunks) per response — default 10 for `search`/`traverse`, 50 elsewhere; hard cap 50. |
-| `max_tokens` | Approximate output budget (chars ÷ 4). `None` (default) = unbounded. Truncation cuts at whole-item boundaries, never mid-item, and is marked `…[truncated, N more]`. |
-| `continuation_token` | Opaque paging token from a truncated response — pass it back for the next page. An invalid token returns a clean error, never a traceback. |
+| `max_chunks` | Max **items** (or 50-line text chunks) per response — default 10 for `search`/`traverse`, 50 elsewhere; hard cap 50. Notes (e.g. hidden-superseded counts) and `##` section headers sit outside the budget; `…[truncated, N more]` counts remaining *items* only. |
+| `max_tokens` | Approximate output budget (chars ÷ 4). `None` (default) = unbounded; `0` = no item content; negative or unparseable values are treated as unbounded. Truncation cuts at whole-item boundaries, never mid-item, and is marked `…[truncated, N more]`. |
+| `continuation_token` | Opaque paging cursor from a truncated response — pass it back for the next page. Tokens are result-offset cursors, not tied to a query. An invalid or out-of-range token returns a clean error, never a traceback. |
+
+> [!NOTE]
+> `provenance` and `diff` treat `sync-state.json` source paths as
+> **untrusted manifest entries**: only paths inside the bundle root are
+> hashed and displayed (bundle-relative, never absolute). Paths outside the
+> root, `..` escapes, and symlinks are skipped with an
+> `untrusted manifest` marker. `diff(against=…)` likewise guards its input —
+> it rejects non-bundle directories and over-large directory trees before
+> loading anything.
 
 `search` and `traverse` are currency-aware: superseded concepts are hidden
 by default (reported as a count); pass `include_superseded=True` to reveal

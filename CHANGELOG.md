@@ -93,6 +93,33 @@ follow SemVer.
   `okfsmith chat v0.3.0` banner.
 
 ### Fixed
+- **MCP expansion (reviewer-1, 10 findings on the P6 MCP expansion):**
+  continuation-token paging is now computed over result *items* only —
+  notes and `##` section headers no longer consume the `max_chunks`
+  budget, "N more" counts remaining items, and follow-on pages rebuild
+  page 1 with the same unit-only budget, so paged output round-trips to
+  exactly the unpaged item output (previously page 1 was built over
+  notes+items while later pages used items only, silently dropping hits
+  whenever notes were present); out-of-range tokens return a clean
+  `Error: … out of range` instead of a bare "(continued)" header; the
+  invalid-token error no longer claims a token could be "from another
+  query" — tokens are opaque result-offset cursors; `max_tokens=0` now
+  emits no item content (with the truncation marker and no
+  un-progressable token) while negative/unparseable values are
+  documented and treated as unbounded; `sync-state.json` source paths are
+  treated as untrusted manifest entries in `diff` and `provenance` —
+  only bundle-contained, non-symlink paths are hashed and displayed
+  (bundle-relative, never absolute), outside paths, `..` escapes, and
+  symlinks are skipped with an `untrusted manifest` marker instead of
+  leaking host file digests/paths; `provenance` ingested records moved
+  to their own section, appear exactly once (not under every
+  `sources[]` entry), and are visible even when `sources[]` is absent;
+  sync-state diff removed-entries render id plus an honest
+  title/sha-unavailable detail instead of a bare id; `diff(against=…)`
+  pre-scans with a 5000-file cap and rejects non-bundle directories
+  before loading, so it can no longer walk `/` for seconds before
+  failing; the `search` docs row now describes BM25 ranking (title
+  highest, body lowest).
 Fixed in this cycle from the pre-release QA audit (full details in the
 QA bug report); criticals and highs listed, mediums/lows summarized.
 - **Sync hardening (reviewer-1, 10 findings on `okfsmith sync`):**

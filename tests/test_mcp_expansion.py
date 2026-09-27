@@ -201,10 +201,12 @@ def _prov_bundle(tmp_path: Path) -> Bundle:
 
 def test_provenance_chain(tmp_path: Path) -> None:
     bundle = _prov_bundle(tmp_path)
-    # write a sync-state manifest linking concept "a" to an ingested source
+    # write a sync-state manifest linking concept "a" to an ingested source;
+    # the source lives inside the bundle root (manifest paths outside the
+    # root are untrusted and never echoed — see the containment tests).
     state_dir = tmp_path / "kb" / ".okfsmith"
     state_dir.mkdir(parents=True, exist_ok=True)
-    src = tmp_path / "src1.md"
+    src = tmp_path / "kb" / "src1.md"
     src.write_text("source content", encoding="utf-8")
     digest = hashlib.sha256(b"source content").hexdigest()
     (state_dir / "sync-state.json").write_text(
@@ -212,7 +214,7 @@ def test_provenance_chain(tmp_path: Path) -> None:
             {
                 "version": 1,
                 "sources": {
-                    str(src): {"sha256": digest, "concepts": ["a"], "size": 14}
+                    "src1.md": {"sha256": digest, "concepts": ["a"], "size": 14}
                 },
             }
         ),
@@ -221,11 +223,15 @@ def test_provenance_chain(tmp_path: Path) -> None:
     bundle = Bundle.load(tmp_path / "kb")  # reload so state is visible
     out = BundleTools(bundle).provenance("a")
     assert "# Provenance for a" in out
-    # concept → sources[] entry → source file/digest
+    # concept → sources[] entries
     assert "id: s1" in out and "Example Doc" in out
     assert "just-a-string-source" in out
-    assert str(src) in out
+    # ingested records: own section, shown once (not under every entry),
+    # bundle-relative path only
+    assert "## Ingested source records (1)" in out
+    assert out.count("`src1.md`") == 1
     assert digest[:16] in out
+    assert str(src) not in out  # absolute path never echoed verbatim
     # footnote refs → definitions
     assert "[^x]: The x definition" in out
     assert "[^missing]" in out and "definition not found" in out
@@ -233,7 +239,7 @@ def test_provenance_chain(tmp_path: Path) -> None:
 
 def test_provenance_no_sync_state_no_crash(tmp_path: Path) -> None:
     out = BundleTools(_prov_bundle(tmp_path)).provenance("a")
-    assert "no sync-state record" in out
+    assert "No sync-state record links this concept" in out
     assert "[^x]: The x definition" in out
 
 
@@ -266,7 +272,7 @@ def test_provenance_missing_concept(tmp_path: Path) -> None:
 
 
 def _diff_bundles(tmp_path: Path) -> tuple[Path, Path]:
-    old = _write_bundle(
+    _write_bundle(
         tmp_path / "old",
         {
             "keep.md": _concept_doc("Keep", "same body\n"),
@@ -274,7 +280,7 @@ def _diff_bundles(tmp_path: Path) -> tuple[Path, Path]:
             "edit.md": _concept_doc("Edit", "original body\n"),
         },
     )
-    new = _write_bundle(
+    _write_bundle(
         tmp_path / "new",
         {
             "keep.md": _concept_doc("Keep", "same body\n"),
@@ -329,14 +335,17 @@ def test_diff_no_against_no_state_clean_error(tmp_path: Path) -> None:
 
 def test_diff_against_sync_state(tmp_path: Path) -> None:
     kb = tmp_path / "kb"
-    bundle = _write_bundle(
+    _write_bundle(
         kb,
         {
             "a.md": _concept_doc("Aye", "body a\n"),
             "b.md": _concept_doc("Bee", "body b\n"),
         },
     )
-    src_a = tmp_path / "src_a.md"
+    # The recorded source lives inside the bundle root: manifest paths
+    # outside the root are untrusted and never hashed (see the containment
+    # tests), so the "changed" detection needs an in-bundle source.
+    src_a = kb / "src_a.md"
     src_a.write_text("v1 content", encoding="utf-8")
     digest_v1 = hashlib.sha256(b"v1 content").hexdigest()
     state_dir = kb / ".okfsmith"
@@ -346,7 +355,7 @@ def test_diff_against_sync_state(tmp_path: Path) -> None:
             {
                 "version": 1,
                 "sources": {
-                    str(src_a): {
+                    "src_a.md": {
                         "sha256": digest_v1,
                         "concepts": ["a", "vanished"],
                         "size": 10,
@@ -364,8 +373,14 @@ def test_diff_against_sync_state(tmp_path: Path) -> None:
     assert "sync-state.json" in out
     assert "**b**" in out  # added: in bundle, not in snapshot
     assert "**vanished**" in out  # removed: in snapshot, not in bundle
+    # removed entries render id + an honest unavailable marker, not a bare id
+    assert "- **vanished**\n" not in out
+    assert "title/sha unavailable" in out
     assert "**a**" in out  # changed: source sha differs
     assert digest_v1[:12] in out and digest_v2[:12] in out
+    # the in-bundle source path is echoed bundle-relative, never absolute
+    assert "`src_a.md`" in out
+    assert str(src_a) not in out
 
 
 def test_diff_corrupt_sync_state_clean_error(tmp_path: Path) -> None:
@@ -574,3 +589,289 @@ def test_malformed_bundle_all_tools_no_crash(tmp_path: Path) -> None:
     assert isinstance(tools.get("a"), str)
     assert "Outgoing" in tools.neighbors("a")
     assert isinstance(tools.index(), str)
+
+
+# ---------------------------------------------------------------------------
+# reviewer-1 findings on the P6 expansion (10): regression tests
+# ---------------------------------------------------------------------------
+#
+# The continuation-token paging used to build page 1 over
+# ``notes + units`` but later pages over ``units`` only, so offsets
+# overshot and items silently vanished whenever notes were present; notes
+# and ``##`` section headers also consumed the ``max_chunks`` item budget
+# and inflated the "N more" count.
+
+
+def _page_item_ids(tools: BundleTools, method: str, *args, **kwargs) -> list[str]:
+    """Concept ids (``- **id**`` rows) across every page with max_chunks=1."""
+    ids: list[str] = []
+    token: str | None = None
+    for _ in range(50):
+        out = getattr(tools, method)(
+            *args, max_chunks=1, continuation_token=token, **kwargs
+        )
+        ids.extend(re.findall(r"^- \*\*([^*]+)\*\*", out, re.M))
+        token = _continuation_token(out)
+        if token is None:
+            break
+    else:
+        pytest.fail("paging did not terminate")
+    return ids
+
+
+def _noted_bundle(tmp_path: Path) -> Bundle:
+    """Bundle whose search/traverse results carry notes (hidden superseded)."""
+    return _write_bundle(
+        tmp_path / "kb",
+        {
+            "a.md": _concept_doc("Alpha", "the old alpha notes\n"),
+            "b.md": _concept_doc("Beta", "more old beta notes\n"),
+            "old.md": _concept_doc("Old", "old stuff here\n"),
+            "new.md": _concept_doc(
+                "New", "replacement\n", extra_fm="supersedes:\n  - old\n"
+            ),
+        },
+    )
+
+
+def test_paging_round_trip_with_notes_search(tmp_path: Path) -> None:
+    """Reviewer gap 1: paged union == unpaged output when notes present."""
+    tools = BundleTools(_noted_bundle(tmp_path))
+    unpaged = tools.search("old")
+    assert "superseded concept(s) hidden" in unpaged  # the note is present
+    assert _page_item_ids(tools, "search", "old") == re.findall(
+        r"^- \*\*([^*]+)\*\*", unpaged, re.M
+    ) == ["a", "b"]
+
+
+def test_paging_round_trip_with_notes_traverse(tmp_path: Path) -> None:
+    """Reviewer gap 2: traverse paging with depth-cap + hidden notes."""
+    bundle = _write_bundle(
+        tmp_path / "kb",
+        {
+            "a.md": _concept_doc("A", "see [b](b), [c](c), [old](old)\n"),
+            "b.md": _concept_doc("B", "x\n"),
+            "c.md": _concept_doc("C", "y\n"),
+            "old.md": _concept_doc("Old", "z\n"),
+            "new.md": _concept_doc(
+                "New", "w\n", extra_fm="supersedes:\n  - old\n"
+            ),
+        },
+    )
+    tools = BundleTools(bundle)
+    unpaged = tools.traverse("a", depth=99)  # depth-cap note + hidden note
+    assert "Depth capped at 3" in unpaged
+    assert "superseded concept(s) hidden" in unpaged
+    assert _page_item_ids(tools, "traverse", "a", depth=99) == re.findall(
+        r"^- \*\*([^*]+)\*\*", unpaged, re.M
+    ) == ["b", "c"]
+
+
+def test_paging_round_trip_with_notes_diff(tmp_path: Path) -> None:
+    """Reviewer gap 3: diff paging with the comparison note."""
+    old_root, new_root = _diff_bundles(tmp_path)
+    tools = BundleTools(Bundle.load(new_root))
+    unpaged = tools.diff(against=str(old_root))
+    assert "Comparing the current bundle against" in unpaged  # the note
+    assert _page_item_ids(tools, "diff", against=str(old_root)) == re.findall(
+        r"^- \*\*([^*]+)\*\*", unpaged, re.M
+    )
+
+
+def test_notes_do_not_consume_chunk_budget(tmp_path: Path) -> None:
+    tools = BundleTools(_noted_bundle(tmp_path))
+    out = tools.search("old", max_chunks=1)
+    # the hit is on page 1 *with* the note — the note is outside the budget
+    assert "- **a**" in out
+    assert "superseded concept(s) hidden" in out
+    # "N more" counts remaining *units*, not note lines
+    assert "…[truncated, 1 more]" in out
+
+
+def test_section_headers_do_not_consume_chunk_budget(tmp_path: Path) -> None:
+    bundle = _write_bundle(
+        tmp_path / "kb",
+        {
+            "a.md": _concept_doc("A", "see [b](b) and [c](c)\n"),
+            "b.md": _concept_doc("B", "x\n"),
+            "c.md": _concept_doc("C", "y\n"),
+        },
+    )
+    out = BundleTools(bundle).traverse("a", max_chunks=1)
+    assert "## Depth 1 (2)" in out
+    assert "- **b**" in out  # header did not eat the single budget slot
+    assert "…[truncated, 1 more]" in out  # one unit remains, not "2 more"
+
+
+def _write_sync_state(kb: Path, sources: dict) -> None:
+    state_dir = kb / ".okfsmith"
+    state_dir.mkdir(parents=True, exist_ok=True)
+    (state_dir / "sync-state.json").write_text(
+        json.dumps({"version": 1, "sources": sources}), encoding="utf-8"
+    )
+
+
+def test_sync_state_outside_paths_never_hashed_or_echoed(tmp_path: Path) -> None:
+    kb = tmp_path / "kb"
+    _write_bundle(kb, {"a.md": _concept_doc("Aye", "body a\n")})
+    # an "outside" host file the crafted bundle wants hashed
+    secret = tmp_path / "secret.md"
+    secret.write_text("host secret", encoding="utf-8")
+    real_digest = hashlib.sha256(b"host secret").hexdigest()
+    _write_sync_state(
+        kb, {str(secret): {"sha256": "0" * 64, "concepts": ["a"]}}
+    )
+    out = BundleTools(Bundle.load(kb)).diff()
+    assert real_digest[:12] not in out  # no fresh host digest leaked
+    assert str(secret) not in out  # absolute path never echoed verbatim
+    assert "untrusted manifest" in out  # clean marker instead
+    assert "## Changed (0)" in out
+
+
+def test_sync_state_dotdot_escape_rejected(tmp_path: Path) -> None:
+    kb = tmp_path / "kb"
+    _write_bundle(kb, {"a.md": _concept_doc("Aye", "body a\n")})
+    escape = tmp_path / "escape.md"
+    escape.write_text("escape", encoding="utf-8")
+    _write_sync_state(
+        kb, {"../escape.md": {"sha256": "0" * 64, "concepts": ["a"]}}
+    )
+    out = BundleTools(Bundle.load(kb)).diff()
+    assert str(escape) not in out
+    assert "untrusted manifest" in out
+    assert "## Changed (0)" in out
+
+
+def test_sync_state_symlink_entry_rejected(tmp_path: Path) -> None:
+    kb = tmp_path / "kb"
+    _write_bundle(kb, {"a.md": _concept_doc("Aye", "body a\n")})
+    target = tmp_path / "target.md"
+    target.write_text("target", encoding="utf-8")
+    (kb / "link.md").symlink_to(target)
+    _write_sync_state(
+        kb, {"link.md": {"sha256": "0" * 64, "concepts": ["a"]}}
+    )
+    out = BundleTools(Bundle.load(kb)).diff()
+    assert "untrusted manifest" in out  # symlinked entries are never followed
+    assert "## Changed (0)" in out
+
+
+def test_provenance_outside_manifest_path_not_echoed(tmp_path: Path) -> None:
+    kb = tmp_path / "kb"
+    _write_bundle(
+        kb, {"a.md": "---\ntitle: A\nsources:\n  - id: s1\n---\n\nbody\n"}
+    )
+    secret = tmp_path / "secret.md"
+    secret.write_text("host secret", encoding="utf-8")
+    _write_sync_state(
+        kb, {str(secret): {"sha256": "f" * 64, "concepts": ["a"]}}
+    )
+    out = BundleTools(Bundle.load(kb)).provenance("a")
+    assert str(secret) not in out
+    assert "untrusted manifest" in out
+    assert "## Ingested source records (0)" in out
+
+
+def test_provenance_ingested_records_shown_once(tmp_path: Path) -> None:
+    kb = tmp_path / "kb"
+    _write_bundle(
+        kb,
+        {
+            "a.md": (
+                "---\ntitle: Alpha\nsources:\n  - id: s1\n  - id: s2\n---\n\nbody\n"
+            ),
+        },
+    )
+    (kb / "rec.md").write_text("x", encoding="utf-8")
+    digest = hashlib.sha256(b"x").hexdigest()
+    _write_sync_state(
+        kb, {"rec.md": {"sha256": digest, "concepts": ["a"]}}
+    )
+    out = BundleTools(Bundle.load(kb)).provenance("a")
+    assert "## Ingested source records (1)" in out
+    assert out.count("`rec.md`") == 1  # once, not under every sources[] entry
+    assert digest[:16] in out
+
+
+def test_provenance_ingested_records_without_sources(tmp_path: Path) -> None:
+    kb = tmp_path / "kb"
+    _write_bundle(kb, {"b.md": "---\ntitle: Bee\n---\n\nbody b\n"})
+    (kb / "rec.md").write_text("x", encoding="utf-8")
+    _write_sync_state(
+        kb, {"rec.md": {"sha256": hashlib.sha256(b"x").hexdigest(), "concepts": ["b"]}}
+    )
+    out = BundleTools(Bundle.load(kb)).provenance("b")
+    # records are visible even though `sources[]` is absent
+    assert "## Ingested source records (1)" in out
+    assert "`rec.md`" in out
+
+
+def test_diff_sync_state_removed_not_bare_id(tmp_path: Path) -> None:
+    kb = tmp_path / "kb"
+    _write_bundle(kb, {"a.md": _concept_doc("Aye", "body\n")})
+    _write_sync_state(kb, {"s": {"sha256": "0" * 64, "concepts": ["gone"]}})
+    out = BundleTools(Bundle.load(kb)).diff()
+    assert "- **gone**\n" not in out
+    assert "- **gone** — " in out  # consistent id + detail shape
+
+
+def test_out_of_range_continuation_token_clean_error(tmp_path: Path) -> None:
+    tools = BundleTools(_link_bundle(tmp_path))
+    out = tools.list(continuation_token=_encode_continuation(999))
+    assert out.startswith("Error:")
+    assert "out of range" in out
+    # offset == total is also past the end (tokens always point at an item)
+    out2 = tools.list(continuation_token=_encode_continuation(3))
+    assert out2.startswith("Error:")
+    assert "out of range" in out2
+
+
+def test_invalid_token_error_not_query_bound(tmp_path: Path) -> None:
+    out = BundleTools(_link_bundle(tmp_path)).list(
+        continuation_token="!!!not-base64!!!"
+    )
+    assert out.startswith("Error: invalid `continuation_token`")
+    assert "from another query" not in out  # tokens are not query-bound
+    assert "opaque paging cursor" in out
+
+
+def test_max_tokens_zero_empty_with_marker(tmp_path: Path) -> None:
+    bundle = _write_bundle(
+        tmp_path / "kb",
+        {f"c{i}.md": _concept_doc(f"C{i}", "body\n") for i in range(3)},
+    )
+    out = BundleTools(bundle).list(max_tokens=0)
+    assert out.startswith("# Concepts (3)")
+    assert "- **c0**" not in out  # no content output
+    assert "…[truncated, 3 more]" in out  # ...with the marker
+    assert "continuation_token" not in out  # no token that could not progress
+
+
+def test_max_tokens_negative_is_unbounded(tmp_path: Path) -> None:
+    tools = BundleTools(_link_bundle(tmp_path))
+    assert tools.list(max_tokens=-5) == tools.list()
+    assert tools.list(max_tokens="bogus") == tools.list()
+
+
+def test_diff_against_too_many_files_clean_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from okfsmith.mcp_server import server as _server
+
+    monkeypatch.setattr(_server, "_DIFF_AGAINST_MAX_FILES", 2)
+    big = tmp_path / "big"
+    for i in range(3):
+        (big / f"c{i}.md").parent.mkdir(parents=True, exist_ok=True)
+        (big / f"c{i}.md").write_text("x\n", encoding="utf-8")
+    tools = BundleTools(_link_bundle(tmp_path))
+    out = tools.diff(against=str(big))
+    assert out.startswith("Error:")
+    assert "too many" in out
+
+
+def test_diff_against_empty_dir_clean_error(tmp_path: Path) -> None:
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    out = BundleTools(_link_bundle(tmp_path)).diff(against=str(empty))
+    assert out.startswith("Error:")
+    assert "bundle directory" in out
