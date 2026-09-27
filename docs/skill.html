@@ -87,6 +87,7 @@
 <li><a class="nav-item" href="validation.html">Validation &amp; error codes</a></li>
 <li><a class="nav-item" href="temporality.html">Temporal model</a></li>
 <li><a class="nav-item" href="syncing.html">Syncing sources</a></li>
+<li><a class="nav-item" href="eval.html">Evaluating bundles</a></li>
 <li><a class="nav-item" href="graph.html">Visualizing the knowledge graph</a></li>
 </ul></div>
 <div class="nav-group">
@@ -169,7 +170,7 @@ python3 scripts/validate.py ./kb
 
 # 4. mcp — serve the bundle to other agents over stdio
 okfsmith mcp ./kb
-# tools exposed: search, get, list, neighbors, index
+# tools exposed: search, get, list, neighbors, index, traverse, provenance, diff
 </code></pre>
 <p>Zip archives and Notion exports ingest the same way — e.g. <code>okfsmith ingest ./kb ./exports/notion-export.zip --no-llm</code>. Add <code>--recursive</code> when a source is a directory with subdirectories.</p>
 <p>Newly ingested concepts land as <code>unverified</code>; extraction Pass 2 promotes them to <code>machine-confirmed</code>; a human stamping <code>verified:</code> promotes them to <code>human-reviewed</code>.</p>

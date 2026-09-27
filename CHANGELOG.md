@@ -6,6 +6,40 @@ follow SemVer.
 ## [Unreleased]
 
 ### Added
+- **`okfsmith eval` (P4):** golden-set evaluation harness — the RAG Triad
+  (context relevancy, faithfulness, answer relevancy) per question, not just
+  averages. Golden Q&A sets live at `<bundle>/eval/golden.json`
+  (`{id, question, expected_answer, must_cite, tags}`; `okfsmith eval BUNDLE
+  --init-sample` writes a starter set from the bundle's own concepts;
+  malformed files fail as `error [golden-invalid]` / `error [golden-schema]`,
+  never a traceback). Retrieval reuses the shared BM25 engine (same ranking
+  as `search`/chat/MCP, including temporal supersession hiding with
+  `--as-of` and `--include-superseded`). Keyless `--no-llm` heuristic scoring
+  works end-to-end; with an LLM backend configured, the judge generates
+  answers and scores metrics as `llm-judge`, degrading per-metric to
+  heuristics on failure — every score is method-labeled, never presented as
+  LLM-judged when it isn't. Per-question table with pass/fail vs thresholds
+  (defaults 0.6 / 0.6 / 0.4, `--metric-threshold` overrides all) plus the
+  actionable retrieval-vs-generation diagnosis for every failure (a golden
+  `must_cite` concept not retrieved → retrieval; retrieved but answer wrong
+  → generation). `--fail-under <0-100>` gates CI (exit 0 pass, exit 1 below);
+  `--format json` emits the full machine-readable report. Sample golden set
+  shipped at `examples/bundles/okf-primer/eval/golden.json`; new docs page
+  `docs/eval.html`; CLI reference, README, SITEMAP, and man page updated.
+- **MCP governed write-back:** four new tools on the MCP server —
+  `preview_write_concept` (side-effect-free dry run showing the exact id,
+  file path, frontmatter with provenance block, and serialized content),
+  `write_concept` (create), `update_concept` (patch title/body/sources/links,
+  with `dry_run` diff previews), and `audit_log` (reads the append-only
+  `<bundle>/.okfsmith/audit.jsonl`). Writes are atomic (temp file + rename),
+  always land at the `unverified` trust tier (any `verified` markers in
+  input are stripped), stamp a `provenance` history entry in frontmatter
+  (actor `mcp:<tool>`, UTC timestamp, input sources), are gated on the
+  bundle validator (new errors ⇒ refused and rolled back; validator failure
+  fails closed), never overwrite an existing concept (collisions return a
+  structured error suggesting `update_concept`), and refuse to alter
+  human-reviewed concepts without explicit `downgrade_trust=true` (the
+  downgrade removes the `verified` marker and is recorded in provenance).
 - **Temporal model (P2):** time-aware retrieval over `valid_from` /
   `valid_until` / `supersedes` / `last_verified` frontmatter. Retrieval
   groups hits by currency — validity window, then supersession, then trust

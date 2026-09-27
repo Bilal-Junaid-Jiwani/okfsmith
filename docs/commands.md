@@ -16,6 +16,9 @@ okfsmith validate BUNDLE [--format text|json] [--strict]
 okfsmith list BUNDLE [--format text|json] [--tier TIER]
 okfsmith read BUNDLE CONCEPT_ID [--format text|json]
 okfsmith search BUNDLE QUERY [--limit N] [--format text|json] [--tier TIER] [--type TYPE] [--as-of DATE] [--include-superseded]
+okfsmith eval BUNDLE [--init-sample] [--top-k N] [--fail-under PCT] [--metric-threshold T]
+                     [--as-of DATE] [--include-superseded] [--no-llm] [--model NAME]
+                     [--provider NAME] [--api-base URL] [--api-key KEY] [--format text|json]
 okfsmith graph BUNDLE [--format text|json|mermaid|html] [--output FILE]
 okfsmith mcp BUNDLE [--transport stdio|sse|streamable-http]
 okfsmith chat [BUNDLE] [--model NAME] [--provider NAME] [--api-base URL]
@@ -146,6 +149,26 @@ that instant. JSON rows carry `temporal_status` and `superseded_by`; the
 envelope adds `as_of` and `superseded_hidden`. See the
 [Temporal model](https://bilal-junaid-jiwani.github.io/okfsmith/docs/temporality.html)
 docs page.
+
+## eval — score answer quality against a golden set
+
+```bash
+okfsmith eval ./kb --init-sample      # write a starter <bundle>/eval/golden.json
+okfsmith eval ./kb                    # heuristic scoring, no LLM needed
+okfsmith eval ./kb --format json      # machine-readable full report
+okfsmith eval ./kb --fail-under 70    # CI gate: exit 1 when the score is below 70
+```
+
+Golden sets live at `<bundle>/eval/golden.json`: `{id, question,
+expected_answer, must_cite, tags}` records. Each question is answered with
+the shared BM25 engine (same ranking as `search`/chat/MCP — including
+temporal supersession hiding, `--as-of`, and `--include-superseded`) and
+scored on the RAG Triad: context relevancy, faithfulness, answer relevancy.
+Every score is labeled `heuristic` (keyless, `--no-llm`) or `llm-judge` (a
+configured provider); a failing judge degrades that metric to the
+heuristic, never the reverse. Failing questions are diagnosed as
+`retrieval` vs `generation` failures — the actionable output. See
+[Evaluating bundles](eval.md).
 
 ## graph — links between concepts
 

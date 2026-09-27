@@ -82,6 +82,7 @@ knowledge usually lives, and that's what okfsmith ingests first:
 | `okfsmith read BUNDLE ID` | print one concept |
 | `okfsmith graph BUNDLE` | links: text / json / mermaid / html |
 | `okfsmith search BUNDLE QUERY` | BM25 full-text search (flags: `--limit`/`-n`, `--format text\|json`, `--tier`, `--type`) |
+| `okfsmith eval BUNDLE` | golden-set evaluation: RAG Triad scores, retrieval-vs-generation diagnosis, `--fail-under` CI gate |
 | `okfsmith mcp BUNDLE` | serve over MCP |
 | `okfsmith chat BUNDLE` | interactive Q&A over the bundle (REPL) |
 | `okfsmith doctor` | check dependencies, extras, Ollama |

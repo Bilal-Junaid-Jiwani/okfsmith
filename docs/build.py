@@ -43,7 +43,7 @@ SEARCH_INDEX_FILE = HERE / "assets" / "js" / "search-index.json"
 
 SLUG_ORDER = [
     "install", "quickstart", "chat",
-    "ingesting", "validation", "temporality", "syncing", "graph", "skill", "faq",
+    "ingesting", "validation", "temporality", "syncing", "eval", "graph", "skill", "faq",
     "cli", "providers", "mcp", "troubleshooting", "changelog",
 ]
 
@@ -96,7 +96,7 @@ def jsonld_for_page(slug, title, description):
 
 
 def write_sitemap():
-    """sitemap.xml: all 13 content pages + index, lastmod = build date."""
+    """sitemap.xml: all 16 content pages + index, lastmod = build date."""
     today = __import__("datetime").date.today().isoformat()
     lines = [
         '<?xml version="1.0" encoding="UTF-8"?>',
@@ -151,7 +151,7 @@ def write_llms(pages):
 # (tab label, landing slug, page slugs in order)
 TABS = [
     ("Getting started", "install", ["install", "quickstart", "chat"]),
-    ("User guide", "ingesting", ["ingesting", "validation", "temporality", "syncing", "graph", "skill", "faq"]),
+    ("User guide", "ingesting", ["ingesting", "validation", "temporality", "syncing", "eval", "graph", "skill", "faq"]),
     ("CLI reference", "cli", ["cli"]),
     ("Providers", "providers", ["providers"]),
     ("MCP", "mcp", ["mcp"]),
@@ -161,7 +161,7 @@ TABS = [
 SIDEBAR_GROUPS = {
     "Getting started": [("Start here", ["install", "quickstart", "chat"])],
     "User guide": [
-        ("Building bundles", ["ingesting", "validation", "temporality", "syncing", "graph"]),
+        ("Building bundles", ["ingesting", "validation", "temporality", "syncing", "eval", "graph"]),
         ("More", ["skill", "faq"]),
     ],
     "CLI reference": [("Reference", ["cli"])],
@@ -184,7 +184,8 @@ NEXT = {
     "troubleshooting": "changelog",
     "validation": "temporality",
     "temporality": "syncing",
-    "syncing": "graph",
+    "syncing": "eval",
+    "eval": "graph",
     "graph": "skill",
     "skill": "faq",
 }

@@ -148,6 +148,8 @@
 <li><a href="#mcp-options">Common options</a></li>
 </ul>
 </li>
+<li><a href="#okfsmith-eval">okfsmith eval</a>
+</li>
 <li><a href="#exit-codes">Exit codes</a>
 </li>
 </ul>
@@ -489,7 +491,17 @@ hint: Install it with: pip install "okfsmith[mcp]" (or pipx: pipx install "okfsm
 </code></pre>
 <h3 id="mcp-options">Common options</h3>
 <div class="table-wrap"><table><thead><tr><th>Flag</th><th>What it does</th></tr></thead><tbody><tr><td>`--transport &lt;stdio\</td><td>sse\</td><td>streamable-http&gt;`</td><td>Transport (default <code>stdio</code>).</td></tr></tbody></table></div>
-<p>The server exposes five <strong>MCP tools</strong> — <code>index</code>, <code>list</code>, <code>search</code>, <code>get</code>, <code>neighbors</code>. These are tools for connected agents; <code>search</code> is also a CLI command (<code>okfsmith search</code>), while <code>get</code> remains MCP-only (the CLI analogue is <code>read</code>). Client config examples for Claude Code/Desktop, Cursor, Copilot, and Gemini are on <a href="mcp.html">MCP server</a>.</p>
+<p>The server exposes eight <strong>MCP tools</strong> — <code>index</code>, <code>list</code>, <code>search</code>, <code>get</code>, <code>neighbors</code>, <code>traverse</code>, <code>provenance</code>, <code>diff</code>. These are tools for connected agents; <code>search</code> is also a CLI command (<code>okfsmith search</code>), while <code>get</code> remains MCP-only (the CLI analogue is <code>read</code>). Client config examples for Claude Code/Desktop, Cursor, Copilot, and Gemini are on <a href="mcp.html">MCP server</a>.</p>
+<hr>
+<h2 id="okfsmith-eval">okfsmith eval</h2>
+<p>Score a bundle against a golden Q&amp;A set — the RAG Triad, per question, with retrieval-vs-generation diagnosis for every failure.</p>
+<pre class="codeblock" data-lang="bash"><code>okfsmith eval ./kb --init-sample
+okfsmith eval ./kb --no-llm
+okfsmith eval ./kb --format json
+okfsmith eval ./kb --fail-under 70
+</code></pre>
+<div class="table-wrap"><table><thead><tr><th>Flag</th><th>What it does</th></tr></thead><tbody><tr><td><code>--init-sample</code></td><td>Write a starter <code>&lt;bundle&gt;/eval/golden.json</code> from the bundle's own concepts, then exit.</td></tr><tr><td><code>--top-k</code> / <code>-n</code></td><td>Concepts retrieved per question (default <code>5</code>).</td></tr><tr><td><code>--fail-under &lt;0-100&gt;</code></td><td>CI gate: exit 1 when the overall score misses it (exit 0 = pass).</td></tr><tr><td><code>--metric-threshold &lt;0-1&gt;</code></td><td>Per-metric pass bar (default 0.6 context relevancy / faithfulness, 0.4 answer relevancy).</td></tr><tr><td><code>--no-llm</code></td><td>Force heuristic scoring even when a provider is configured.</td></tr><tr><td><code>--model</code> / <code>--provider</code> / <code>--api-base</code> / <code>--api-key</code></td><td>LLM judge backend (same plumbing as <code>chat</code>).</td></tr><tr><td><code>--as-of &lt;date&gt;</code></td><td>Replay retrieval at a past/future instant.</td></tr><tr><td><code>--include-superseded</code></td><td>Also retrieve superseded concepts.</td></tr><tr><td>`--format text\</td><td>json`</td><td>Human table + diagnosis, or the full machine-readable report.</td></tr></tbody></table></div>
+<p>The report scores each question per metric with 🤖 (llm-judge) or ⚙ (heuristic) markers, then prints the diagnosis for every failing question. Malformed golden files fail as <code>error [golden-invalid]</code> / <code>error [golden-schema]</code> — never a traceback. Full guide on <a href="eval.html">Evaluating bundles</a>.</p>
 <hr>
 <h2 id="exit-codes">Exit codes</h2>
 <div class="table-wrap"><table><thead><tr><th>Exit</th><th>Meaning</th></tr></thead><tbody><tr><td><code>0</code></td><td>Success — <code>validate</code> prints <code>Conformant: no errors, no warnings.</code></td></tr><tr><td><code>1</code></td><td>Validation failed (errors, or warnings under <code>--strict</code>); or a general command error.</td></tr><tr><td><code>2</code></td><td>CLI usage error — e.g. <code>No such command</code> for <code>okfsmith get</code>.</td></tr></tbody></table></div>
@@ -560,6 +572,8 @@ hint: Install it with: pip install "okfsmith[mcp]" (or pipx: pipx install "okfsm
 <ul class="toc-sub">
 <li><a href="#mcp-options">Common options</a></li>
 </ul>
+</li>
+<li><a href="#okfsmith-eval">okfsmith eval</a>
 </li>
 <li><a href="#exit-codes">Exit codes</a>
 </li>

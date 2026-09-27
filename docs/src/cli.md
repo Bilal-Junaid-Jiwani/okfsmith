@@ -582,6 +582,38 @@ The server exposes eight **MCP tools** — `index`, `list`, `search`, `get`, `ne
 
 ---
 
+## okfsmith eval
+
+Score a bundle against a golden Q&A set — the RAG Triad, per question, with
+retrieval-vs-generation diagnosis for every failure.
+
+```bash
+okfsmith eval ./kb --init-sample
+okfsmith eval ./kb --no-llm
+okfsmith eval ./kb --format json
+okfsmith eval ./kb --fail-under 70
+```
+
+| Flag | What it does |
+|---|---|
+| `--init-sample` | Write a starter `<bundle>/eval/golden.json` from the bundle's own concepts, then exit. |
+| `--top-k` / `-n` | Concepts retrieved per question (default `5`). |
+| `--fail-under <0-100>` | CI gate: exit 1 when the overall score misses it (exit 0 = pass). |
+| `--metric-threshold <0-1>` | Per-metric pass bar (default 0.6 context relevancy / faithfulness, 0.4 answer relevancy). |
+| `--no-llm` | Force heuristic scoring even when a provider is configured. |
+| `--model` / `--provider` / `--api-base` / `--api-key` | LLM judge backend (same plumbing as `chat`). |
+| `--as-of <date>` | Replay retrieval at a past/future instant. |
+| `--include-superseded` | Also retrieve superseded concepts. |
+| `--format text\|json` | Human table + diagnosis, or the full machine-readable report. |
+
+The report scores each question per metric with 🤖 (llm-judge) or
+⚙ (heuristic) markers, then prints the diagnosis for every failing
+question. Malformed golden files fail as `error [golden-invalid]` /
+`error [golden-schema]` — never a traceback. Full guide on
+[Evaluating bundles](eval.html).
+
+---
+
 ## Exit codes
 
 | Exit | Meaning |

@@ -20,6 +20,7 @@ Every page: slug (URL filename), title, one-line description.
 | 4 | `ingesting.html` | Ingesting documents | What `ingest` does: parser tiers (LiteParse, MarkItDown, Docling sidecar), PDF/Office/Notion/zip inputs, sectioning, SHA-256 dedup, `--no-llm` vs LLM extraction, trust tiers. |
 | 5 | `providers.html` | Providers & API keys | The 15 OpenAI-compatible `--provider` presets, API keys via `OKFSMITH_API_KEY` / `--api-key`, `--api-base` for anything else, model resolution order, how `doctor` reports key status without ever showing keys. |
 | 6 | `syncing.html` | Syncing sources | What `sync` does: SHA-256 change detection, add/update/rename/remove handling, atomic resumable state, `--watch` polling, `--dry-run`, `--format json`. |
+| 16 | `eval.html` | Evaluating bundles | Score golden Q&A sets on the RAG Triad: context relevancy / faithfulness / answer relevancy, per-question reporting, retrieval-vs-generation diagnosis, CI gating. |
 | 7 | `validation.html` | Validation & error codes | OKF v0.2 §11 conformance: errors E001–E004, warnings W001–W006, `--strict`, `--format json`, stable CLI error codes and exit codes. |
 | 8 | `graph.html` | Visualizing the knowledge graph | `graph` output formats (text/json/mermaid/html), the offline interactive `viz.html` viewer: colorblind-safe palette, trust-by-shape legend, backlinks, search, keyboard access. |
 | 9 | `skill.html` | Agent skill pack | The `okfsmith-build` skill: what it teaches agents (init → ingest → validate → serve), where it lives, trigger phrases, scope limits. |
@@ -48,7 +49,7 @@ Each page belongs to exactly one tab.
 | Tab | Pages (in order) | Default landing page |
 |-----|------------------|----------------------|
 | **Getting started** | `install.html` → `quickstart.html` → `chat.html` | `install.html` |
-| **User guide** | `ingesting.html` → `validation.html` → `syncing.html` → `graph.html` → `skill.html` → `faq.html` | `ingesting.html` |
+| **User guide** | `ingesting.html` → `validation.html` → `syncing.html` → `eval.html` → `graph.html` → `skill.html` → `faq.html` | `ingesting.html` |
 | **CLI reference** | `cli.html` | `cli.html` |
 | **Providers** | `providers.html` | `providers.html` |
 | **MCP** | `mcp.html` | `mcp.html` |

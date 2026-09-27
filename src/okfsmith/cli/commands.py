@@ -1572,6 +1572,179 @@ def search(
 
 
 # ---------------------------------------------------------------------------
+# eval
+# ---------------------------------------------------------------------------
+
+
+@app.command(name="eval", rich_help_panel=PANEL_KNOWLEDGE)
+@_cli
+def eval_command(
+    bundle: Path = typer.Argument(..., help="Bundle directory to evaluate."),
+    spec: Path = typer.Argument(
+        ..., help="Eval spec YAML file (cases, thresholds, weights)."
+    ),
+    min_score: float | None = typer.Option(
+        None,
+        "--min-score",
+        help="Override the spec's thresholds.min_mean_score CI gate (0..1).",
+    ),
+    top_k: int | None = typer.Option(
+        None,
+        "--top-k",
+        "-n",
+        help="Concepts retrieved per answer; overrides the spec's top_k.",
+    ),
+    output_format: ValidateFormat = typer.Option(
+        ValidateFormat.text, "--format", help="Output format: text or json."
+    ),
+    output: Path | None = typer.Option(
+        None,
+        "--output",
+        help="Write the JSON report to this file (in addition to stdout).",
+    ),
+) -> None:
+    """Evaluate answer quality over a bundle with a deterministic harness.
+
+    Each spec case asks a question; the harness runs the same BM25
+    retrieval the chat uses in extractive (--no-llm) mode, treats the
+    top-k matched concept ids as the answer's citations, and scores them
+    against the case's expected_concepts — no LLM-as-judge, fully
+    deterministic, CI-safe.
+
+    Metrics (all 0..1, higher is better):
+
+    - groundedness: fraction of emitted citations naming real bundle
+      concepts (hallucinated citations score 0);
+    - citation_recall: fraction of expected_concepts actually cited;
+    - citation_precision: fraction of emitted citations in
+      expected_concepts;
+    - score: weighted mean (default 0.4 / 0.3 / 0.3; spec-overridable).
+
+    The spec is YAML:
+
+    \b
+        cases:                            # required, at least one
+          - question: "How do I authenticate?"
+            expected_concepts: [api/auth] # concept ids a good answer cites
+            min_recall: 1.0               # optional per-case gate (0..1)
+        thresholds:                       # all optional
+          min_mean_score: 0.7             # CI gate on the mean case score
+          min_case_score: 0.0             # floor applied to every case
+        weights:                          # optional; normalized to sum to 1
+          groundedness: 0.4
+          citation_recall: 0.3
+          citation_precision: 0.3
+        top_k: 5                          # concepts retrieved per answer
+
+    Exit code is 0 when the mean score meets the gate (--min-score, else
+    the spec's thresholds.min_mean_score, else 0.7) and every case meets
+    its own min_recall / min_case_score (both default 0, so the mean gate
+    alone decides unless set) — otherwise 1. Empty answers score 0 and
+    never fail the run.
+
+    \b
+    Examples:
+        okfsmith eval ./kb eval-spec.yaml
+        okfsmith eval ./kb eval-spec.yaml --min-score 0.8
+        okfsmith eval ./kb eval-spec.yaml --format json --output report.json
+    """
+    # Lazy import: the eval engine is a sibling CLI module; keep the
+    # top-level import graph slice-only, like the chat engine.
+    from okfsmith.cli.eval import EvalSpecError, parse_spec, run_eval
+
+    as_json = output_format == "json"
+    if min_score is not None and not 0.0 <= min_score <= 1.0:
+        raise typer.BadParameter("--min-score must be between 0 and 1.")
+    if top_k is not None and top_k < 1:
+        raise typer.BadParameter("--top-k must be >= 1.")
+    try:
+        _require_bundle_dir(bundle)
+    except CliError as exc:
+        _handle_cli_error(exc, as_json)
+    if not spec.is_file():
+        _handle_cli_error(
+            CliError(
+                "eval-spec-not-found",
+                f"eval spec '{spec}' does not exist.",
+                "Pass the path to an eval spec YAML file.",
+            ),
+            as_json,
+        )
+    try:
+        config = parse_spec(spec)
+    except EvalSpecError as exc:
+        _handle_cli_error(
+            CliError(
+                "bad-eval-spec",
+                str(exc),
+                "See 'okfsmith eval --help' for the spec format.",
+            ),
+            as_json,
+        )
+    if min_score is not None:
+        config.min_mean_score = min_score
+    if top_k is not None:
+        config.top_k = top_k
+
+    bundle_path = bundle
+    bundle_obj = _load_bundle_for_read(bundle_path)
+    report = run_eval(bundle_obj, config)
+    report = {
+        "bundle": str(bundle_path),
+        "spec": str(spec),
+        "top_k": config.top_k,
+        "weights": config.weights,
+        **report,
+    }
+    if output is not None:
+        _write_output_file(
+            output, json.dumps(_jsonable(report), indent=2) + "\n"
+        )
+    aggregate = report["aggregate"]
+    if as_json:
+        _dump_json(report)
+    else:
+        _print_eval_table(report, bundle_path)
+        verdict = "PASS" if aggregate["pass"] else "FAIL"
+        typer.echo(
+            f"mean score {aggregate['mean_score']:.3f} "
+            f"(gate {aggregate['min_mean_score']:.2f}): {verdict}"
+        )
+        if not aggregate["pass"]:
+            typer.echo(
+                "hint: lower --min-score, or extend the bundle's coverage of "
+                "the failing cases.",
+                err=True,
+            )
+    raise typer.Exit(code=0 if aggregate["pass"] else 1)
+
+
+def _print_eval_table(report: dict[str, Any], bundle_path: Path) -> None:
+    """Rich table of per-case metrics plus the aggregate verdict."""
+    table = Table(title=f"Eval results in {bundle_path}")
+    table.add_column("#", justify="right")
+    table.add_column("Question", overflow="fold")
+    table.add_column("Cited", overflow="fold")
+    table.add_column("Grounded", justify="right")
+    table.add_column("Recall", justify="right")
+    table.add_column("Precision", justify="right")
+    table.add_column("Score", justify="right")
+    table.add_column("Pass", justify="center")
+    for i, case in enumerate(report["cases"], start=1):
+        table.add_row(
+            str(i),
+            escape(case["question"]),
+            escape(", ".join(case["emitted_citations"]) or "—"),
+            f"{case['groundedness']:.2f}",
+            f"{case['citation_recall']:.2f}",
+            f"{case['citation_precision']:.2f}",
+            f"{case['score']:.2f}",
+            "[green]yes[/green]" if case["passed"] else "[red]no[/red]",
+        )
+    console.print(table)
+
+
+# ---------------------------------------------------------------------------
 # graph
 # ---------------------------------------------------------------------------
 
@@ -1965,3 +2138,257 @@ def chat(
         )
     if code:
         raise typer.Exit(code=code)
+
+
+# ---------------------------------------------------------------------------
+# eval
+# ---------------------------------------------------------------------------
+
+
+@app.command(name="eval", rich_help_panel=PANEL_KNOWLEDGE)
+@_cli
+def eval_bundle(
+    bundle: Path = typer.Argument(..., help="Bundle directory to evaluate."),
+    top_k: int = typer.Option(
+        5, "--top-k", "-n",
+        help="Concepts retrieved per question (must be >= 1).",
+    ),
+    fail_under: float = typer.Option(
+        0.0, "--fail-under",
+        help="CI gate: exit 1 when the overall score (0-100) is below this.",
+    ),
+    metric_threshold: float | None = typer.Option(
+        None, "--metric-threshold",
+        help="Per-metric pass threshold (0-1): a question fails when any "
+        "of the three RAG Triad metrics scores below it. Default: 0.6 for "
+        "context relevancy and faithfulness, 0.4 for answer relevancy "
+        "(the heuristic's natural scale is lower).",
+    ),
+    as_of: str | None = typer.Option(
+        None,
+        "--as-of",
+        help="Replay retrieval at a past/future instant (ISO-8601 date or "
+        "datetime): validity windows and supersession chains are evaluated "
+        "at that instant instead of now.",
+    ),
+    include_superseded: bool = typer.Option(
+        False,
+        "--include-superseded",
+        help="Also retrieve concepts superseded by a newer concept "
+        "(demoted, ranked last; never deleted).",
+    ),
+    no_llm: bool = typer.Option(
+        False,
+        "--no-llm",
+        help="Force heuristic scoring (no LLM judge), even when a provider "
+        "is configured.",
+    ),
+    model: str | None = typer.Option(
+        None, "--model", help="Model to use for the LLM judge."
+    ),
+    provider: str | None = typer.Option(
+        None,
+        "--provider",
+        help="LLM provider preset: openrouter, groq, mistral, deepseek, "
+        "together, fireworks, deepinfra, anyscale, perplexity, xai, gemini, "
+        "openai, agentrouter, lmstudio, ollama (or OKFSMITH_PROVIDER).",
+    ),
+    api_base: str | None = typer.Option(
+        None,
+        "--api-base",
+        help="Custom OpenAI-compatible base URL, e.g. "
+        "https://my-proxy/v1 (or OKFSMITH_API_BASE). Overrides --provider.",
+    ),
+    api_key: str | None = typer.Option(
+        None,
+        "--api-key",
+        help="API key for the endpoint (or OKFSMITH_API_KEY env var, "
+        "preferred — --api-key lands in shell history).",
+    ),
+    init_sample: bool = typer.Option(
+        False,
+        "--init-sample",
+        help="Write a starter <bundle>/eval/golden.json derived from the "
+        "bundle's own concepts, then exit.",
+    ),
+    output_format: ValidateFormat = typer.Option(
+        ValidateFormat.text, "--format", help="Output format: text or json."
+    ),
+) -> None:
+    """Evaluate a bundle against a golden Q&A set (RAG Triad + CI gating).
+
+    The golden set lives at ``<bundle>/eval/golden.json`` (see
+    ``--init-sample``). Each question is answered with the shared BM25
+    retrieval engine (same ranking as ``search``, chat, and MCP — including
+    temporal supersession hiding), then scored on context relevancy,
+    faithfulness, and answer relevancy. Every score is labeled
+    ``heuristic`` (keyless) or ``llm-judge`` (an LLM backend was reachable);
+    a failing judge degrades that metric to the heuristic, never the
+    reverse. Failing questions are diagnosed as ``retrieval`` vs
+    ``generation`` failures. ``--fail-under <0-100>`` gates CI: exit 0 when
+    the overall score clears it, exit 1 when it doesn't.
+
+    \b
+    Examples:
+        okfsmith eval ./kb --init-sample        # write a starter golden set
+        okfsmith eval ./kb                      # heuristic scoring, no LLM
+        okfsmith eval ./kb --no-llm             # force heuristic mode
+        okfsmith eval ./kb --format json         # machine-readable report
+        okfsmith eval ./kb --fail-under 70       # CI gate: exit 1 below 70
+        okfsmith eval ./kb --as-of 2025-06-01   # temporal replay
+    """
+    as_json = output_format == "json"
+    if model is not None and no_llm:
+        raise typer.BadParameter(
+            "--model cannot be combined with --no-llm: no LLM is used in that mode."
+        )
+    for flag_name, flag_value in (
+        ("--provider", provider),
+        ("--api-base", api_base),
+        ("--api-key", api_key),
+    ):
+        if flag_value is not None and no_llm:
+            raise typer.BadParameter(
+                f"{flag_name} cannot be combined with --no-llm: "
+                "no LLM is used in that mode."
+            )
+    if api_key is not None:
+        _warn_api_key_flag()
+    if top_k < 1:
+        raise typer.BadParameter("--top-k must be >= 1.")
+    if not 0.0 <= fail_under <= 100.0:
+        raise typer.BadParameter("--fail-under must be between 0 and 100.")
+    if metric_threshold is not None and not 0.0 <= metric_threshold <= 1.0:
+        raise typer.BadParameter("--metric-threshold must be between 0 and 1.")
+    moment = None
+    if as_of is not None:
+        from okfsmith.core import temporal as _temporal
+
+        moment = _temporal.parse_temporal(as_of)
+        if moment is None:
+            raise typer.BadParameter(
+                f"--as-of '{as_of}' is not an ISO-8601 date or datetime."
+            )
+    try:
+        _require_bundle_dir(bundle)
+    except CliError as exc:
+        _handle_cli_error(exc, as_json)
+    bundle_path = bundle
+
+    from okfsmith import eval as _eval
+
+    def _eval_error(exc: _eval.EvalError) -> NoReturn:
+        if as_json:
+            _fail_json(exc.code, exc.message, exc.hint)
+        fail(exc.code, exc.message, exc.hint)
+        raise AssertionError("unreachable")  # pragma: no cover
+
+    if init_sample:
+        bundle_obj = _load_bundle_for_read(bundle_path)
+        concepts = list(bundle_obj.iter_concepts())
+        try:
+            written = _eval.write_sample_golden(bundle_path, concepts)
+        except _eval.EvalError as exc:
+            _eval_error(exc)
+        typer.echo(f"Wrote starter golden set to {written}")
+        typer.echo(
+            "hint: edit it into curated questions, then run "
+            f"'okfsmith eval {bundle_path}'."
+        )
+        return
+
+    bundle_obj = _load_bundle_for_read(bundle_path)
+    try:
+        report = _eval.run_eval(
+            bundle_obj,
+            bundle_path,
+            top_k=top_k,
+            metric_threshold=metric_threshold,
+            fail_under=fail_under,
+            as_of=moment,
+            include_superseded=include_superseded,
+            no_llm=no_llm,
+            model=model,
+            provider=provider,
+            api_base=api_base,
+            api_key=api_key,
+        )
+    except _eval.EvalError as exc:
+        _eval_error(exc)
+
+    if as_json:
+        _dump_json(report.as_dict())
+    else:
+        _print_eval_text(report)
+    # CI gating: exit 1 when the overall score misses the threshold.
+    if report.overall() < fail_under:
+        raise typer.Exit(code=1)
+
+
+def _print_eval_text(report: Any) -> None:
+    """Rich per-question table plus retrieval-vs-generation diagnosis."""
+    judge_note = {
+        "heuristic": "heuristic mode — no LLM judge (keyless scoring)",
+        "llm-judge": "LLM judge mode — all scores LLM-judged",
+        "mixed": "mixed mode — some metrics fell back to heuristics "
+        "(see per-score detail)",
+    }[report.judge_mode]
+    typer.echo(
+        f"Evaluated {report.bundle}: {len(report.questions)} question(s), "
+        f"top-k={report.top_k}, {judge_note}."
+    )
+    table = Table(title="Golden-set results")
+    table.add_column("Question", no_wrap=True, overflow="fold")
+    table.add_column("Ctx rel.", justify="right")
+    table.add_column("Faith.", justify="right")
+    table.add_column("Ans rel.", justify="right")
+    table.add_column("Result")
+    table.add_column("Diagnosis")
+    for question in report.questions:
+        cells = []
+        for name in ("context_relevancy", "faithfulness", "answer_relevancy"):
+            score = question.scores[name]
+            marker = "🤖" if score.method == "llm-judge" else "⚙"
+            passed = score.value >= report.metric_thresholds[name]
+            style = "green" if passed else "red"
+            cells.append(
+                f"[{style}]{score.value:.2f}[/{style}] {marker}"
+            )
+        result = (
+            "[green]PASS[/green]" if question.passed else "[red]FAIL[/red]"
+        )
+        diagnosis = question.diagnosis or "—"
+        table.add_row(
+            escape(question.id), *cells, result, escape(diagnosis)
+        )
+    console.print(table)
+    typer.echo("Legend: 🤖 llm-judge · ⚙ heuristic (keyless)")
+    # The actionable part: every failing question, with its diagnosis.
+    failures = [q for q in report.questions if not q.passed]
+    if failures:
+        typer.echo("\nFailing questions:")
+        for question in failures:
+            typer.echo(
+                f"  - {question.id}: {question.diagnosis} — "
+                f"{question.diagnosis_reason}"
+            )
+            if question.missing_must_cite:
+                typer.echo(
+                    "    missing must_cite: "
+                    + ", ".join(question.missing_must_cite)
+                )
+    means = report.metric_means()
+    passed = sum(1 for q in report.questions if q.passed)
+    typer.echo(
+        f"\nOverall: {report.overall():.1f}/100 "
+        f"(ctx {means['context_relevancy']:.2f} · "
+        f"faith {means['faithfulness']:.2f} · "
+        f"ans {means['answer_relevancy']:.2f}) — "
+        f"{passed}/{len(report.questions)} passed."
+    )
+    if report.fail_under > 0:
+        gate = "PASS" if report.verdict() == "pass" else "FAIL"
+        typer.echo(
+            f"CI gate --fail-under {report.fail_under}: {gate} "
+            f"(overall {report.overall():.1f})."
+        )

@@ -96,7 +96,9 @@
 </li>
 <li><a href="#quick-start">Quick start</a>
 </li>
-<li><a href="#the-five-tools">The five tools</a>
+<li><a href="#the-eight-tools">The eight tools</a>
+</li>
+<li><a href="#evidence-budgets">Evidence budgets</a>
 </li>
 <li><a href="#claude-desktop-config">Claude Desktop config</a>
 </li>
@@ -120,14 +122,14 @@
 <pre class="codeblock" data-lang="bash"><code>pip install "okfsmith[mcp]"
 okfsmith mcp ./kb
 </code></pre>
-<p>The server starts on <strong>stdio</strong> (the standard transport: your MCP client launches it as a subprocess) and exposes five tools. Pick one:</p>
+<p>The server starts on <strong>stdio</strong> (the standard transport: your MCP client launches it as a subprocess) and exposes eight tools. Pick one:</p>
 <pre class="codeblock" data-lang="bash"><code>okfsmith mcp ./kb --transport stdio            # default
 okfsmith mcp ./kb --transport sse              # Server-Sent Events
 okfsmith mcp ./kb --transport streamable-http  # streamable HTTP
 </code></pre>
-<h2 id="the-five-tools">The five tools</h2>
+<h2 id="the-eight-tools">The eight tools</h2>
 <p>Tool outputs are compact markdown (not giant JSON) — designed as an agent's reading UI. The intended flow is progressive disclosure: <code>index</code> → <code>search</code> → <code>get</code>.</p>
-<div class="table-wrap"><table><thead><tr><th>Tool</th><th>What it does</th></tr></thead><tbody><tr><td><code>index</code></td><td>Return the bundle's root <code>index.md</code> — the map of the whole knowledge base. Read this first to orient.</td></tr><tr><td><code>list</code></td><td>List every concept: id, type, trust tier, title. Optional <code>filter_type</code> narrows by concept type; <code>limit</code> caps rows.</td></tr><tr><td><code>search</code></td><td>Keyword-search concepts by id, title, description, tags, and body. Case-insensitive; title matches rank highest, body lowest.</td></tr><tr><td><code>get</code></td><td>Read one concept in full: YAML frontmatter followed by its markdown body. Unknown ids produce an error — never fabricated content.</td></tr><tr><td><code>neighbors</code></td><td>Show a concept's link graph neighborhood: outgoing links and incoming backlinks, so agents can walk the knowledge graph.</td></tr></tbody></table></div>
+<div class="table-wrap"><table><thead><tr><th>Tool</th><th>What it does</th></tr></thead><tbody><tr><td><code>index</code></td><td>Return the bundle's root <code>index.md</code> — the map of the whole knowledge base. Read this first to orient.</td></tr><tr><td><code>list</code></td><td>List every concept: id, type, trust tier, title. Optional <code>filter_type</code> narrows by concept type; <code>limit</code> caps rows.</td></tr><tr><td><code>search</code></td><td>BM25-ranked keyword search over concept id, title, description, tags, and body. Title matches rank highest, body lowest; results carry excerpts.</td></tr><tr><td><code>get</code></td><td>Read one concept in full: YAML frontmatter followed by its markdown body. Unknown ids produce an error — never fabricated content.</td></tr><tr><td><code>neighbors</code></td><td>Show a concept's link graph neighborhood: outgoing links and incoming backlinks, so agents can walk the knowledge graph.</td></tr><tr><td><code>traverse</code></td><td>Breadth-first neighborhood expansion over markdown links (depth ≤ 3, cycle-safe), with an optional <code>relation_filter</code> and currency-aware ordering — superseded concepts hidden by default.</td></tr><tr><td><code>provenance</code></td><td>Trace a concept's provenance chain: <code>sources[]</code> frontmatter → footnote references → the ingested-source manifest (<code>sync-state.json</code>) with source file and digest.</td></tr><tr><td><code>diff</code></td><td>Diff the bundle against another bundle directory (<code>against=</code>) or the <code>sync-state.json</code> snapshot: added / removed / changed concepts with body SHA-256.</td></tr></tbody></table></div>
 <p>A typical agent session looks like this:</p>
 <ol>
 <li><code>index</code> — "what's in this bundle?"
@@ -138,7 +140,16 @@ okfsmith mcp ./kb --transport streamable-http  # streamable HTTP
 </li>
 <li><code>neighbors</code> with <code>billing/retries</code> — related concepts via links
 </li>
+<li><code>traverse</code> with <code>billing/retries</code>, <code>depth=2</code> — the wider neighborhood
+</li>
+<li><code>provenance</code> with <code>billing/retries</code> — where each claim came from
+</li>
 </ol>
+<h2 id="evidence-budgets">Evidence budgets</h2>
+<p>Every tool accepts three evidence-budget parameters so agents get bounded evidence instead of unbounded context:</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Meaning</th></tr></thead><tbody><tr><td><code>max_chunks</code></td><td>Max <strong>items</strong> (or 50-line text chunks) per response — default 10 for <code>search</code>/<code>traverse</code>, 50 elsewhere; hard cap 50. Notes (e.g. hidden-superseded counts) and <code>##</code> section headers sit outside the budget; <code>…[truncated, N more]</code> counts remaining <em>items</em> only.</td></tr><tr><td><code>max_tokens</code></td><td>Approximate output budget (chars ÷ 4). <code>None</code> (default) = unbounded; <code>0</code> = no item content; negative or unparseable values are treated as unbounded. Truncation cuts at whole-item boundaries, never mid-item, and is marked <code>…[truncated, N more]</code>.</td></tr><tr><td><code>continuation_token</code></td><td>Opaque paging cursor from a truncated response — pass it back for the next page. Tokens are result-offset cursors, not tied to a query. An invalid or out-of-range token returns a clean error, never a traceback.</td></tr></tbody></table></div>
+<aside class="admonition note"><span class="admon-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.75" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 7.25v3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="5" r="0.9" fill="currentColor"/></svg></span><div class="admon-body"><p class="admon-title">Note</p><p><code>provenance</code> and <code>diff</code> treat <code>sync-state.json</code> source paths as <strong>untrusted manifest entries</strong>: only paths inside the bundle root are hashed and displayed (bundle-relative, never absolute). Paths outside the root, <code>..</code> escapes, and symlinks are skipped with an <code>untrusted manifest</code> marker. <code>diff(against=…)</code> likewise guards its input — it rejects non-bundle directories and over-large directory trees before loading anything.</p></div></aside>
+<p><code>search</code> and <code>traverse</code> are currency-aware: superseded concepts are hidden by default (reported as a count); pass <code>include_superseded=True</code> to reveal them. <code>traverse</code> depth is capped at 3.</p>
 <h2 id="claude-desktop-config">Claude Desktop config</h2>
 <p>Add okfsmith as an MCP server in your Claude Desktop config file (<code>claude_desktop_config.json</code>):</p>
 <pre class="codeblock" data-lang="json"><code>{
@@ -150,7 +161,7 @@ okfsmith mcp ./kb --transport streamable-http  # streamable HTTP
   }
 }
 </code></pre>
-<p>Restart Claude Desktop and the five tools (<code>index</code>, <code>list</code>, <code>search</code>, <code>get</code>, <code>neighbors</code>) appear in its tool list.</p>
+<p>Restart Claude Desktop and the eight tools (<code>index</code>, <code>list</code>, <code>search</code>, <code>get</code>, <code>neighbors</code>, <code>traverse</code>, <code>provenance</code>, <code>diff</code>) appear in its tool list.</p>
 <details>
 <summary>Advanced: other clients and transports</summary>
 
@@ -160,7 +171,7 @@ okfsmith mcp ./kb --transport streamable-http  # streamable HTTP
 - For **SSE** or **streamable-http** transports, point your client at the
   server's URL — the bundle is loaded once at server startup, and every tool
   call afterwards reads from the in-memory bundle, so responses are fast.
-- The same five tools back the interactive chat's `/search` and `/read`
+- The same eight tools back the interactive chat's `/search` and `/read`
   commands, so chat and MCP rank identically.
 
 </details>
@@ -181,7 +192,9 @@ okfsmith mcp ./kb --transport streamable-http  # streamable HTTP
 </li>
 <li><a href="#quick-start">Quick start</a>
 </li>
-<li><a href="#the-five-tools">The five tools</a>
+<li><a href="#the-eight-tools">The eight tools</a>
+</li>
+<li><a href="#evidence-budgets">Evidence budgets</a>
 </li>
 <li><a href="#claude-desktop-config">Claude Desktop config</a>
 </li>

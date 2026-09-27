@@ -122,6 +122,18 @@ Anthropic's native API is not OpenAI-compatible: use the
 .B openrouter
 preset or a compat proxy via
 .BR \-\-api\-base .
+.TP
+.B eval \fIBUNDLE\fR [\-\-init\-sample] [\-\-top\-k \fIN\fR] [\-\-fail\-under \fIPCT\fR] [\-\-metric\-threshold \fIT\fR] [\-\-as\-of \fIDATE\fR] [\-\-include\-superseded] [\-\-no\-llm] [\-\-model \fINAME\fR] [\-\-provider \fINAME\fR] [\-\-api\-base \fIURL\fR] [\-\-api\-key \fIKEY\fR] [\-\-format text|json]
+Score the bundle against its golden Q&A set
+.RI ( <bundle>/eval/golden.json ;
+\-\-init\-sample writes a starter set).
+Each question is answered with the shared BM25 engine (same ranking as
+search, chat, and MCP, including temporal supersession hiding) and scored
+on context relevancy, faithfulness, and answer relevancy; every score is
+labeled heuristic (keyless) or llm-judge, and failing questions are
+diagnosed as retrieval vs generation failures.
+.B \-\-fail\-under
+gates CI: exit 1 when the overall score (0\-100) misses it.
 .SH EXIT STATUS
 .TP
 .B 0
