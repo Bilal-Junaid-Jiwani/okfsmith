@@ -220,6 +220,24 @@ QA bug report); criticals and highs listed, mediums/lows summarized.
   concept is a real bundle concept.
 - `rank_concepts()` in `okfsmith.mcp_server.server`: shared retrieval ranking
   used by both the MCP `search` tool and the chat REPL.
+- **MCP server expansion (P6):** three new read-only tools — `traverse`
+  (breadth-first neighborhood expansion over markdown links: depth capped at
+  3, cycle-safe visited set, optional `relation_filter` matched against link
+  text or target id, currency-aware ordering with superseded concepts hidden
+  by default), `provenance` (claim → source chain: `sources[]` frontmatter +
+  footnote refs → the `sync-state.json` ingested-source manifest with source
+  file and SHA-256 digest; never crashes on missing/malformed sources), and
+  `diff` (bundle version diff: added/removed/changed concepts by id + title +
+  body SHA-256, against another bundle directory via `against=` or against
+  the `sync-state.json` snapshot). Evidence budgets on all eight tools:
+  `max_chunks` (per-response item cap, default 10 for `search`/`traverse` and
+  50 elsewhere, hard cap 50), `max_tokens` (approximate output budget,
+  truncates at whole-item boundaries with a `…[truncated, N more]` marker),
+  and `continuation_token` (opaque paging token; invalid tokens return a
+  clean error, never a traceback). `search` gains `include_superseded` to
+  reveal hidden predecessors. All existing tool signatures are backward
+  compatible and default outputs are byte-identical. Docs (`docs/src/mcp.md`)
+  updated.
 
 ### Changed
 - `okfsmith chat` startup UI redesigned in the Qwen Code / Claude Code /

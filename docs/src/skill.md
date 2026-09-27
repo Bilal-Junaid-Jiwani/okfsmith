@@ -75,7 +75,7 @@ python3 scripts/validate.py ./kb
 
 # 4. mcp — serve the bundle to other agents over stdio
 okfsmith mcp ./kb
-# tools exposed: search, get, list, neighbors, index
+# tools exposed: search, get, list, neighbors, index, traverse, provenance, diff
 ```
 
 Zip archives and Notion exports ingest the same way — e.g.

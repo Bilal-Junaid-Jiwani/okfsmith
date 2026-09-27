@@ -121,7 +121,16 @@ def test_build_server_registers_tools() -> None:
     server = build_server(FIXTURE_BUNDLE)
     registered = asyncio.run(server._list_tools())
     tool_names = {t.name for t in registered}
-    assert tool_names == {"index", "list", "search", "get", "neighbors"}
+    assert tool_names == {
+        "index",
+        "list",
+        "search",
+        "get",
+        "neighbors",
+        "traverse",
+        "provenance",
+        "diff",
+    }
     # docstrings are the agent's UI — every tool must carry one
     for tool in registered:
         assert tool.description and len(tool.description.split()) > 10, tool.name

@@ -13,7 +13,7 @@
 - [Parsing](docs/parsing.md): LiteParse (PDF, offline), MarkItDown office extra, Docling OCR sidecar, Notion exports, ZipSlip-safe zip handling
 - [LLM & no-LLM](docs/llm.md): --no-llm drafts; Ollama default; OKFSMITH_MODEL / OPENAI_API_KEY env vars; llm-unavailable behavior
 - [Validation](docs/validation.md): OKF §11 rules E001–E004 (errors), W001–W015 (warnings), --strict, JSON report schema
-- [MCP](docs/mcp.md): `okfsmith mcp BUNDLE` transports (stdio/sse/streamable-http); tools (index/list/search/get/neighbors); client configs for Claude/Cursor/VS Code/Gemini
+- [MCP](docs/mcp.md): `okfsmith mcp BUNDLE` transports (stdio/sse/streamable-http); tools (index/list/search/get/neighbors/traverse/provenance/diff); client configs for Claude/Cursor/VS Code/Gemini
 - [Skill pack](docs/skill.md): skills/okfsmith-build/SKILL.md — scope and non-goals
 - [Troubleshooting](docs/troubleshooting.md): slice-not-installed, llm-unavailable, not-a-bundle, E001/W001/W002 fixes
 - [FAQ](docs/faq.md): OKF, offline guarantees, license, no-lock-in

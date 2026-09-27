@@ -15,12 +15,17 @@ reading UI. Entry point for progressive disclosure: ``index()`` → the root
 
 from __future__ import annotations
 
+import base64
+import binascii
+import hashlib
+import json
 import re
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
 from okfsmith.core import frontmatter as _fm
+from okfsmith.core import temporal as _temporal
 from okfsmith.core.bundle import Bundle, Concept
 from okfsmith.core.spec import MACHINE_CONFIRMED, UNVERIFIED, trust_tier
 
@@ -77,6 +82,248 @@ def _coerce_limit(limit: Any, default: int) -> int:
     except (TypeError, ValueError):
         coerced = default
     return max(coerced, 0)
+
+
+#: Hard ceiling for ``max_chunks`` on every tool (evidence-budget cap).
+_MAX_CHUNKS = 50
+
+#: Hard ceiling for ``traverse`` depth: bounds the BFS fan-out on dense graphs.
+_MAX_TRAVERSE_DEPTH = 3
+
+#: Lines per text chunk for the single-document tools (``get``, ``index``);
+#: paging cuts at chunk boundaries so markdown is never split mid-line.
+_TEXT_CHUNK_LINES = 50
+
+#: Token-budget estimate: tokens ≈ characters / 4 (documented approximation).
+_TOKEN_CHARS_PER_TOKEN = 4
+
+#: Continuation-token payload version, so future formats stay distinguishable.
+_CONT_TOKEN_VERSION = 1
+
+
+def _coerce_chunks(value: Any, default: int) -> int:
+    """Coerce ``max_chunks`` to ``1.._MAX_CHUNKS``; unparseable → *default*.
+
+    Mirrors :func:`_coerce_limit` but with the evidence-budget ceiling: the
+    tools' "never an exception" contract covers garbage budget input too.
+    """
+    try:
+        coerced = int(value)
+    except (TypeError, ValueError):
+        coerced = default
+    return min(max(coerced, 1), _MAX_CHUNKS)
+
+
+def _coerce_max_tokens(value: Any) -> int | None:
+    """Coerce ``max_tokens`` to a positive int; ``None``/unparseable → ``None``.
+
+    ``None`` means "no token budget" — the default, which keeps every
+    existing tool's output byte-identical unless the caller opts in.
+    """
+    if value is None:
+        return None
+    try:
+        coerced = int(value)
+    except (TypeError, ValueError):
+        return None
+    return coerced if coerced > 0 else None
+
+
+def _encode_continuation(offset: int) -> str:
+    """Encode a unit offset as an opaque continuation token."""
+    payload = json.dumps(
+        {"v": _CONT_TOKEN_VERSION, "o": max(int(offset), 0)},
+        separators=(",", ":"),
+    )
+    encoded = base64.urlsafe_b64encode(payload.encode("ascii")).decode("ascii")
+    return encoded.rstrip("=")
+
+
+def _decode_continuation(token: Any) -> int | None:
+    """Decode a continuation token to a unit offset; ``None`` when invalid.
+
+    Never raises: over-long tokens, bad base64, bad JSON, a wrong payload
+    version, or a non-integer/negative offset all decode to ``None`` so the
+    caller can return a clean error instead of a traceback.
+    """
+    if not isinstance(token, str) or not token or len(token) > 256:
+        return None
+    try:
+        padded = token + "=" * (-len(token) % 4)
+        payload = json.loads(base64.urlsafe_b64decode(padded.encode("ascii")))
+    except (ValueError, binascii.Error, UnicodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    if payload.get("v") != _CONT_TOKEN_VERSION:
+        return None
+    offset = payload.get("o")
+    if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
+        return None
+    return offset
+
+
+def _fit_budget(
+    page: list[str], start: int, total: int, max_tokens: int | None
+) -> tuple[list[str], int, int]:
+    """Trim *page* to the approximate token budget, whole units only.
+
+    Units are added in order while the running estimate (characters // 4)
+    stays within *max_tokens*; at least one unit is always kept so a tiny
+    budget still returns something. Returns ``(kept, resume_offset,
+    remaining)`` where the offset resumes at the first unshown unit.
+    """
+    kept = page
+    if max_tokens is not None:
+        kept = []
+        used = 0
+        for unit in page:
+            cost = max(1, len(unit) // _TOKEN_CHARS_PER_TOKEN)
+            if kept and used + cost > max_tokens:
+                break
+            kept.append(unit)
+            used += cost
+    resume = start + len(kept)
+    return kept, resume, total - resume
+
+
+def _text_chunks(text: str, lines_per_chunk: int = _TEXT_CHUNK_LINES) -> list[str]:
+    """Split *text* into chunks of at most *lines_per_chunk* lines."""
+    lines = text.splitlines()
+    return [
+        "\n".join(lines[i : i + lines_per_chunk])
+        for i in range(0, max(len(lines), 1), lines_per_chunk)
+    ]
+
+
+def _concept_sha256(concept: Concept) -> str:
+    """Hex SHA-256 of the concept's markdown body; never raises."""
+    try:
+        return hashlib.sha256(concept.body.encode("utf-8")).hexdigest()
+    except Exception:
+        return "unavailable"
+
+
+def _concept_title(concept: Concept) -> str:
+    """Frontmatter title, falling back to the concept id; never raises."""
+    try:
+        title = concept.frontmatter.get("title")
+    except Exception:
+        return concept.id
+    if title is None:
+        return concept.id
+    return str(title).strip() or concept.id
+
+
+def _sha256_file(path: Path) -> str | None:
+    """Hex SHA-256 of a file's bytes (streamed); ``None`` on any I/O failure."""
+    try:
+        digest = hashlib.sha256()
+        with open(path, "rb") as handle:
+            for block in iter(lambda: handle.read(65536), b""):
+                digest.update(block)
+        return digest.hexdigest()
+    except (OSError, ValueError):
+        return None
+
+
+_FOOTNOTE_DEF_RE = re.compile(r"^\[\^([^\]]+)\]:\s*(.*?)\s*$", re.MULTILINE)
+_FOOTNOTE_REF_RE = re.compile(r"\[\^([^\]]+)\](?!:)")
+
+
+def _footnote_definitions(body: str) -> dict[str, str]:
+    """Map footnote label → definition text (first definition wins)."""
+    definitions: dict[str, str] = {}
+    for label, text in _FOOTNOTE_DEF_RE.findall(body or ""):
+        definitions.setdefault(label.strip(), text.strip())
+    return definitions
+
+
+def _footnote_refs(body: str) -> list[str]:
+    """Footnote labels referenced in *body*, in order, deduplicated."""
+    seen: list[str] = []
+    for label in _FOOTNOTE_REF_RE.findall(body or ""):
+        label = label.strip()
+        if label and label not in seen:
+            seen.append(label)
+    return seen
+
+
+def _coerce_sources(frontmatter: Any) -> list[Any]:
+    """The concept's ``sources`` frontmatter as a list; never raises (C10).
+
+    Hand-written frontmatter often carries a scalar (``sources: some-url``)
+    — a scalar becomes a single-entry list, ``None`` becomes ``[]``.
+    """
+    if not isinstance(frontmatter, Mapping):
+        return []
+    sources = frontmatter.get("sources")
+    if sources is None:
+        return []
+    if isinstance(sources, (str, Mapping)):
+        return [sources]
+    if isinstance(sources, (list, tuple)):
+        return list(sources)
+    return [sources]
+
+
+def _render_source_entry(entry: Any) -> str:
+    """One-line human rendering of a ``sources[]`` entry; never raises."""
+    if isinstance(entry, Mapping):
+        bits = []
+        for key in ("id", "title", "resource", "author"):
+            value = entry.get(key)
+            if value:
+                bits.append(f"{key}: {_one_line(str(value), 100)}")
+        if bits:
+            return "; ".join(bits)
+        return _one_line(str(dict(entry)), 120)
+    return _one_line(str(entry), 140)
+
+
+def _relation_matches(link_text: str, target: str, relation_filter: str) -> bool:
+    """True when *relation_filter* describes the link.
+
+    The OKF link model has no explicit relation type, so the filter matches
+    the prose-derived relation (the link text) or the target id — prefix or
+    substring — case-insensitively.
+    """
+    needle = relation_filter.lower()
+    return needle in link_text.lower() or needle in target.lower()
+
+
+def _load_sync_state(bundle: Bundle) -> dict[str, Any] | None:
+    """Read ``<bundle>/.okfsmith/sync-state.json``; ``None`` when unusable.
+
+    Never raises: a missing file, a symlink (never followed — same rule as
+    :meth:`Bundle.load`), invalid JSON, or a non-mapping payload all degrade
+    to ``None`` so callers fall back to their documented behaviour.
+    """
+    try:
+        from okfsmith.core.sync import SYNC_STATE_FILENAME
+        from okfsmith.parsers.dedup import MANIFEST_DIRNAME
+    except ImportError:
+        return None
+    try:
+        path = bundle.root / MANIFEST_DIRNAME / SYNC_STATE_FILENAME
+        if path.is_symlink() or not path.is_file():
+            return None
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, UnicodeError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _decode_state_key(key: Any) -> str:
+    """Reverse the sync-state key encoding (``sync-key-b64:``); never raises."""
+    prefix = "sync-key-b64:"
+    if isinstance(key, str) and key.startswith(prefix):
+        try:
+            raw = base64.b64decode(key[len(prefix) :].encode("ascii"))
+            return raw.decode("utf-8", errors="replace")
+        except (ValueError, binascii.Error, UnicodeError):
+            return key
+    return str(key)
 
 
 def _rank_concepts_legacy(
@@ -210,7 +457,7 @@ def _bundle_links(target: str) -> str | None:
 
 
 class BundleTools:
-    """The five MCP tool functions, bound to one loaded bundle.
+    """The eight MCP tool functions, bound to one loaded bundle.
 
     Instances are created by :func:`build_server`; each method is registered
     as an MCP tool. They are also directly callable (as the tests do), with
@@ -218,14 +465,111 @@ class BundleTools:
 
     Every method returns compact markdown text. Lookup failures return a
     plain-English ``Error: ...`` string — never an exception — so agents get
-    a recoverable message instead of a tool crash.
+    a recoverable message instead of a tool crash. Every method also accepts
+    the evidence-budget parameters ``max_chunks`` (items per response, hard
+    cap 50), ``max_tokens`` (approximate output budget, ``None`` = unbounded)
+    and ``continuation_token`` (opaque paging token); budgets cut at whole
+    units, never mid-item, and an invalid token returns a clean error.
     """
 
     def __init__(self, bundle: Bundle) -> None:
         self.bundle = bundle
+        # Built once: the bundle is loaded once at server startup, so the
+        # supersession graph is stable for the server's lifetime.
+        self._sindex = _temporal.SupersessionIndex.from_bundle(bundle)
+
+    # -- shared rendering ----------------------------------------------------
+    def _render_paged(
+        self,
+        *,
+        title: str,
+        whole: str,
+        units: list[str],
+        notes: list[str] | tuple[str, ...] = (),
+        max_chunks: Any,
+        chunk_default: int,
+        max_tokens: Any,
+        continuation_token: Any,
+    ) -> str:
+        """Render a budgeted, pageable markdown response from *units*.
+
+        *units* are pre-rendered markdown lines (section headers included);
+        *notes* are first-page-only context lines (supersession notices,
+        query mode). Applies the continuation offset, the ``max_chunks``
+        page size, and the approximate ``max_tokens`` budget — always at
+        whole-unit boundaries, never mid-item. When everything fits on the
+        first page with no budgets applied, returns *whole* byte-identical
+        (the backward-compat fast path: old callers see old output).
+        Otherwise returns ``# {title}`` (``(continued)`` when resuming), the
+        page's units, and — when units remain — the ``…[truncated, N more]``
+        marker plus the next ``continuation_token``. An invalid token
+        returns a clean error, never a traceback.
+        """
+        start = 0
+        if continuation_token:
+            decoded = _decode_continuation(continuation_token)
+            if decoded is None:
+                return (
+                    "Error: invalid `continuation_token` — it is malformed, "
+                    "from another query, or for a newer token format. Omit "
+                    "it to start from the first page."
+                )
+            start = decoded
+        chunks = _coerce_chunks(max_chunks, chunk_default)
+        budget = _coerce_max_tokens(max_tokens)
+        flow = list(notes) + units if start == 0 else units
+        start = min(start, len(flow))
+        page = flow[start : start + chunks]
+        kept, resume, remaining = _fit_budget(page, start, len(flow), budget)
+        if start == 0 and remaining == 0:
+            return whole
+        lines = [f"# {title} (continued)" if start else f"# {title}"]
+        lines.extend(kept)
+        if remaining > 0:
+            lines.append(f"…[truncated, {remaining} more]")
+            lines.append(
+                f'_Pass `continuation_token="{_encode_continuation(resume)}"` '
+                "for the next page._"
+            )
+        return "\n".join(lines)
+
+    def _temporal_note(self, concept: Concept, now: Any) -> str | None:
+        """Human note for a non-current temporal status; ``None`` when current.
+
+        Never raises: temporal fields are untrusted frontmatter (P2).
+        """
+        try:
+            status = self._sindex.status(concept, now)
+        except Exception:
+            return None
+        if status.name == "current":
+            return None
+        if status.name == "superseded":
+            return f"superseded by `{status.superseded_by}`"
+        return status.name.replace("_", " ")  # "expired" / "not yet valid"
+
+    def _is_superseded(self, concept: Concept, now: Any) -> bool:
+        """True when *concept* is superseded at *now*; never raises."""
+        try:
+            return self._sindex.status(concept, now).name == "superseded"
+        except Exception:
+            return False
+
+    def _currency_rank(self, concept: Concept, now: Any) -> int:
+        """Sort key for currency-aware ordering (P2): current, windowed, superseded."""
+        try:
+            name = self._sindex.status(concept, now).name
+        except Exception:
+            return 0
+        return {"current": 0, "superseded": 2}.get(name, 1)
 
     # -- progressive disclosure entry point ---------------------------------
-    def index(self) -> str:
+    def index(
+        self,
+        max_chunks: int = 50,
+        max_tokens: int | None = None,
+        continuation_token: str | None = None,
+    ) -> str:
         """Return the bundle's root index.md — the map of the whole knowledge base.
 
         This is the starting point for progressive disclosure: the index
@@ -233,6 +577,11 @@ class BundleTools:
         orient yourself, then use `search` to find concepts by keyword and
         `get` to read a concept in full. Each index entry's concept id can
         be passed to `get`, `neighbors`, or `list` for deeper exploration.
+
+        Evidence budgets: `max_chunks` caps the 50-line text chunks returned
+        (default 50, hard cap 50), `max_tokens` is an approximate output
+        budget (``None`` = unbounded), and `continuation_token` pages through
+        long indexes — budgets cut at chunk boundaries, never mid-line.
 
         Returns the raw index.md text; if the bundle has no index.md, says
         so and suggests `list` instead.
@@ -242,10 +591,25 @@ class BundleTools:
                 "This bundle has no root index.md. Use the `list` tool to see "
                 "all concepts, or `search` to find one by keyword."
             )
-        return self.bundle.index_text
+        return self._render_paged(
+            title="Bundle index",
+            whole=self.bundle.index_text,
+            units=_text_chunks(self.bundle.index_text),
+            max_chunks=max_chunks,
+            chunk_default=50,
+            max_tokens=max_tokens,
+            continuation_token=continuation_token,
+        )
 
     # -- inventory -----------------------------------------------------------
-    def list(self, filter_type: str = "", limit: int = 50) -> str:
+    def list(
+        self,
+        filter_type: str = "",
+        limit: int = 50,
+        max_chunks: int = 50,
+        max_tokens: int | None = None,
+        continuation_token: str | None = None,
+    ) -> str:
         """List every concept in the bundle: id, type, trust tier, and title.
 
         Use this for a full inventory of the knowledge base, or to narrow
@@ -253,6 +617,10 @@ class BundleTools:
         `type` (case-insensitive substring, e.g. "Metric", "Playbook",
         "Attested Computation"). `limit` caps the number of rows returned
         (non-numeric input falls back to the default 50).
+
+        Evidence budgets: `max_chunks` caps the rows per response (default
+        50, hard cap 50), `max_tokens` is an approximate output budget, and
+        `continuation_token` pages through long inventories.
 
         Returns a markdown list ordered by concept id. For the full text of
         any concept, pass its id to `get`.
@@ -272,11 +640,54 @@ class BundleTools:
                 if not filter_type
                 else f"No concepts found with type matching {filter_type!r}."
             )
-        lines = [_concept_label(c) for c in concepts]
-        return f"# Concepts ({len(lines)})\n\n" + "\n".join(f"- {line}" for line in lines)
+        units = [f"- {_concept_label(c)}" for c in concepts]
+        title = f"Concepts ({len(units)})"
+        return self._render_paged(
+            title=title,
+            whole=f"# {title}\n\n" + "\n".join(units),
+            units=units,
+            max_chunks=max_chunks,
+            chunk_default=50,
+            max_tokens=max_tokens,
+            continuation_token=continuation_token,
+        )
 
     # -- keyword search ------------------------------------------------------
-    def search(self, query: str, limit: int = 10) -> str:
+    def _search_hits(
+        self, query: str, limit: int, include_superseded: bool
+    ) -> tuple[list[tuple[float, Concept]], int]:
+        """Ranked ``(score, concept)`` hits plus the superseded-hidden count.
+
+        Currency-aware (P2): superseded concepts are hidden unless
+        *include_superseded* — the same default the ``okfsmith search`` CLI
+        uses. Falls back to :func:`rank_concepts` when the BM25 engine is
+        unavailable or rejects malformed frontmatter, so the tools' "never
+        an exception" contract wins over ranking parity on hostile input.
+        """
+        try:
+            from okfsmith.search import search_bundle_detailed
+        except ImportError:
+            return rank_concepts(self.bundle, query, limit), 0
+        try:
+            result = search_bundle_detailed(
+                self.bundle,
+                query,
+                limit,
+                include_superseded=bool(include_superseded),
+            )
+        except (TypeError, AttributeError):
+            return rank_concepts(self.bundle, query, limit), 0
+        return result.hits, result.superseded_hidden
+
+    def search(
+        self,
+        query: str,
+        limit: int = 10,
+        include_superseded: bool = False,
+        max_chunks: int = 10,
+        max_tokens: int | None = None,
+        continuation_token: str | None = None,
+    ) -> str:
         """Search concepts by id, title, description, tags, and body text.
 
         Full-text BM25 ranking (stdlib-only ``okfsmith.search`` engine,
@@ -285,6 +696,13 @@ class BundleTools:
         description/tags ×2, body ×1, with stemming, quoted phrases, and
         ``-exclusions``. `limit` caps the number of results (default 10;
         non-numeric input falls back to 10).
+
+        Currency-aware (P2): superseded concepts are hidden by default and
+        reported as a count; pass `include_superseded=True` to reveal them
+        (shown last). Evidence budgets: `max_chunks` caps the hits per
+        response (default 10, hard cap 50), `max_tokens` is an approximate
+        output budget, and `continuation_token` pages through long result
+        lists.
 
         Returns a compact markdown list: concept id, type, trust tier
         (`human-reviewed` > `machine-confirmed` > `unverified`), title, and
@@ -295,18 +713,41 @@ class BundleTools:
         if not isinstance(query, str) or not query.split():
             return "Error: `query` is empty — provide a keyword to search for."
         limit = _coerce_limit(limit, 10)
-        hits = rank_concepts(self.bundle, query, limit)
+        hits, hidden = self._search_hits(query, limit, include_superseded)
         if not hits:
             return f"No concepts match {query!r}. Try broader keywords or use `list`."
-        lines = [
-            f"{_concept_label(c)}\n  {_description(c)}" for _, c in hits
-        ]
-        return f"# Search: {query} ({len(lines)} result(s))\n\n" + "\n".join(
-            f"- {line}" for line in lines
+        units = [f"- {_concept_label(c)}\n  {_description(c)}" for _, c in hits]
+        notes = (
+            [
+                f"_{hidden} superseded concept(s) hidden — "
+                "pass `include_superseded=True` to reveal._"
+            ]
+            if hidden
+            else []
+        )
+        title = f"Search: {query} ({len(units)} result(s))"
+        whole = f"# {title}\n\n" + "\n".join(units)
+        if notes:
+            whole += "\n\n" + "\n".join(notes)
+        return self._render_paged(
+            title=title,
+            whole=whole,
+            units=units,
+            notes=notes,
+            max_chunks=max_chunks,
+            chunk_default=10,
+            max_tokens=max_tokens,
+            continuation_token=continuation_token,
         )
 
     # -- full concept --------------------------------------------------------
-    def get(self, concept_id: str) -> str:
+    def get(
+        self,
+        concept_id: str,
+        max_chunks: int = 50,
+        max_tokens: int | None = None,
+        continuation_token: str | None = None,
+    ) -> str:
         """Read one concept in full: its YAML frontmatter followed by its markdown body.
 
         `concept_id` is the concept's path id, e.g. "finance/revenue" (see
@@ -315,21 +756,41 @@ class BundleTools:
         (`generated` / `verified`), and `sources` — and the body is the
         knowledge content itself.
 
+        Evidence budgets: `max_chunks` caps the 50-line text chunks returned
+        (default 50, hard cap 50), `max_tokens` is an approximate output
+        budget (``None`` = unbounded), and `continuation_token` pages through
+        long documents — budgets cut at chunk boundaries, never mid-line.
+
         Returns the concept document (frontmatter + body). If the id does
         not exist, returns a clean "not found" error suggesting how to find
         valid ids.
         """
-        concept = self.bundle.get(concept_id)
+        concept = self.bundle.get(concept_id) if isinstance(concept_id, str) else None
         if concept is None:
             return (
                 f"Error: concept {concept_id!r} not found in this bundle. "
                 "Use `list` to see all concept ids or `search` to find one "
                 "by keyword."
             )
-        return _fm.serialize_frontmatter(concept.frontmatter, concept.body)
+        whole = _fm.serialize_frontmatter(concept.frontmatter, concept.body)
+        return self._render_paged(
+            title=f"Get {concept_id}",
+            whole=whole,
+            units=_text_chunks(whole),
+            max_chunks=max_chunks,
+            chunk_default=50,
+            max_tokens=max_tokens,
+            continuation_token=continuation_token,
+        )
 
     # -- link graph ----------------------------------------------------------
-    def neighbors(self, concept_id: str) -> str:
+    def neighbors(
+        self,
+        concept_id: str,
+        max_chunks: int = 50,
+        max_tokens: int | None = None,
+        continuation_token: str | None = None,
+    ) -> str:
         """Show a concept's outgoing links and incoming backlinks.
 
         Outgoing links are the markdown links in the concept's own body.
@@ -339,10 +800,14 @@ class BundleTools:
         prose-derived description of the relation (e.g. "computed by [the
         revenue computation](/computations/revenue)").
 
+        Evidence budgets: `max_chunks` caps the link rows per response
+        (default 50, hard cap 50), `max_tokens` is an approximate output
+        budget, and `continuation_token` pages through long neighborhoods.
+
         Returns two sections, "Outgoing" and "Incoming". A missing concept
         returns a clean "not found" error.
         """
-        concept = self.bundle.get(concept_id)
+        concept = self.bundle.get(concept_id) if isinstance(concept_id, str) else None
         if concept is None:
             return (
                 f"Error: concept {concept_id!r} not found in this bundle. "
@@ -380,20 +845,465 @@ class BundleTools:
         def _fmt_in(source_id: str, source_type: str, text: str) -> str:
             return f"- **{source_id}** (`{source_type}`) — linked as: \"{text}\""
 
-        parts = [f"# Links for {concept_id}"]
-        parts.append(f"\n## Outgoing ({len(outgoing)})")
-        parts.append(
-            "\n".join(_fmt_out(lid, text) for lid, text in outgoing)
-            if outgoing
-            else "_No outgoing links._"
+        units = [f"## Outgoing ({len(outgoing)})"]
+        if outgoing:
+            units.extend(_fmt_out(lid, text) for lid, text in outgoing)
+        else:
+            units.append("_No outgoing links._")
+        units.append("")
+        units.append(f"## Incoming ({len(incoming)})")
+        if incoming:
+            units.extend(_fmt_in(sid, stype, text) for sid, stype, text in incoming)
+        else:
+            units.append("_No incoming links._")
+        title = f"Links for {concept_id}"
+        return self._render_paged(
+            title=title,
+            whole=f"# {title}\n\n" + "\n".join(units),
+            units=units,
+            max_chunks=max_chunks,
+            chunk_default=50,
+            max_tokens=max_tokens,
+            continuation_token=continuation_token,
         )
-        parts.append(f"\n## Incoming ({len(incoming)})")
-        parts.append(
-            "\n".join(_fmt_in(sid, stype, text) for sid, stype, text in incoming)
-            if incoming
-            else "_No incoming links._"
+
+
+    # -- graph traversal -----------------------------------------------------
+    def traverse(
+        self,
+        concept_id: str,
+        depth: int = 1,
+        relation_filter: str | None = None,
+        include_superseded: bool = False,
+        max_chunks: int = 10,
+        max_tokens: int | None = None,
+        continuation_token: str | None = None,
+    ) -> str:
+        """Walk the concept link graph outward from one concept (breadth-first).
+
+        `concept_id` is the entry point; `depth` is how many link hops to
+        expand (capped at 3 — deeper requests are capped, not rejected).
+        `relation_filter` optionally restricts which links are followed: the
+        OKF link model has no explicit relation type, so the filter matches
+        the prose-derived relation (the link text, e.g. "computed by") or the
+        target id (prefix or substring), case-insensitively.
+
+        Currency-aware (P2): superseded concepts are hidden by default (and
+        never traversed through); pass `include_superseded=True` to reveal
+        them. Within each depth level, current concepts sort before
+        expired/not-yet-valid ones. The walk is cycle-safe (a visited set)
+        and deterministic (links expand in target-id order).
+
+        Evidence budgets: `max_chunks` caps the concepts per response
+        (default 10, hard cap 50), `max_tokens` is an approximate output
+        budget, and `continuation_token` pages through large neighborhoods.
+
+        Returns one section per depth level with a one-line summary per
+        concept plus the link text that led to it. A missing concept
+        returns a clean "not found" error.
+        """
+        concept = self.bundle.get(concept_id) if isinstance(concept_id, str) else None
+        if concept is None:
+            return (
+                f"Error: concept {concept_id!r} not found in this bundle. "
+                "Use `list` to see all concept ids or `search` to find one "
+                "by keyword."
+            )
+        requested_depth = _coerce_limit(depth, 1)
+        max_depth = min(requested_depth, _MAX_TRAVERSE_DEPTH)
+        filt = str(relation_filter).strip().lower() if relation_filter else ""
+        now = _temporal.utcnow()
+
+        visited = {concept.id}
+        levels: list[list[tuple[str, str, Concept]]] = []
+        hidden = 0
+        dangling = 0
+        frontier = [concept.id]
+        for _ in range(max_depth):
+            found: list[tuple[str, str, Concept]] = []
+            next_frontier: list[str] = []
+            for parent_id in frontier:
+                parent = self.bundle.get(parent_id)
+                if parent is None:
+                    continue
+                targets: dict[str, str] = {}
+                for text, target in _LINK_RE.findall(parent.body or ""):
+                    linked_id = _bundle_links(target)
+                    if linked_id and linked_id not in targets:
+                        targets[linked_id] = text.strip()
+                for linked_id, text in sorted(targets.items()):
+                    if filt and not _relation_matches(text, linked_id, filt):
+                        continue
+                    if linked_id in visited:
+                        continue
+                    visited.add(linked_id)
+                    node = self.bundle.get(linked_id)
+                    if node is None:
+                        dangling += 1
+                        continue
+                    if not include_superseded and self._is_superseded(node, now):
+                        hidden += 1
+                        continue
+                    found.append((parent_id, text, node))
+                    next_frontier.append(linked_id)
+            if not found:
+                break
+            found.sort(
+                key=lambda item: (self._currency_rank(item[2], now), item[2].id)
+            )
+            levels.append(found)
+            frontier = next_frontier
+
+        notes: list[str] = []
+        start_note = self._temporal_note(concept, now)
+        if start_note:
+            notes.append(f"_Note: **{concept.id}** is {start_note}._")
+        if requested_depth > _MAX_TRAVERSE_DEPTH:
+            notes.append(f"_Depth capped at {_MAX_TRAVERSE_DEPTH}._")
+        if filt:
+            notes.append(
+                f'_Relation filter: "{relation_filter}" — matched against '
+                "link text and target id._"
+            )
+        total = sum(len(items) for items in levels)
+        notes.append(
+            f"_Reached {total} concept(s) across {len(levels)} depth level(s) "
+            f"(depth ≤ {max_depth})._"
         )
-        return "\n".join(parts)
+        if hidden:
+            notes.append(
+                f"_{hidden} superseded concept(s) hidden — "
+                "pass `include_superseded=True` to reveal._"
+            )
+        if dangling:
+            notes.append(f"_{dangling} link(s) point to missing concepts._")
+
+        units: list[str] = []
+        for depth_no, items in enumerate(levels, start=1):
+            units.append(f"## Depth {depth_no} ({len(items)})")
+            for parent_id, text, node in items:
+                line = f'- {_concept_label(node)} — via "{text}" from `{parent_id}`'
+                note = self._temporal_note(node, now)
+                if note:
+                    line += f" _({note})_"
+                units.append(line)
+        if not units:
+            units.append("_No linked concepts found within the requested depth._")
+
+        title = f"Traverse from {concept_id} (depth ≤ {max_depth})"
+        head = [f"# {title}", ""]
+        if notes:
+            head.extend([*notes, ""])
+        return self._render_paged(
+            title=title,
+            whole="\n".join(head + units),
+            units=units,
+            notes=notes,
+            max_chunks=max_chunks,
+            chunk_default=10,
+            max_tokens=max_tokens,
+            continuation_token=continuation_token,
+        )
+
+    # -- provenance ----------------------------------------------------------
+    def _ingested_sources(self, concept_id: str) -> list[tuple[str, str | None]]:
+        """``(source path, sha256)`` sync-state records listing *concept_id*.
+
+        Walks the ingested-source manifest (``sync-state.json``); returns
+        ``[]`` when there is no usable state. Never raises.
+        """
+        state = _load_sync_state(self.bundle)
+        if not state:
+            return []
+        records = state.get("sources")
+        if not isinstance(records, dict):
+            return []
+        found: list[tuple[str, str | None]] = []
+        for key, record in records.items():
+            if not isinstance(record, dict):
+                continue
+            try:
+                raw_concepts = record.get("concepts")
+                ids = (
+                    [str(cid) for cid in raw_concepts]
+                    if isinstance(raw_concepts, (list, tuple))
+                    else []
+                )
+                if concept_id in ids:
+                    sha = record.get("sha256")
+                    found.append(
+                        (_decode_state_key(key), sha if isinstance(sha, str) else None)
+                    )
+            except Exception:
+                continue
+        return sorted(found)
+
+    def provenance(
+        self,
+        concept_id: str,
+        max_chunks: int = 50,
+        max_tokens: int | None = None,
+        continuation_token: str | None = None,
+    ) -> str:
+        """Trace a concept's provenance: every claim back to its source.
+
+        Walks the concept's `sources[]` frontmatter and its footnote
+        references (`[^label]` → their `[^label]:` definitions), then links
+        each source to the ingested-source manifest (`sync-state.json`) when
+        one exists — showing the source file path and its SHA-256 digest at
+        ingest time. Malformed `sources` frontmatter (scalars, wrong types)
+        degrades to best-effort rendering; a missing or corrupt sync state
+        degrades to "no record" notes — this never crashes and never raises.
+
+        Evidence budgets: `max_chunks` caps the rows per response (default
+        50, hard cap 50), `max_tokens` is an approximate output budget, and
+        `continuation_token` pages through long chains.
+
+        Returns the chain: concept → `sources[]` entries → source
+        file/digest, then footnote references → definitions. A missing
+        concept returns a clean "not found" error.
+        """
+        concept = self.bundle.get(concept_id) if isinstance(concept_id, str) else None
+        if concept is None:
+            return (
+                f"Error: concept {concept_id!r} not found in this bundle. "
+                "Use `list` to see all concept ids or `search` to find one "
+                "by keyword."
+            )
+        ingested = self._ingested_sources(concept.id)
+        sources = _coerce_sources(concept.frontmatter)
+        definitions = _footnote_definitions(concept.body)
+        refs = _footnote_refs(concept.body)
+        try:
+            rel_path = concept.path.relative_to(self.bundle.root).as_posix()
+        except (ValueError, OSError):
+            rel_path = concept.path.name
+
+        units = [
+            _concept_label(concept),
+            f"_Path: `{rel_path}` · body sha256: `{_concept_sha256(concept)[:16]}…`_",
+        ]
+        temporal_note = self._temporal_note(concept, _temporal.utcnow())
+        if temporal_note:
+            units.append(f"_Temporal status: {temporal_note}._")
+        units.append(f"## Sources ({len(sources)})")
+        if sources:
+            for entry in sources:
+                units.append(f"- {_render_source_entry(entry)}")
+                if ingested:
+                    for src_path, sha in ingested:
+                        digest = f" (sha256: `{sha[:16]}…`)" if sha else ""
+                        units.append(f"  → ingested from `{src_path}`{digest}")
+                else:
+                    units.append(
+                        "  → _no sync-state record links this concept to an "
+                        "ingested source_"
+                    )
+        else:
+            units.append("_No `sources[]` entries in frontmatter._")
+        units.append(f"## Footnote references ({len(refs)})")
+        if refs:
+            for label in refs:
+                definition = definitions.get(label)
+                if definition:
+                    units.append(f"- [^{label}]: {definition}")
+                else:
+                    units.append(f"- [^{label}]: _definition not found in body_")
+        else:
+            units.append("_No footnote references in body._")
+
+        title = f"Provenance for {concept_id}"
+        return self._render_paged(
+            title=title,
+            whole=f"# {title}\n\n" + "\n".join(units),
+            units=units,
+            max_chunks=max_chunks,
+            chunk_default=50,
+            max_tokens=max_tokens,
+            continuation_token=continuation_token,
+        )
+
+    # -- bundle diff ---------------------------------------------------------
+    def diff(
+        self,
+        against: str | None = None,
+        max_chunks: int = 50,
+        max_tokens: int | None = None,
+        continuation_token: str | None = None,
+    ) -> str:
+        """Diff this bundle against a previous state: added/removed/changed concepts.
+
+        Two modes. With `against=<path to a bundle directory>`, compares the
+        bound bundle ("current") against that directory ("previous"):
+        added = ids only in current, removed = ids only in previous,
+        changed = same id with a different body SHA-256 (or a different
+        title). Each entry reports id, title, and the body sha256.
+
+        Without `against`, falls back to the `sync-state.json` snapshot
+        (`<bundle>/.okfsmith/sync-state.json`) when one exists: added/removed
+        come from the snapshot's recorded concept ids, and "changed" marks
+        concepts whose recorded source file's current SHA-256 differs from
+        the snapshot (best-effort; URL and missing sources are skipped).
+        With neither an `against` directory nor a usable snapshot, returns a
+        clean error explaining how to call it.
+
+        Evidence budgets: `max_chunks` caps the rows per response (default
+        50, hard cap 50), `max_tokens` is an approximate output budget, and
+        `continuation_token` pages through large diffs. Read-only: nothing
+        here modifies either bundle. A bad `against` value returns a clean
+        error, never a traceback.
+        """
+        if against is None:
+            return self._diff_against_sync_state(
+                max_chunks, max_tokens, continuation_token
+            )
+        if not isinstance(against, (str, Path)) or not str(against).strip():
+            return "Error: `against` must be a path to a bundle directory."
+        other_root = Path(str(against).strip())
+        if not other_root.is_dir():
+            return f"Error: `against` is not a directory: {against!r}."
+        try:
+            other = Bundle.load(other_root)
+        except Exception as exc:
+            return f"Error: could not load bundle at {against!r}: {exc}."
+        current = {c.id: c for c in self.bundle.iter_concepts()}
+        previous = {c.id: c for c in other.iter_concepts()}
+        added = sorted(set(current) - set(previous))
+        removed = sorted(set(previous) - set(current))
+        changed = sorted(
+            cid
+            for cid in set(current) & set(previous)
+            if _concept_sha256(current[cid]) != _concept_sha256(previous[cid])
+            or _concept_title(current[cid]) != _concept_title(previous[cid])
+        )
+
+        units = [f"## Added ({len(added)})"]
+        for cid in added:
+            node = current[cid]
+            units.append(
+                f"- **{cid}** — {_concept_title(node)} — "
+                f"sha256 `{_concept_sha256(node)[:12]}…`"
+            )
+        if not added:
+            units.append("_none_")
+        units.append(f"## Removed ({len(removed)})")
+        for cid in removed:
+            node = previous[cid]
+            units.append(
+                f"- **{cid}** — {_concept_title(node)} — "
+                f"sha256 `{_concept_sha256(node)[:12]}…`"
+            )
+        if not removed:
+            units.append("_none_")
+        units.append(f"## Changed ({len(changed)})")
+        for cid in changed:
+            old, new = previous[cid], current[cid]
+            units.append(
+                f"- **{cid}** — {_concept_title(new)} — "
+                f"`{_concept_sha256(old)[:12]}…` → `{_concept_sha256(new)[:12]}…`"
+            )
+        if not changed:
+            units.append("_none_")
+
+        notes = [f"_Comparing the current bundle against `{other_root}`._"]
+        title = "Bundle diff"
+        return self._render_paged(
+            title=title,
+            whole=f"# {title}\n\n" + "\n".join(notes) + "\n\n" + "\n".join(units),
+            units=units,
+            notes=notes,
+            max_chunks=max_chunks,
+            chunk_default=50,
+            max_tokens=max_tokens,
+            continuation_token=continuation_token,
+        )
+
+    def _diff_against_sync_state(
+        self, max_chunks: Any, max_tokens: Any, continuation_token: Any
+    ) -> str:
+        """``diff()`` with no ``against``: compare against the sync snapshot."""
+        state = _load_sync_state(self.bundle)
+        if state is None:
+            return (
+                "Error: no `against` bundle directory given and no usable "
+                "`sync-state.json` snapshot found in this bundle (looked for "
+                "`<bundle>/.okfsmith/sync-state.json`). Pass "
+                "`against=<path to a bundle directory>` to compare against it."
+            )
+        origins: dict[str, list[tuple[str, str | None]]] = {}
+        records = state.get("sources")
+        record_count = 0
+        if isinstance(records, dict):
+            record_count = len(records)
+            for key, record in records.items():
+                if not isinstance(record, dict):
+                    continue
+                path = _decode_state_key(key)
+                sha = record.get("sha256")
+                sha = sha if isinstance(sha, str) else None
+                raw_concepts = record.get("concepts")
+                ids = (
+                    [str(cid) for cid in raw_concepts]
+                    if isinstance(raw_concepts, (list, tuple))
+                    else []
+                )
+                for cid in ids:
+                    origins.setdefault(cid, []).append((path, sha))
+        current = {c.id: c for c in self.bundle.iter_concepts()}
+        prev_ids = set(origins)
+        added = sorted(set(current) - prev_ids)
+        removed = sorted(prev_ids - set(current))
+        changed: list[tuple[str, str, str, str]] = []
+        for cid in sorted(set(current) & prev_ids):
+            for path, old_sha in origins[cid]:
+                if not old_sha:
+                    continue
+                candidate = Path(path)
+                if candidate.is_symlink() or not candidate.is_file():
+                    continue
+                new_sha = _sha256_file(candidate)
+                if new_sha and new_sha != old_sha:
+                    changed.append((cid, path, old_sha, new_sha))
+                    break
+
+        units = [f"## Added ({len(added)})"]
+        for cid in added:
+            node = current[cid]
+            units.append(
+                f"- **{cid}** — {_concept_title(node)} — "
+                f"sha256 `{_concept_sha256(node)[:12]}…`"
+            )
+        if not added:
+            units.append("_none_")
+        units.append(f"## Removed ({len(removed)})")
+        units.extend(f"- **{cid}**" for cid in removed)
+        if not removed:
+            units.append("_none_")
+        units.append(f"## Changed ({len(changed)})")
+        for cid, path, old_sha, new_sha in changed:
+            units.append(
+                f"- **{cid}** — {_concept_title(current[cid])} — "
+                f"source `{path}` changed "
+                f"(`{old_sha[:12]}…` → `{new_sha[:12]}…`)"
+            )
+        if not changed:
+            units.append("_none_")
+
+        notes = [
+            "_Comparing against the `sync-state.json` snapshot "
+            f"({record_count} source record(s))._"
+        ]
+        title = "Bundle diff"
+        return self._render_paged(
+            title=title,
+            whole=f"# {title}\n\n" + "\n".join(notes) + "\n\n" + "\n".join(units),
+            units=units,
+            notes=notes,
+            max_chunks=max_chunks,
+            chunk_default=50,
+            max_tokens=max_tokens,
+            continuation_token=continuation_token,
+        )
 
 
 def build_server(bundle_path: str | Path):
@@ -406,8 +1316,9 @@ def build_server(bundle_path: str | Path):
     :class:`ValueError` if *bundle_path* is empty, and
     :class:`NotADirectoryError` if *bundle_path* is not a directory.
 
-    The returned server is a FastMCP instance with the five read-only tools
-    registered: ``index``, ``list``, ``search``, ``get``, ``neighbors``.
+    The returned server is a FastMCP instance with the eight read-only tools
+    registered: ``index``, ``list``, ``search``, ``get``, ``neighbors``,
+    ``traverse``, ``provenance``, ``diff``.
     """
     if str(bundle_path).strip() == "":
         raise ValueError("bundle_path must not be empty")
@@ -425,6 +1336,9 @@ def build_server(bundle_path: str | Path):
     server.tool(tools.search)
     server.tool(tools.get)
     server.tool(tools.neighbors)
+    server.tool(tools.traverse)
+    server.tool(tools.provenance)
+    server.tool(tools.diff)
     return server
 
 
