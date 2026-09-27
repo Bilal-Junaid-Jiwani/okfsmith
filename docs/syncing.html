@@ -85,6 +85,7 @@
 <ul class="nav-list">
 <li><a class="nav-item" href="ingesting.html">Ingesting documents</a></li>
 <li><a class="nav-item" href="validation.html">Validation &amp; error codes</a></li>
+<li><a class="nav-item" href="temporality.html">Temporal model</a></li>
 <li><a class="nav-item" href="syncing.html" data-active="true" aria-current="page">Syncing sources</a></li>
 <li><a class="nav-item" href="graph.html">Visualizing the knowledge graph</a></li>
 </ul></div>
@@ -148,6 +149,7 @@ sync: 0 added, 1 updated, 0 renamed, 0 removed, 1 unchanged, 0 skipped, 0 failed
 <h2 id="what-each-change-means">What each change means</h2>
 <div class="table-wrap"><table><thead><tr><th>Change</th><th>What <code>sync</code> does</th></tr></thead><tbody><tr><td><code>added</code></td><td>Ingests the file — LLM or <code>--no-llm</code> path, exactly like <code>ingest</code>.</td></tr><tr><td><code>updated</code></td><td>Re-ingests and <strong>replaces</strong> the old concepts under the same ids. No <code>name-2</code> duplicates.</td></tr><tr><td><code>renamed</code></td><td>Detected by identical content hash at a new path. Concepts keep their ids and history; only the <code>resource</code> provenance is rewritten.</td></tr><tr><td><code>removed</code></td><td>The file is gone, so its concepts are deleted from the bundle.</td></tr><tr><td><code>unchanged</code></td><td>Skipped entirely — no parsing, no LLM calls, no writes.</td></tr><tr><td><code>skipped</code></td><td>The file would not ingest (unparseable, too small) — old concepts are kept.</td></tr><tr><td><code>failed</code></td><td>Something went wrong with this one file; the rest of the run continues.</td></tr></tbody></table></div>
 <p>Additions are always applied <strong>before</strong> deletions, so a rename or a replace can never leave the bundle momentarily empty.</p>
+<aside class="admonition note"><span class="admon-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.75" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 7.25v3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="5" r="0.9" fill="currentColor"/></svg></span><div class="admon-body"><p class="admon-title">Note</p><p><strong>Temporal metadata survives re-ingest.</strong> When an <code>updated</code> file's concepts keep the same ids, their <code>valid_from</code> / <code>valid_until</code> / <code>supersedes</code> / <code>last_verified</code> frontmatter is carried over onto the new versions (values already present in the source win). Renamed or restructured concepts — new ids — intentionally start fresh, and <code>sync</code> never auto-stamps <code>supersedes</code>. See <a href="temporality.html">Temporal model</a>.</p></div></aside>
 <h2 id="watch-mode">Watch mode</h2>
 <p><code>--watch</code> keeps the sync running and re-scans on a timer. It's plain stdlib polling — no extra dependencies, no filesystem hooks:</p>
 <pre class="codeblock" data-lang="bash"><code>okfsmith sync ./kb ./docs --no-llm --watch --interval 10
@@ -217,7 +219,7 @@ sync: 0 added, 1 updated, 0 renamed, 0 removed, 1 unchanged, 0 skipped, 0 failed
 <aside class="admonition note"><span class="admon-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.75" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 7.25v3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="5" r="0.9" fill="currentColor"/></svg></span><div class="admon-body"><p class="admon-title">Note</p><p>Deleting the state file is also how you "reset" sync for a source tree — e.g. after reorganizing your documents.</p></div></aside>
       </div>
       <nav class="prev-next" aria-label="Previous and next page">
-        <a class="page-prev" href="validation.html"><span class="prev-next-label">Previous</span><span class="prev-next-title">&larr; Validation &amp; error codes</span></a>
+        <a class="page-prev" href="temporality.html"><span class="prev-next-label">Previous</span><span class="prev-next-title">&larr; Temporal model</span></a>
         <a class="page-next" href="graph.html"><span class="prev-next-label">Next</span><span class="prev-next-title">Visualizing the knowledge graph &rarr;</span></a>
       </nav>
     </main>

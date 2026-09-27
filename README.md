@@ -207,6 +207,7 @@ pipx install "okfsmith[office,mcp]"
 [Documentation index](https://github.com/Bilal-Junaid-Jiwani/okfsmith/blob/master/docs/index.md) · [Quickstart](https://github.com/Bilal-Junaid-Jiwani/okfsmith/blob/master/docs/quickstart.md) ·
 [Pipeline](https://github.com/Bilal-Junaid-Jiwani/okfsmith/blob/master/docs/pipeline.md) · [Searching](https://github.com/Bilal-Junaid-Jiwani/okfsmith/blob/master/docs/searching.md) ·
 [Validation](https://github.com/Bilal-Junaid-Jiwani/okfsmith/blob/master/docs/validation.md) ·
+[Temporal model](https://bilal-junaid-jiwani.github.io/okfsmith/docs/temporality.html) ·
 [MCP](https://github.com/Bilal-Junaid-Jiwani/okfsmith/blob/master/docs/mcp.md) · [Troubleshooting](https://github.com/Bilal-Junaid-Jiwani/okfsmith/blob/master/docs/troubleshooting.md) ·
 [FAQ](https://github.com/Bilal-Junaid-Jiwani/okfsmith/blob/master/docs/faq.md)
 

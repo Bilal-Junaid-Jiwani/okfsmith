@@ -52,6 +52,14 @@ sync: 0 added, 1 updated, 0 renamed, 0 removed, 1 unchanged, 0 skipped, 0 failed
 Additions are always applied **before** deletions, so a rename or a
 replace can never leave the bundle momentarily empty.
 
+> [!NOTE]
+> **Temporal metadata survives re-ingest.** When an `updated` file's concepts
+> keep the same ids, their `valid_from` / `valid_until` / `supersedes` /
+> `last_verified` frontmatter is carried over onto the new versions (values
+> already present in the source win). Renamed or restructured concepts — new
+> ids — intentionally start fresh, and `sync` never auto-stamps `supersedes`.
+> See [Temporal model](temporality.html).
+
 ## Watch mode
 
 `--watch` keeps the sync running and re-scans on a timer. It's plain

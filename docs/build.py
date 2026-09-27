@@ -43,7 +43,7 @@ SEARCH_INDEX_FILE = HERE / "assets" / "js" / "search-index.json"
 
 SLUG_ORDER = [
     "install", "quickstart", "chat",
-    "ingesting", "validation", "syncing", "graph", "skill", "faq",
+    "ingesting", "validation", "temporality", "syncing", "graph", "skill", "faq",
     "cli", "providers", "mcp", "troubleshooting", "changelog",
 ]
 
@@ -151,7 +151,7 @@ def write_llms(pages):
 # (tab label, landing slug, page slugs in order)
 TABS = [
     ("Getting started", "install", ["install", "quickstart", "chat"]),
-    ("User guide", "ingesting", ["ingesting", "validation", "syncing", "graph", "skill", "faq"]),
+    ("User guide", "ingesting", ["ingesting", "validation", "temporality", "syncing", "graph", "skill", "faq"]),
     ("CLI reference", "cli", ["cli"]),
     ("Providers", "providers", ["providers"]),
     ("MCP", "mcp", ["mcp"]),
@@ -161,7 +161,7 @@ TABS = [
 SIDEBAR_GROUPS = {
     "Getting started": [("Start here", ["install", "quickstart", "chat"])],
     "User guide": [
-        ("Building bundles", ["ingesting", "validation", "syncing", "graph"]),
+        ("Building bundles", ["ingesting", "validation", "temporality", "syncing", "graph"]),
         ("More", ["skill", "faq"]),
     ],
     "CLI reference": [("Reference", ["cli"])],
@@ -182,7 +182,8 @@ NEXT = {
     "cli": "mcp",
     "mcp": "troubleshooting",
     "troubleshooting": "changelog",
-    "validation": "syncing",
+    "validation": "temporality",
+    "temporality": "syncing",
     "syncing": "graph",
     "graph": "skill",
     "skill": "faq",

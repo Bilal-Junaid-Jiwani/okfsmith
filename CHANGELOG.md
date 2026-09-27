@@ -6,6 +6,34 @@ follow SemVer.
 ## [Unreleased]
 
 ### Added
+- **Temporal model (P2):** time-aware retrieval over `valid_from` /
+  `valid_until` / `supersedes` / `last_verified` frontmatter. Retrieval
+  groups hits by currency — validity window, then supersession, then trust
+  tier, then `last_verified` recency (BM25 score orders hits within a
+  group; trust and recency are tie-breakers; recency alone never demotes a
+  human-reviewed concept below an unverified one). Concepts outside their
+  validity window are demoted but still shown (marked `expired` / `future`);
+  superseded concepts are hidden by default (shown last with
+  `--include-superseded`, marked `superseded→<id>`) and never deleted.
+  New CLI surface: `okfsmith search --as-of <ISO-8601 date|datetime>`
+  replays validity and supersession chains at that instant;
+  `--include-superseded` reveals hidden predecessors. `list` gains a
+  `Valid` column (`—` for concepts with no temporal fields) and JSON
+  `temporal_status`; `read` appends a one-line `[temporal: …]` badge for
+  temporal/superseded concepts (plain current concepts print byte-identical
+  output) and JSON `temporal_status`; `search` JSON always reports `as_of`
+  and `superseded_hidden`. `validate` gains advisory warnings W016–W020
+  (malformed temporal fields, `valid_until` before `valid_from`, dangling
+  `supersedes` references, supersession cycles, future `last_verified`);
+  warnings never affect conformance. `sync` carries temporal frontmatter
+  over onto re-ingested concepts that keep the same ids (source values
+  win); renamed/restructured concepts start fresh, and `sync` never
+  auto-stamps `supersedes`. Malformed temporal frontmatter is untrusted
+  input: it degrades to validator warnings, never tracebacks or eval/path
+  use; `supersedes` lists are capped at 100 entries. The shared BM25
+  engine applies the same ranking to CLI, chat, and MCP. New docs page
+  `docs/temporality.html`; validation/CLI/syncing/searching docs, README,
+  SITEMAP, and man page updated.
 - `okfsmith sync BUNDLE SOURCE...`: incremental synchronization (P1).
   Each source file is SHA-256 fingerprinted and diffed against
   `<bundle>/.okfsmith/sync-state.json`; only new, changed, renamed, or

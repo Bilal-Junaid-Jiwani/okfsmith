@@ -51,19 +51,24 @@ def test_c4_mapping_roundtrip_unaffected():
     assert data == fm and body == "body\n"
 
 
-# --- C9: impossible timestamps -> unparseable, never a crash ---
+# --- C9: impossible timestamps degrade to strings, never a crash ---
+#
+# The lenient timestamp loader (core.frontmatter.lenient_safe_load) keeps the
+# mapping parseable when a date is typo'd: the bad scalar becomes a plain
+# string so downstream checks (e.g. validator W016) can report it precisely
+# instead of the whole block becoming unparseable (E001).
 
 
 def test_c9_bad_month_no_crash():
     raw = "---\ntype: Note\nstale_after: 2026-13-99\n---\nbody\n"
     data, body = parse_frontmatter(raw)
-    assert data == {} and body == raw
+    assert data == {"type": "Note", "stale_after": "2026-13-99"} and body == "body\n"
 
 
 def test_c9_impossible_day_no_crash():
     raw = "---\nd: 2026-02-30\n---\nbody\n"
     data, body = parse_frontmatter(raw)
-    assert data == {} and body == raw
+    assert data == {"d": "2026-02-30"} and body == "body\n"
 
 
 def test_c9_valid_timestamp_still_parses():

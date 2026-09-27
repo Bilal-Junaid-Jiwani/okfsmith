@@ -35,6 +35,8 @@ from pathlib import Path
 
 import yaml
 
+from okfsmith.core.frontmatter import lenient_safe_load as _lenient_yaml_load
+
 from . import Page, ParsedDocument
 from .office import markdown_tables
 
@@ -164,8 +166,12 @@ def _strip_frontmatter(text: str, suffix: str) -> str:
         if lines[i].strip() in ("---", "..."):
             block = "".join(lines[1:i])
             try:
-                data = yaml.safe_load(block) if block.strip() else None
-            except yaml.YAMLError:
+                # Lenient loader: a typo'd date in source frontmatter must not
+                # crash ingest (same hardening as core.frontmatter). ValueError
+                # is caught too — other YAML tags can still raise it on
+                # hostile input.
+                data = _lenient_yaml_load(block) if block.strip() else None
+            except (yaml.YAMLError, ValueError):
                 return text
             if isinstance(data, dict):
                 return "".join(lines[i + 1 :]).lstrip("\n")

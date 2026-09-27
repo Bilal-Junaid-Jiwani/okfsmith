@@ -24,6 +24,8 @@ from typing import NamedTuple
 
 import yaml
 
+from okfsmith.core import temporal as _temporal
+from okfsmith.core.frontmatter import lenient_safe_load as _yaml_load
 from okfsmith.links import extract_link_targets  # shared link extraction (M13)
 from okfsmith.validate import Finding
 
@@ -50,10 +52,19 @@ def _split_frontmatter(raw: str) -> tuple[str | None, str]:
 
 
 def _safe_yaml(text: str) -> tuple[bool, object]:
-    """Parse *text* as YAML, returning ``(ok, value)`` (never raises)."""
+    """Parse *text* as YAML, returning ``(ok, value)`` (never raises).
+
+    Impossible timestamps such as ``valid_from: 2026-13-99`` are degraded
+    to plain strings by the lenient loader (see
+    ``okfsmith.core.frontmatter``) so the mapping is preserved and temporal
+    checks can report a precise W016 advisory instead of a hard E001.
+    Genuinely malformed YAML still raises ``yaml.YAMLError`` and pathological
+    nesting raises ``RecursionError`` — both are treated as unparseable
+    (E001) instead of crashing the validator.
+    """
     try:
-        return True, yaml.safe_load(text)
-    except yaml.YAMLError:
+        return True, _yaml_load(text)
+    except (yaml.YAMLError, ValueError, RecursionError):
         return False, None
 
 
@@ -681,6 +692,153 @@ def _warn_unknown_status(doc: _Doc) -> list[Finding]:
 
 
 # ---------------------------------------------------------------------------
+# Temporal warnings (okfsmith advisories W016–W020; not part of OKF §11)
+# ---------------------------------------------------------------------------
+
+
+def _warn_temporal_malformed(doc: _Doc) -> list[Finding]:
+    """W016 — temporal fields with unparseable values or wrong shapes.
+
+    Never crashes on hostile input: every value goes through
+    :func:`okfsmith.core.temporal.parse_temporal` /
+    :func:`~okfsmith.core.temporal.normalize_supersedes`, which never raise.
+    """
+    assert doc.fm is not None
+    fm = doc.fm
+    findings: list[Finding] = []
+    for key in ("valid_from", "valid_until", "last_verified"):
+        value = fm.get(key)
+        if value is None or (isinstance(value, str) and not value.strip()):
+            continue
+        if _temporal.parse_temporal(value) is None:
+            findings.append(
+                Finding(
+                    "W016",
+                    doc.rel,
+                    f"malformed temporal field `{key}`: {value!r} "
+                    "(expected an ISO-8601 date or datetime)",
+                    "temporal",
+                )
+            )
+    supersedes = fm.get("supersedes")
+    if supersedes is None or (isinstance(supersedes, str) and not supersedes.strip()):
+        return findings
+    if isinstance(supersedes, (list, tuple)):
+        if len(supersedes) > _temporal.MAX_SUPERSEDES_ENTRIES:
+            findings.append(
+                Finding(
+                    "W016",
+                    doc.rel,
+                    f"`supersedes` lists {len(supersedes)} ids; only the first "
+                    f"{_temporal.MAX_SUPERSEDES_ENTRIES} are used",
+                    "temporal",
+                )
+            )
+        bad = [
+            item
+            for item in supersedes[: _temporal.MAX_SUPERSEDES_ENTRIES]
+            if not (isinstance(item, str) and item.strip())
+        ]
+        if bad:
+            findings.append(
+                Finding(
+                    "W016",
+                    doc.rel,
+                    f"malformed `supersedes` entries: "
+                    f"{', '.join(repr(item)[:40] for item in bad[:3])} "
+                    "(expected concept id strings)",
+                    "temporal",
+                )
+            )
+    elif not isinstance(supersedes, str):
+        findings.append(
+            Finding(
+                "W016",
+                doc.rel,
+                f"malformed `supersedes`: {supersedes!r} "
+                "(expected a concept id or a list of concept ids)",
+                "temporal",
+            )
+        )
+    return findings
+
+
+def _warn_temporal_window(doc: _Doc) -> list[Finding]:
+    """W017 — ``valid_until`` is before ``valid_from`` (empty validity window)."""
+    assert doc.fm is not None
+    valid_from = _temporal.parse_temporal(doc.fm.get("valid_from"))
+    valid_until = _temporal.parse_temporal(doc.fm.get("valid_until"))
+    if valid_from is not None and valid_until is not None and valid_until < valid_from:
+        return [
+            Finding(
+                "W017",
+                doc.rel,
+                f"`valid_until` ({valid_until.isoformat()}) is before "
+                f"`valid_from` ({valid_from.isoformat()}); the concept is "
+                "never window-valid",
+                "temporal",
+            )
+        ]
+    return []
+
+
+def _warn_supersedes_dangling(doc: _Doc, concept_ids: set[str]) -> list[Finding]:
+    """W018 — ``supersedes`` names a concept id that is not in the bundle."""
+    assert doc.fm is not None
+    findings: list[Finding] = []
+    for target in sorted(set(_temporal.normalize_supersedes(doc.fm.get("supersedes")))):
+        if target not in concept_ids:
+            findings.append(
+                Finding(
+                    "W018",
+                    doc.rel,
+                    f"`supersedes` points at {target!r}, which is not a concept in this bundle",
+                    "temporal",
+                )
+            )
+    return findings
+
+
+def _warn_supersede_cycles(index: _temporal.SupersessionIndex) -> list[Finding]:
+    """W019 — supersession cycles (A supersedes B supersedes A).
+
+    One finding per cycle, filed on the cycle's lexicographically-smallest
+    concept id; the cycle is named in full so the user can break it.
+    """
+    findings: list[Finding] = []
+    for cycle in index.find_cycles():
+        anchor = cycle[0]
+        chain = " supersedes ".join([*cycle, anchor])
+        findings.append(
+            Finding(
+                "W019",
+                f"{anchor}.md",
+                f"supersession cycle: {chain}",
+                "temporal",
+            )
+        )
+    return findings
+
+
+def _warn_last_verified_future(doc: _Doc, now: datetime) -> list[Finding]:
+    """W020 — ``last_verified`` lies in the future (informational only)."""
+    assert doc.fm is not None
+    last_verified = _temporal.parse_temporal(doc.fm.get("last_verified"))
+    if last_verified is not None and last_verified > now:
+        return [
+            Finding(
+                "W020",
+                doc.rel,
+                f"`last_verified` ({last_verified.isoformat()}) is in the future",
+                "temporal",
+            )
+        ]
+    return []
+
+
+
+
+# ---------------------------------------------------------------------------
 # Orchestration
 # ---------------------------------------------------------------------------
 
@@ -759,6 +917,22 @@ def run_checks(root: Path) -> tuple[list[Finding], list[Finding]]:
         warnings.extend(_warn_actor_missing_by(doc))
     for doc in ok_docs:  # W010
         warnings.extend(_warn_attested_runtime(doc))
+    # Temporal advisories (okfsmith W016–W020; never affect conformance).
+    # The only clock read besides W006's staleness check: `now` for W020.
+    now = datetime.now(timezone.utc)
+    concept_ids = {doc.rel[: -len(".md")] for doc in ok_docs}
+    temporal_index = _temporal.SupersessionIndex(
+        (doc.rel[: -len(".md")], doc.fm) for doc in ok_docs
+    )
+    for doc in ok_docs:  # W016
+        warnings.extend(_warn_temporal_malformed(doc))
+    for doc in ok_docs:  # W017
+        warnings.extend(_warn_temporal_window(doc))
+    for doc in ok_docs:  # W018
+        warnings.extend(_warn_supersedes_dangling(doc, concept_ids))
+    warnings.extend(_warn_supersede_cycles(temporal_index))  # W019
+    for doc in ok_docs:  # W020
+        warnings.extend(_warn_last_verified_future(doc, now))
     for doc in ok_docs:  # W011
         warnings.extend(_warn_malformed_datetimes(doc))
     for doc in ok_docs:  # W012

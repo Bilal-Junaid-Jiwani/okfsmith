@@ -19,6 +19,39 @@ _MAX_FRONTMATTER_LINES = 20_000
 _MAX_FRONTMATTER_CHARS = 1_000_000
 
 
+class _LenientTimestampLoader(yaml.SafeLoader):
+    """``yaml.SafeLoader`` that degrades impossible timestamps to strings.
+
+    PyYAML's timestamp constructor raises a plain ``ValueError`` on
+    impossible dates such as ``2026-13-99``. Frontmatter is untrusted user
+    input, so a typo'd date degrades to a plain string here instead of
+    raising out of the parser — the rest of the mapping stays parseable and
+    callers can report a precise advisory (e.g. validator W016) rather than
+    treating the whole block as unparseable. Valid timestamps still
+    construct ``date``/``datetime`` objects exactly as ``SafeLoader`` does.
+    """
+
+
+def _construct_lenient_timestamp(loader: yaml.SafeLoader, node: yaml.Node):
+    try:
+        return yaml.SafeLoader.construct_yaml_timestamp(loader, node)
+    except ValueError:
+        return loader.construct_scalar(node)
+
+
+_LenientTimestampLoader.add_constructor("tag:yaml.org,2002:timestamp", _construct_lenient_timestamp)
+
+
+def lenient_safe_load(text: str):
+    """``yaml.safe_load`` that never raises on impossible timestamps.
+
+    Untrusted-data hardening: a typo'd date degrades to a string (reported
+    downstream as a malformed field) instead of raising ``ValueError``.
+    Genuinely malformed YAML still raises ``yaml.YAMLError`` as usual.
+    """
+    return yaml.load(text, Loader=_LenientTimestampLoader)
+
+
 def _closing_fence(lines: list[str]) -> int | None:
     """Return the index of the closing ``---`` fence, or ``None``.
 
@@ -43,14 +76,17 @@ def parse_frontmatter(text: str) -> tuple[dict, str]:
     line at column 0. If either fence is missing, this returns ``({}, text)``.
 
     The YAML between the fences must parse to a mapping. If it is not valid
-    YAML — including impossible timestamps such as ``2026-13-99`` (PyYAML
-    raises a plain ``ValueError`` for those) or pathologically nested input
-    (which raises ``RecursionError``) — or if it parses to something that is
-    not a mapping (e.g. a bare list), the document is still never rejected:
-    ``({}, text)`` is returned and the whole text, frontmatter lines
-    included, is kept as the body. A load + re-save therefore never deletes
-    the user's original frontmatter lines. An empty YAML section is treated
-    as an empty mapping.
+    YAML — including pathologically nested input (which raises
+    ``RecursionError``) — or if it parses to something that is not a mapping
+    (e.g. a bare list), the document is still never rejected: ``({}, text)``
+    is returned and the whole text, frontmatter lines included, is kept as
+    the body. A load + re-save therefore never deletes the user's original
+    frontmatter lines. An empty YAML section is treated as an empty mapping.
+
+    Impossible timestamps such as ``2026-13-99`` do NOT make the block
+    unparseable: the lenient loader degrades them to plain strings so the
+    rest of the mapping is preserved (callers such as the validator report
+    them as malformed-field advisories, e.g. W016, instead of E001).
 
     A leading UTF-8 BOM is stripped before parsing so it cannot mask the
     opening fence (L22).
@@ -74,7 +110,7 @@ def parse_frontmatter(text: str) -> tuple[dict, str]:
     if len(block) > _MAX_FRONTMATTER_CHARS:
         return {}, text
     try:
-        data = yaml.safe_load(block)
+        data = lenient_safe_load(block)
     except (yaml.YAMLError, ValueError, RecursionError):
         # Unparseable YAML: keep the whole text as the body instead of
         # crashing or silently dropping the frontmatter lines.

@@ -165,6 +165,63 @@ def _plural(count: int, singular: str) -> str:
     return f"{count} {singular}" if count == 1 else f"{count} {singular}s"
 
 
+def _valid_cell(status) -> str:
+    """Short ``Valid``-column cell for a temporal status.
+
+    Concepts with no temporal frontmatter show ``—`` (not noise); the rest
+    show the short status name (``not_yet_valid`` renders as ``future``).
+    """
+    if not status.has_temporal:
+        return "—"
+    return {"not_yet_valid": "future"}.get(status.name, status.name)
+
+
+def _short_dt(value) -> str:
+    """Format a parsed temporal datetime compactly: date-only when midnight."""
+    from datetime import time as _time
+
+    if value is None:
+        return "—"
+    if value.time() == _time(0, 0):
+        return value.date().isoformat()
+    return value.isoformat()
+
+
+def _temporal_badge(bundle, concept) -> str | None:
+    """One-line temporal status badge for ``read`` text output.
+
+    Returns ``None`` for plain concepts with a ``current`` status, so they
+    print byte-identical output to before. Never raises on hostile
+    frontmatter.
+    """
+    from okfsmith.core.temporal import (
+        SupersessionIndex,
+        has_temporal_fields,
+        parse_temporal,
+        utcnow,
+    )
+
+    fm = concept.frontmatter or {}
+    status = SupersessionIndex.from_bundle(bundle).status(concept, utcnow())
+    if not has_temporal_fields(fm) and status.name == "current":
+        # Plain concept, nothing temporal to say: byte-identical output.
+        return None
+    if status.name == "current":
+        window = ""
+        valid_from = _short_dt(parse_temporal(fm.get("valid_from")))
+        valid_until = _short_dt(parse_temporal(fm.get("valid_until")))
+        if valid_from != "—" or valid_until != "—":
+            window = f" (valid {valid_from} → {valid_until})"
+        return f"[temporal: current{window}]"
+    if status.name == "superseded":
+        return f"[temporal: superseded by {status.superseded_by}]"
+    if status.name == "expired":
+        valid_until = _short_dt(parse_temporal(fm.get("valid_until")))
+        return f"[temporal: expired (valid_until {valid_until} has passed)]"
+    valid_from = _short_dt(parse_temporal(fm.get("valid_from")))
+    return f"[temporal: not yet valid (valid_from {valid_from})]"
+
+
 def _load_bundle_for_read(bundle_path: Path) -> Bundle:
     """Load a bundle, converting unreadable files to a clean CliError (C8).
 
@@ -1098,7 +1155,11 @@ def validate(
         ValidateFormat.text, "--format", help="Output format: text or json."
     ),
 ) -> None:
-    """Validate a bundle against OKF v0.2 (E001–E004 / W001–W015).
+    """Validate a bundle against OKF v0.2 (E001–E004 / W001–W020).
+
+    W001–W015 are the spec's advisory warnings; W016–W020 are okfsmith's
+    temporal-model advisories (valid_from / valid_until / supersedes /
+    last_verified). Warnings never affect conformance.
 
     \b
     Examples:
@@ -1214,6 +1275,10 @@ def list_concepts(
         _handle_cli_error(exc, as_json)
     bundle_path = bundle
     bundle = _load_bundle_for_read(bundle_path)
+    from okfsmith.core.temporal import SupersessionIndex, utcnow
+
+    sindex = SupersessionIndex.from_bundle(bundle)
+    moment = utcnow()
     rows = []
     for concept in bundle.iter_concepts():
         ctype = str(concept.frontmatter.get("type") or "")
@@ -1222,14 +1287,23 @@ def list_concepts(
             continue
         if tier_filter and tier.casefold() != tier_filter.casefold():
             continue
+        status = sindex.status(concept, moment)
         rows.append({
             "id": concept.id,
             "type": ctype,
             "title": str(concept.frontmatter.get("title") or ""),
             "tier": tier,
+            "temporal_status": status.name,
+            "valid": _valid_cell(status),
         })
     if as_json:
-        _dump_json({"concepts": rows, "count": len(rows)})
+        _dump_json({
+            "concepts": [
+                {k: row[k] for k in ("id", "type", "title", "tier", "temporal_status")}
+                for row in rows
+            ],
+            "count": len(rows),
+        })
         return
     table = Table(title=f"Concepts in {bundle_path}")
     # IDs must never truncate: users copy-paste them into `read`.
@@ -1237,8 +1311,15 @@ def list_concepts(
     table.add_column("Type")
     table.add_column("Title")
     table.add_column("Trust tier")
+    table.add_column("Valid")
     for row in rows:
-        table.add_row(escape(row["id"]), escape(row["type"]), escape(row["title"]), escape(row["tier"]))
+        table.add_row(
+            escape(row["id"]),
+            escape(row["type"]),
+            escape(row["title"]),
+            escape(row["tier"]),
+            escape(row["valid"]),
+        )
     console.print(table)
     typer.echo(f"{len(rows)} concept(s)")
     if not rows:
@@ -1290,14 +1371,23 @@ def read(
             f"Run 'okfsmith list {bundle_path}' to see available ids.",
         )
     assert concept is not None  # for type checkers; fail() raises
+    from okfsmith.core.temporal import SupersessionIndex, utcnow
+
+    temporal_status = SupersessionIndex.from_bundle(bundle).status(
+        concept, utcnow()
+    ).name
     if as_json:
         _dump_json({
             "id": concept.id,
             "frontmatter": concept.frontmatter,
             "body": concept.body,
+            "temporal_status": temporal_status,
         })
     else:
         typer.echo(_fm.serialize_frontmatter(concept.frontmatter, concept.body))
+        badge = _temporal_badge(bundle, concept)
+        if badge is not None:
+            typer.echo(f"\n{badge}")
 
 
 # ---------------------------------------------------------------------------
@@ -1322,17 +1412,39 @@ def search(
         None, "--tier",
         help=f"Only show concepts with this trust tier ({', '.join(TRUST_TIERS)}).",
     ),
+    as_of: str | None = typer.Option(
+        None,
+        "--as-of",
+        help="Replay search at a past/future instant (ISO-8601 date or "
+        "datetime): validity windows and supersession chains are evaluated "
+        "at that instant instead of now.",
+    ),
+    include_superseded: bool = typer.Option(
+        False,
+        "--include-superseded",
+        help="Also show concepts superseded by a newer concept "
+        "(demoted, ranked last; never deleted).",
+    ),
     output_format: ValidateFormat = typer.Option(
         ValidateFormat.text, "--format", help="Output format: text or json."
     ),
 ) -> None:
     """Full-text search over a bundle (BM25 ranking).
 
+    Retrieval is conflict-aware: current concepts rank first, concepts
+    outside their validity window are demoted (still shown, marked), and
+    superseded concepts are hidden unless --include-superseded is given.
+    Within one currency group, ties break by trust tier
+    (human-reviewed > machine-confirmed > unverified), then by
+    last_verified recency — recency alone never demotes a trusted concept.
+
     \b
     Examples:
         okfsmith search ./kb "knowledge graph"
         okfsmith search ./kb "quarterly revenue" --tier human-reviewed -n 5
         okfsmith search ./kb "api design" --format json
+        okfsmith search ./kb "refund policy" --as-of 2025-06-01
+        okfsmith search ./kb "refund policy" --include-superseded
     """
     as_json = output_format == "json"
     if not query.strip():
@@ -1343,6 +1455,15 @@ def search(
         raise typer.BadParameter(
             f"--tier '{tier_filter}' is not one of: {', '.join(TRUST_TIERS)}"
         )
+    moment = None
+    if as_of is not None:
+        from okfsmith.core import temporal as _temporal
+
+        moment = _temporal.parse_temporal(as_of)
+        if moment is None:
+            raise typer.BadParameter(
+                f"--as-of '{as_of}' is not an ISO-8601 date or datetime."
+            )
     try:
         _require_bundle_dir(bundle)
     except CliError as exc:
@@ -1350,7 +1471,7 @@ def search(
     try:
         # The search engine is built concurrently by another agent; code to
         # this import and fail cleanly (never a traceback) if it is absent.
-        from okfsmith.search import search_bundle
+        from okfsmith.search import search_bundle_detailed
     except ImportError as exc:
         raise CliError(
             "search-unavailable",
@@ -1360,24 +1481,62 @@ def search(
         ) from exc
     bundle_path = bundle
     bundle = _load_bundle_for_read(bundle_path)
-    hits = search_bundle(bundle, query, limit=limit)
+    from okfsmith.core.temporal import SupersessionIndex
+
+    result = search_bundle_detailed(
+        bundle,
+        query,
+        limit=limit,
+        as_of=moment,
+        include_superseded=include_superseded,
+    )
+    moment = result.as_of
+    sindex = SupersessionIndex.from_bundle(bundle)
     rows = []
-    for score, concept in hits:
+    for score, concept in result.hits:
         ctype = str(concept.frontmatter.get("type") or "")
         tier = _spec.trust_tier(concept.frontmatter)
         if type_filter and ctype.casefold() != type_filter.casefold():
             continue
         if tier_filter and tier.casefold() != tier_filter.casefold():
             continue
+        status = sindex.status(concept, moment)
+        # Current concepts show a blank Valid cell; demoted ones are marked.
+        if status.name == "superseded":
+            mark = f"superseded→{status.superseded_by}"
+        elif status.name == "expired":
+            mark = "expired"
+        elif status.name == "not_yet_valid":
+            mark = "future"
+        else:
+            mark = ""
         rows.append({
             "id": concept.id,
             "type": ctype,
             "title": str(concept.frontmatter.get("title") or ""),
             "tier": tier,
             "score": score,
+            "temporal_status": status.name,
+            "superseded_by": status.superseded_by,
+            "valid_mark": mark,
         })
     if as_json:
-        _dump_json({"query": query, "results": rows, "count": len(rows)})
+        _dump_json({
+            "query": query,
+            "as_of": moment.isoformat(),
+            "results": [
+                {
+                    key: row[key]
+                    for key in (
+                        "id", "type", "title", "tier", "score",
+                        "temporal_status", "superseded_by",
+                    )
+                }
+                for row in rows
+            ],
+            "count": len(rows),
+            "superseded_hidden": result.superseded_hidden,
+        })
         return
     table = Table(title=f"Search results in {bundle_path}")
     table.add_column("Score", justify="right")
@@ -1386,6 +1545,7 @@ def search(
     table.add_column("Type")
     table.add_column("Title")
     table.add_column("Tier")
+    table.add_column("Valid")
     for row in rows:
         table.add_row(
             f"{row['score']:.3f}",
@@ -1393,9 +1553,16 @@ def search(
             escape(row["type"]),
             escape(row["title"]),
             escape(row["tier"]),
+            escape(row["valid_mark"]),
         )
     console.print(table)
     typer.echo(_plural(len(rows), "result"))
+    if result.superseded_hidden:
+        typer.echo(
+            f"hint: {_plural(result.superseded_hidden, 'superseded result')} "
+            "hidden — use --include-superseded to show them.",
+            err=True,
+        )
     if not rows:
         typer.echo(
             f"hint: no concepts matched '{query}'. Try different terms, or "

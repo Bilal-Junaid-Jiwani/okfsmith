@@ -4,16 +4,16 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Validation &amp; error codes — okfsmith docs</title>
-  <meta name="description" content="Check your bundle against OKF v0.2 conformance — errors E001–E004, warnings W001–W015, trust tiers, and how to fix the common findings.">
+  <meta name="description" content="Check your bundle against OKF v0.2 conformance — errors E001–E004, warnings W001–W020 (incl. the temporal-model advisories), trust tiers, and how to fix the common findings.">
   <meta property="og:title" content="Validation &amp; error codes — okfsmith docs">
-  <meta property="og:description" content="Check your bundle against OKF v0.2 conformance — errors E001–E004, warnings W001–W015, trust tiers, and how to fix the common findings.">
+  <meta property="og:description" content="Check your bundle against OKF v0.2 conformance — errors E001–E004, warnings W001–W020 (incl. the temporal-model advisories), trust tiers, and how to fix the common findings.">
   <meta property="og:type" content="article">
   <meta property="og:url" content="https://bilal-junaid-jiwani.github.io/okfsmith/docs/validation.html">
   <meta property="og:site_name" content="okfsmith docs">
   <meta property="og:locale" content="en_US">
   <meta name="twitter:card" content="summary">
   <meta name="twitter:title" content="Validation &amp; error codes — okfsmith docs">
-  <meta name="twitter:description" content="Check your bundle against OKF v0.2 conformance — errors E001–E004, warnings W001–W015, trust tiers, and how to fix the common findings.">
+  <meta name="twitter:description" content="Check your bundle against OKF v0.2 conformance — errors E001–E004, warnings W001–W020 (incl. the temporal-model advisories), trust tiers, and how to fix the common findings.">
   <link rel="canonical" href="https://bilal-junaid-jiwani.github.io/okfsmith/docs/validation.html">
   <link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="assets/css/docs.css">
@@ -29,7 +29,7 @@
     "@context": "https://schema.org",
     "@type": "TechArticle",
     "headline": "Validation & error codes",
-    "description": "Check your bundle against OKF v0.2 conformance — errors E001–E004, warnings W001–W015, trust tiers, and how to fix the common findings.",
+    "description": "Check your bundle against OKF v0.2 conformance — errors E001–E004, warnings W001–W020 (incl. the temporal-model advisories), trust tiers, and how to fix the common findings.",
     "inLanguage": "en",
     "isPartOf": {
       "@type": "WebSite",
@@ -85,6 +85,7 @@
 <ul class="nav-list">
 <li><a class="nav-item" href="ingesting.html">Ingesting documents</a></li>
 <li><a class="nav-item" href="validation.html" data-active="true" aria-current="page">Validation &amp; error codes</a></li>
+<li><a class="nav-item" href="temporality.html">Temporal model</a></li>
 <li><a class="nav-item" href="syncing.html">Syncing sources</a></li>
 <li><a class="nav-item" href="graph.html">Visualizing the knowledge graph</a></li>
 </ul></div>
@@ -105,7 +106,7 @@
 </li>
 <li><a href="#errors-e001e004">Errors E001–E004</a>
 </li>
-<li><a href="#warnings-w001w015">Warnings W001–W015</a>
+<li><a href="#warnings-w001w020">Warnings W001–W020</a>
 </li>
 <li><a href="#trust-tiers">Trust tiers</a>
 </li>
@@ -142,14 +143,15 @@ Conformant: no errors, no warnings.
 <ul>
 <li><strong>Errors (E001–E004)</strong> — hard conformance failures. Any error means the bundle is <em>not</em> conformant.
 </li>
-<li><strong>Warnings (W001–W015)</strong> — advisory only; they never affect conformance, and <code>--strict</code> treats them as failures when you want a clean bill of health.
+<li><strong>Warnings (W001–W020)</strong> — advisory only; they never affect conformance, and <code>--strict</code> treats them as failures when you want a clean bill of health. W016–W020 are okfsmith's own temporal-model advisories (see <a href="temporality.html">Temporal model</a>).
 </li>
 </ul>
 <aside class="admonition tip"><span class="admon-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.75a4.5 4.5 0 0 0-2.6 8.15c.6.48 1.1 1.1 1.1 1.85V12h3v-.25c0-.75.5-1.37 1.1-1.85A4.5 4.5 0 0 0 8 1.75z" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M6.5 14h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></span><div class="admon-body"><p class="admon-title">Tip</p><p>Validate after every ingest: <code>okfsmith ingest ./kb guide.md --no-llm &amp;&amp; okfsmith validate ./kb</code>. New concepts are Drafts, but they should still be conformant.</p></div></aside>
 <h2 id="errors-e001e004">Errors E001–E004</h2>
 <div class="table-wrap"><table><thead><tr><th>Code</th><th>What it means</th><th>Where in OKF</th></tr></thead><tbody><tr><td><code>E001</code></td><td>Concept has no parseable YAML frontmatter block (missing, or not valid YAML)</td><td>§11.1</td></tr><tr><td><code>E002</code></td><td>Frontmatter is not a YAML mapping, or the required <code>type</code> is missing/empty</td><td>§11.2</td></tr><tr><td><code>E003</code></td><td>A non-root <code>index.md</code> contains frontmatter, or the bundle-root <code>index.md</code> frontmatter has keys other than <code>okf_version</code></td><td>§8, §12</td></tr><tr><td><code>E004</code></td><td>A <code>log.md</code> date heading is not ISO <code>YYYY-MM-DD</code></td><td>§9</td></tr></tbody></table></div>
-<h2 id="warnings-w001w015">Warnings W001–W015</h2>
-<div class="table-wrap"><table><thead><tr><th>Code</th><th>What it means</th><th>Where in OKF</th></tr></thead><tbody><tr><td><code>W001</code></td><td>Body link target resolves to no file in the bundle (broken link)</td><td>§6.1</td></tr><tr><td><code>W002</code></td><td>Concept not reachable from any <code>index.md</code> entry</td><td>§8</td></tr><tr><td><code>W003</code></td><td>Recommended <code>title</code> / <code>description</code> missing from frontmatter</td><td>§4.1</td></tr><tr><td><code>W004</code></td><td>Body footnote <code>[^id]</code> has no matching <code>sources[].id</code></td><td>§5.1</td></tr><tr><td><code>W005</code></td><td>A <code>sources</code> entry is missing <code>id</code></td><td>§5.1</td></tr><tr><td><code>W006</code></td><td><code>now &gt;= stale_after</code> — concept content is stale (informational)</td><td>§5.5</td></tr><tr><td><code>W007</code></td><td><code>index.md</code> declares an unknown <code>okf_version</code> (expected <code>"0.2"</code>)</td><td>§12</td></tr><tr><td><code>W008</code></td><td>A <code>sources</code> entry is missing REQUIRED <code>resource</code></td><td>§5.1</td></tr><tr><td><code>W009</code></td><td><code>generated</code> is missing REQUIRED <code>by</code>, or a <code>verified</code> entry is missing <code>by</code></td><td>§5.2</td></tr><tr><td><code>W010</code></td><td><code>type: Attested Computation</code> without REQUIRED <code>runtime</code></td><td>§10.2</td></tr><tr><td><code>W011</code></td><td>Timestamp-valued keys not ISO 8601 with an explicit UTC offset, or malformed <code>generated</code> / <code>verified</code> / <code>sources</code> / <code>usage_window</code></td><td>§5</td></tr><tr><td><code>W012</code></td><td>v0.1 legacy <code>timestamp</code> field or body <code># Citations</code> list still present</td><td>§13.1</td></tr><tr><td><code>W013</code></td><td><code>log.md</code> date headings not newest-first</td><td>§9</td></tr><tr><td><code>W014</code></td><td><code>status</code> is not one of <code>draft</code> / <code>stable</code> / <code>deprecated</code></td><td>§5.4</td></tr><tr><td><code>W015</code></td><td>Duplicate <code>sources[].id</code> within one concept</td><td>§5.1</td></tr></tbody></table></div>
+<h2 id="warnings-w001w020">Warnings W001–W020</h2>
+<p>W001–W015 are the spec's advisory warnings; W016–W020 are okfsmith's temporal-model advisories (<code>valid_from</code> / <code>valid_until</code> / <code>supersedes</code> / <code>last_verified</code>). All warnings are advisory — none affect conformance.</p>
+<div class="table-wrap"><table><thead><tr><th>Code</th><th>What it means</th><th>Where in OKF</th></tr></thead><tbody><tr><td><code>W001</code></td><td>Body link target resolves to no file in the bundle (broken link)</td><td>§6.1</td></tr><tr><td><code>W002</code></td><td>Concept not reachable from any <code>index.md</code> entry</td><td>§8</td></tr><tr><td><code>W003</code></td><td>Recommended <code>title</code> / <code>description</code> missing from frontmatter</td><td>§4.1</td></tr><tr><td><code>W004</code></td><td>Body footnote <code>[^id]</code> has no matching <code>sources[].id</code></td><td>§5.1</td></tr><tr><td><code>W005</code></td><td>A <code>sources</code> entry is missing <code>id</code></td><td>§5.1</td></tr><tr><td><code>W006</code></td><td><code>now &gt;= stale_after</code> — concept content is stale (informational)</td><td>§5.5</td></tr><tr><td><code>W007</code></td><td><code>index.md</code> declares an unknown <code>okf_version</code> (expected <code>"0.2"</code>)</td><td>§12</td></tr><tr><td><code>W008</code></td><td>A <code>sources</code> entry is missing REQUIRED <code>resource</code></td><td>§5.1</td></tr><tr><td><code>W009</code></td><td><code>generated</code> is missing REQUIRED <code>by</code>, or a <code>verified</code> entry is missing <code>by</code></td><td>§5.2</td></tr><tr><td><code>W010</code></td><td><code>type: Attested Computation</code> without REQUIRED <code>runtime</code></td><td>§10.2</td></tr><tr><td><code>W011</code></td><td>Timestamp-valued keys not ISO 8601 with an explicit UTC offset, or malformed <code>generated</code> / <code>verified</code> / <code>sources</code> / <code>usage_window</code></td><td>§5</td></tr><tr><td><code>W012</code></td><td>v0.1 legacy <code>timestamp</code> field or body <code># Citations</code> list still present</td><td>§13.1</td></tr><tr><td><code>W013</code></td><td><code>log.md</code> date headings not newest-first</td><td>§9</td></tr><tr><td><code>W014</code></td><td><code>status</code> is not one of <code>draft</code> / <code>stable</code> / <code>deprecated</code></td><td>§5.4</td></tr><tr><td><code>W015</code></td><td>Duplicate <code>sources[].id</code> within one concept</td><td>§5.1</td></tr><tr><td><code>W016</code></td><td>Malformed temporal field (<code>valid_from</code> / <code>valid_until</code> / <code>last_verified</code> not ISO-8601), or malformed/overlong <code>supersedes</code> (max 100 entries)</td><td>temporal</td></tr><tr><td><code>W017</code></td><td><code>valid_until</code> is before <code>valid_from</code></td><td>temporal</td></tr><tr><td><code>W018</code></td><td><code>supersedes</code> names a concept id that does not exist in the bundle</td><td>temporal</td></tr><tr><td><code>W019</code></td><td><code>supersedes</code> forms a cycle (retrieval treats the cycle as unresolved)</td><td>temporal</td></tr><tr><td><code>W020</code></td><td><code>last_verified</code> is in the future</td><td>temporal</td></tr></tbody></table></div>
 <h2 id="trust-tiers">Trust tiers</h2>
 <p>Every concept carries a trust tier (visible in <code>okfsmith list</code>):</p>
 <div class="table-wrap"><table><thead><tr><th>Tier</th><th>Meaning</th></tr></thead><tbody><tr><td><code>unverified</code></td><td>Default — everything fresh out of <code>--no-llm</code> ingest. Draft material, not yet confirmed.</td></tr><tr><td><code>machine-confirmed</code></td><td>A machine process (LLM extraction, cross-checks) confirmed the content.</td></tr><tr><td><code>human-reviewed</code></td><td>A human reviewed and signed off on the concept.</td></tr></tbody></table></div>
@@ -205,7 +207,7 @@ Conformant: no errors, no warnings.
       </div>
       <nav class="prev-next" aria-label="Previous and next page">
         <a class="page-prev" href="ingesting.html"><span class="prev-next-label">Previous</span><span class="prev-next-title">&larr; Ingesting documents</span></a>
-        <a class="page-next" href="syncing.html"><span class="prev-next-label">Next</span><span class="prev-next-title">Syncing sources &rarr;</span></a>
+        <a class="page-next" href="temporality.html"><span class="prev-next-label">Next</span><span class="prev-next-title">Temporal model &rarr;</span></a>
       </nav>
     </main>
 
@@ -216,7 +218,7 @@ Conformant: no errors, no warnings.
 </li>
 <li><a href="#errors-e001e004">Errors E001–E004</a>
 </li>
-<li><a href="#warnings-w001w015">Warnings W001–W015</a>
+<li><a href="#warnings-w001w020">Warnings W001–W020</a>
 </li>
 <li><a href="#trust-tiers">Trust tiers</a>
 </li>

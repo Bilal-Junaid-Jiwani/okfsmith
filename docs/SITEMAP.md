@@ -28,6 +28,7 @@ Every page: slug (URL filename), title, one-line description.
 | 12 | `mcp.html` | MCP server | Serve a bundle to agents over MCP: stdio/SSE/streamable-HTTP transports, the `index`/`list`/`search`/`get`/`neighbors` tools, client config for Claude Code/Desktop, Cursor, Copilot, Gemini. |
 | 13 | `troubleshooting.html` | Troubleshooting | Every common failure: `slice-not-installed`, `llm-unavailable`, `not-a-bundle`, zero-concept ingests, stub prevention, empty graph, with fixes and the "run `doctor` and file an issue" fallback. |
 | 14 | `changelog.html` | Changelog | Release history (Keep a Changelog / SemVer): what changed per version, `Unreleased` section, upgrade notes. |
+| 15 | `temporality.html` | Temporal model | Time-aware knowledge: validity windows, supersession chains, as-of queries, and how freshness interacts with trust tiers. |
 
 Notes on the required CLI command list (from the coordinator brief):
 - `get` and `search` are **not** CLI commands in okfsmith — they are MCP server

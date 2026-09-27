@@ -58,8 +58,13 @@ def _stub_search(monkeypatch, hits):
     """Inject a canned ``okfsmith.search`` engine.
 
     *hits* is the list returned as ``[(score, Concept), ...]``; calls are
-    recorded on the returned namespace.
+    recorded on the returned namespace. Provides both ``search_bundle``
+    and ``search_bundle_detailed`` (the latter returns a small namespace
+    with ``hits`` / ``as_of`` / ``superseded_hidden``, mirroring
+    ``TemporalSearchResult``).
     """
+    from datetime import datetime, timezone
+
     module = types.ModuleType("okfsmith.search")
     calls: list[dict] = []
 
@@ -67,7 +72,24 @@ def _stub_search(monkeypatch, hits):
         calls.append({"bundle": bundle, "query": query, "limit": limit})
         return hits
 
+    def search_bundle_detailed(bundle, query, limit=10, *, as_of=None, include_superseded=False):
+        calls.append(
+            {
+                "bundle": bundle,
+                "query": query,
+                "limit": limit,
+                "as_of": as_of,
+                "include_superseded": include_superseded,
+            }
+        )
+        return SimpleNamespace(
+            hits=hits,
+            as_of=as_of or datetime.now(timezone.utc),
+            superseded_hidden=0,
+        )
+
     module.search_bundle = search_bundle
+    module.search_bundle_detailed = search_bundle_detailed
     monkeypatch.setitem(sys.modules, "okfsmith.search", module)
     return SimpleNamespace(calls=calls)
 
@@ -301,7 +323,11 @@ def test_search_zero_results_exit_0_with_hint(monkeypatch, tmp_path):
     )
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
-    assert payload == {"query": "zzz-no-match", "results": [], "count": 0}
+    assert payload["query"] == "zzz-no-match"
+    assert payload["results"] == []
+    assert payload["count"] == 0
+    assert payload["superseded_hidden"] == 0
+    assert "as_of" in payload
 
 
 @pytest.mark.skipif(

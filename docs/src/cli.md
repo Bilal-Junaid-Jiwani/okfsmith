@@ -189,7 +189,7 @@ See [Syncing sources](syncing.html) for the full guide, including
 
 ## okfsmith list
 
-List concepts in the bundle: id, type, title, trust tier.
+List concepts in the bundle: id, type, title, trust tier, temporal validity.
 
 ```bash
 okfsmith list [OPTIONS] {bundle}
@@ -209,16 +209,21 @@ Real output (trimmed — the real table had 18 rows):
 
 ```text
                       Concepts in kb
-┏━━━━━━━━━━━━━━━━━━━━┳━━━━━━━┳━━━━━━━━━━━━━━┳━━━━━━━━━━━━┓
-┃ ID                 ┃ Type  ┃ Title        ┃ Trust tier ┃
-┡━━━━━━━━━━━━━━━━━━━━╇━━━━━━━╇━━━━━━━━━━━━━━╇━━━━━━━━━━━━┩
-│ big/first-bundle   │ Draft │ First Bundle │ unverified │
-│ big/installation   │ Draft │ Installation │ unverified │
-│ big/trust-tiers    │ Draft │ Trust Tiers  │ unverified │
-│ ...                │ ...   │ ...          │ ...        │
-└────────────────────┴───────┴──────────────┴────────────┘
+┏━━━━━━━━━━━━━━━━━━━━┳━━━━━━━┳━━━━━━━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━┓
+┃ ID                 ┃ Type  ┃ Title        ┃ Trust tier ┃ Valid ┃
+┡━━━━━━━━━━━━━━━━━━━━╇━━━━━━━╇━━━━━━━━━━━━━━╇━━━━━━━━━━━━╇━━━━━━━┩
+│ big/first-bundle   │ Draft │ First Bundle │ unverified │ —     │
+│ big/installation   │ Draft │ Installation │ unverified │ —     │
+│ big/trust-tiers    │ Draft │ Trust Tiers  │ unverified │ —     │
+│ ...                │ ...   │ ...          │ ...        │ ...   │
+└────────────────────┴───────┴──────────────┴────────────┴───────┘
 18 concept(s)
 ```
+
+The `Valid` column shows the temporal status: `—` for concepts with no
+temporal fields, `current` / `expired` / `future` / `superseded` otherwise
+(see [Temporal model](temporality.html)). JSON output adds `temporal_status`
+per concept.
 
 ### Common options {#list-options}
 | Flag | What it does |
@@ -268,6 +273,12 @@ tags:
 Run `okfsmith init ./kb` to create a new bundle, then ingest documents.
 ```
 
+When a concept carries temporal frontmatter (or is superseded by another
+concept), text output appends a one-line badge such as
+`[temporal: superseded by policy/refunds-v2]` or
+`[temporal: expired (valid_until 2025-06-30 has passed)]`; plain current
+concepts print exactly as before. JSON output adds `temporal_status`.
+
 ### Common options {#read-options}
 | Flag | What it does |
 |---|---|
@@ -297,11 +308,25 @@ okfsmith search [OPTIONS] {bundle} {query}
 okfsmith search ./kb "knowledge graph"
 okfsmith search ./kb "quarterly revenue" --tier human-reviewed -n 5
 okfsmith search ./kb "api design" --format json
+
+# Replay the search as of a past instant (validity + supersession at that time)
+okfsmith search ./kb "refund policy" --as-of 2025-06-01
+
+# Also show superseded concepts (hidden by default, never deleted)
+okfsmith search ./kb "refund policy" --include-superseded
 ```
 
-Results print as a `Score | ID | Type | Title | Tier` table (IDs never
-truncated) plus an `N result(s)` line; zero results exit 0 with
+Results print as a `Score | ID | Type | Title | Tier | Valid` table (IDs
+never truncated) plus an `N result(s)` line; zero results exit 0 with
 `0 result(s)` and a stderr hint. An empty query is a usage error (exit 2).
+
+Retrieval is conflict-aware (see [Temporal model](temporality.html)):
+current concepts rank first, concepts outside their validity window are
+demoted but still shown (marked `expired` / `future`), and superseded
+concepts are hidden unless `--include-superseded` is given (shown last,
+marked `superseded→<id>`). JSON rows carry `temporal_status` and
+`superseded_by`; the envelope adds `as_of` (the instant evaluated) and
+`superseded_hidden` (how many superseded results were filtered out).
 
 ### Common options {#search-options}
 | Flag | What it does |
@@ -310,6 +335,8 @@ truncated) plus an `N result(s)` line; zero results exit 0 with
 | `--format <text\|json>` | Output format (default `text`). |
 | `--type <str>` | Only concepts of this type. |
 | `--tier <str>` | Only this trust tier: `unverified`, `machine-confirmed`, `human-reviewed`. |
+| `--as-of <date\|datetime>` | Replay search at an ISO-8601 instant: validity windows and supersession chains are evaluated then, not now. |
+| `--include-superseded` | Also show superseded concepts (demoted, ranked last). |
 
 > [!NOTE]
 > **`okfsmith get` does not exist.** Typing it gives `No such command`
@@ -326,7 +353,7 @@ truncated) plus an `N result(s)` line; zero results exit 0 with
 
 ## okfsmith validate
 
-Validate a bundle against OKF v0.2 (E001–E004 / W001–W015).
+Validate a bundle against OKF v0.2 (E001–E004 / W001–W020).
 
 ```bash
 okfsmith validate [OPTIONS] {bundle}

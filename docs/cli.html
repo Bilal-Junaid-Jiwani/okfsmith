@@ -258,7 +258,7 @@ sync: 2 added, 0 updated, 0 renamed, 0 removed, 0 unchanged, 0 skipped, 0 failed
 <p>See <a href="syncing.html">Syncing sources</a> for the full guide, including <code>--watch</code> mode, <code>--format json</code> for scripts, and the state-file format.</p>
 <hr>
 <h2 id="okfsmith-list">okfsmith list</h2>
-<p>List concepts in the bundle: id, type, title, trust tier.</p>
+<p>List concepts in the bundle: id, type, title, trust tier, temporal validity.</p>
 <pre class="codeblock" data-lang="bash"><code>okfsmith list [OPTIONS] {bundle}
 </code></pre>
 <pre class="codeblock" data-lang="bash"><code>okfsmith list ./kb
@@ -271,16 +271,17 @@ okfsmith list ./kb --tier human-reviewed
 </code></pre>
 <p>Real output (trimmed — the real table had 18 rows):</p>
 <pre class="codeblock" data-lang="text"><code>                      Concepts in kb
-┏━━━━━━━━━━━━━━━━━━━━┳━━━━━━━┳━━━━━━━━━━━━━━┳━━━━━━━━━━━━┓
-┃ ID                 ┃ Type  ┃ Title        ┃ Trust tier ┃
-┡━━━━━━━━━━━━━━━━━━━━╇━━━━━━━╇━━━━━━━━━━━━━━╇━━━━━━━━━━━━┩
-│ big/first-bundle   │ Draft │ First Bundle │ unverified │
-│ big/installation   │ Draft │ Installation │ unverified │
-│ big/trust-tiers    │ Draft │ Trust Tiers  │ unverified │
-│ ...                │ ...   │ ...          │ ...        │
-└────────────────────┴───────┴──────────────┴────────────┘
+┏━━━━━━━━━━━━━━━━━━━━┳━━━━━━━┳━━━━━━━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━┓
+┃ ID                 ┃ Type  ┃ Title        ┃ Trust tier ┃ Valid ┃
+┡━━━━━━━━━━━━━━━━━━━━╇━━━━━━━╇━━━━━━━━━━━━━━╇━━━━━━━━━━━━╇━━━━━━━┩
+│ big/first-bundle   │ Draft │ First Bundle │ unverified │ —     │
+│ big/installation   │ Draft │ Installation │ unverified │ —     │
+│ big/trust-tiers    │ Draft │ Trust Tiers  │ unverified │ —     │
+│ ...                │ ...   │ ...          │ ...        │ ...   │
+└────────────────────┴───────┴──────────────┴────────────┴───────┘
 18 concept(s)
 </code></pre>
+<p>The <code>Valid</code> column shows the temporal status: <code>—</code> for concepts with no temporal fields, <code>current</code> / <code>expired</code> / <code>future</code> / <code>superseded</code> otherwise (see <a href="temporality.html">Temporal model</a>). JSON output adds <code>temporal_status</code> per concept.</p>
 <h3 id="list-options">Common options</h3>
 <div class="table-wrap"><table><thead><tr><th>Flag</th><th>What it does</th></tr></thead><tbody><tr><td>`--format &lt;text\</td><td>json&gt;`</td><td>Output format (default <code>text</code>).</td></tr><tr><td><code>--type &lt;str&gt;</code></td><td>Only concepts of this type.</td></tr><tr><td><code>--tier &lt;str&gt;</code></td><td>Only this trust tier: <code>unverified</code>, <code>machine-confirmed</code>, <code>human-reviewed</code>.</td></tr></tbody></table></div>
 <details>
@@ -313,6 +314,7 @@ tags:
 ---
 Run `okfsmith init ./kb` to create a new bundle, then ingest documents.
 </code></pre>
+<p>When a concept carries temporal frontmatter (or is superseded by another concept), text output appends a one-line badge such as <code>[temporal: superseded by policy/refunds-v2]</code> or <code>[temporal: expired (valid_until 2025-06-30 has passed)]</code>; plain current concepts print exactly as before. JSON output adds <code>temporal_status</code>.</p>
 <h3 id="read-options">Common options</h3>
 <div class="table-wrap"><table><thead><tr><th>Flag</th><th>What it does</th></tr></thead><tbody><tr><td>`--format &lt;text\</td><td>json&gt;`</td><td>Output format (default <code>text</code>).</td></tr></tbody></table></div>
 <details>
@@ -328,14 +330,21 @@ Run `okfsmith init ./kb` to create a new bundle, then ingest documents.
 <pre class="codeblock" data-lang="bash"><code>okfsmith search ./kb "knowledge graph"
 okfsmith search ./kb "quarterly revenue" --tier human-reviewed -n 5
 okfsmith search ./kb "api design" --format json
+
+# Replay the search as of a past instant (validity + supersession at that time)
+okfsmith search ./kb "refund policy" --as-of 2025-06-01
+
+# Also show superseded concepts (hidden by default, never deleted)
+okfsmith search ./kb "refund policy" --include-superseded
 </code></pre>
-<p>Results print as a <code>Score | ID | Type | Title | Tier</code> table (IDs never truncated) plus an <code>N result(s)</code> line; zero results exit 0 with <code>0 result(s)</code> and a stderr hint. An empty query is a usage error (exit 2).</p>
+<p>Results print as a <code>Score | ID | Type | Title | Tier | Valid</code> table (IDs never truncated) plus an <code>N result(s)</code> line; zero results exit 0 with <code>0 result(s)</code> and a stderr hint. An empty query is a usage error (exit 2).</p>
+<p>Retrieval is conflict-aware (see <a href="temporality.html">Temporal model</a>): current concepts rank first, concepts outside their validity window are demoted but still shown (marked <code>expired</code> / <code>future</code>), and superseded concepts are hidden unless <code>--include-superseded</code> is given (shown last, marked <code>superseded→&lt;id&gt;</code>). JSON rows carry <code>temporal_status</code> and <code>superseded_by</code>; the envelope adds <code>as_of</code> (the instant evaluated) and <code>superseded_hidden</code> (how many superseded results were filtered out).</p>
 <h3 id="search-options">Common options</h3>
-<div class="table-wrap"><table><thead><tr><th>Flag</th><th>What it does</th></tr></thead><tbody><tr><td><code>--limit &lt;n&gt;</code> / <code>-n</code></td><td>Maximum results (default <code>10</code>, must be ≥ 1).</td></tr><tr><td>`--format &lt;text\</td><td>json&gt;`</td><td>Output format (default <code>text</code>).</td></tr><tr><td><code>--type &lt;str&gt;</code></td><td>Only concepts of this type.</td></tr><tr><td><code>--tier &lt;str&gt;</code></td><td>Only this trust tier: <code>unverified</code>, <code>machine-confirmed</code>, <code>human-reviewed</code>.</td></tr></tbody></table></div>
+<div class="table-wrap"><table><thead><tr><th>Flag</th><th>What it does</th></tr></thead><tbody><tr><td><code>--limit &lt;n&gt;</code> / <code>-n</code></td><td>Maximum results (default <code>10</code>, must be ≥ 1).</td></tr><tr><td>`--format &lt;text\</td><td>json&gt;`</td><td>Output format (default <code>text</code>).</td></tr><tr><td><code>--type &lt;str&gt;</code></td><td>Only concepts of this type.</td></tr><tr><td><code>--tier &lt;str&gt;</code></td><td>Only this trust tier: <code>unverified</code>, <code>machine-confirmed</code>, <code>human-reviewed</code>.</td></tr><tr><td>`--as-of &lt;date\</td><td>datetime&gt;`</td><td>Replay search at an ISO-8601 instant: validity windows and supersession chains are evaluated then, not now.</td></tr><tr><td><code>--include-superseded</code></td><td>Also show superseded concepts (demoted, ranked last).</td></tr></tbody></table></div>
 <aside class="admonition note"><span class="admon-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.75" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 7.25v3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="5" r="0.9" fill="currentColor"/></svg></span><div class="admon-body"><p class="admon-title">Note</p><p><strong><code>okfsmith get</code> does not exist.</strong> Typing it gives <code>No such command</code> (it even suggests <em>"Did you mean 'ingest'?"</em>). <code>get</code> lives in two other places:</p><p>| What you want | Where to find it | |---|---| | <strong>Read a concept from the terminal</strong> | <a href="#okfsmith-read"><code>okfsmith read</code></a> — e.g. <code>okfsmith read ./kb big/installation</code> | | <strong>Search interactively</strong> | <code>/search &lt;keywords&gt;</code> inside <a href="#okfsmith-chat"><code>okfsmith chat</code></a> | | <strong>Search/get as an agent</strong> | The <code>search</code> and <code>get</code> <strong>MCP tools</strong> on the <a href="#okfsmith-mcp"><code>okfsmith mcp</code></a> server — see <a href="mcp.html">MCP server</a> |</p></div></aside>
 <hr>
 <h2 id="okfsmith-validate">okfsmith validate</h2>
-<p>Validate a bundle against OKF v0.2 (E001–E004 / W001–W015).</p>
+<p>Validate a bundle against OKF v0.2 (E001–E004 / W001–W020).</p>
 <pre class="codeblock" data-lang="bash"><code>okfsmith validate [OPTIONS] {bundle}
 </code></pre>
 <pre class="codeblock" data-lang="bash"><code>okfsmith validate ./kb

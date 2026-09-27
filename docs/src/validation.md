@@ -1,7 +1,7 @@
 ---
 title: Validation & error codes
 eyebrow: User guide
-description: Check your bundle against OKF v0.2 conformance — errors E001–E004, warnings W001–W015, trust tiers, and how to fix the common findings.
+description: Check your bundle against OKF v0.2 conformance — errors E001–E004, warnings W001–W020 (incl. the temporal-model advisories), trust tiers, and how to fix the common findings.
 ---
 
 ## Validate your bundle
@@ -29,7 +29,7 @@ Conformant: no errors, no warnings.
 Validation checks OKF v0.2 §11 conformance. Findings come in two severities:
 
 - **Errors (E001–E004)** — hard conformance failures. Any error means the bundle is *not* conformant.
-- **Warnings (W001–W015)** — advisory only; they never affect conformance, and `--strict` treats them as failures when you want a clean bill of health.
+- **Warnings (W001–W020)** — advisory only; they never affect conformance, and `--strict` treats them as failures when you want a clean bill of health. W016–W020 are okfsmith's own temporal-model advisories (see [Temporal model](temporality.html)).
 
 > [!TIP]
 > Validate after every ingest: `okfsmith ingest ./kb guide.md --no-llm && okfsmith validate ./kb`. New concepts are Drafts, but they should still be conformant.
@@ -43,7 +43,11 @@ Validation checks OKF v0.2 §11 conformance. Findings come in two severities:
 | `E003` | A non-root `index.md` contains frontmatter, or the bundle-root `index.md` frontmatter has keys other than `okf_version` | §8, §12 |
 | `E004` | A `log.md` date heading is not ISO `YYYY-MM-DD` | §9 |
 
-## Warnings W001–W015
+## Warnings W001–W020
+
+W001–W015 are the spec's advisory warnings; W016–W020 are okfsmith's
+temporal-model advisories (`valid_from` / `valid_until` / `supersedes` /
+`last_verified`). All warnings are advisory — none affect conformance.
 
 | Code | What it means | Where in OKF |
 |---|---|---|
@@ -62,6 +66,11 @@ Validation checks OKF v0.2 §11 conformance. Findings come in two severities:
 | `W013` | `log.md` date headings not newest-first | §9 |
 | `W014` | `status` is not one of `draft` / `stable` / `deprecated` | §5.4 |
 | `W015` | Duplicate `sources[].id` within one concept | §5.1 |
+| `W016` | Malformed temporal field (`valid_from` / `valid_until` / `last_verified` not ISO-8601), or malformed/overlong `supersedes` (max 100 entries) | temporal |
+| `W017` | `valid_until` is before `valid_from` | temporal |
+| `W018` | `supersedes` names a concept id that does not exist in the bundle | temporal |
+| `W019` | `supersedes` forms a cycle (retrieval treats the cycle as unresolved) | temporal |
+| `W020` | `last_verified` is in the future | temporal |
 
 ## Trust tiers
 

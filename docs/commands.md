@@ -15,7 +15,7 @@ okfsmith sync BUNDLE SOURCE... [--recursive] [--no-llm] [--model NAME]
 okfsmith validate BUNDLE [--format text|json] [--strict]
 okfsmith list BUNDLE [--format text|json] [--tier TIER]
 okfsmith read BUNDLE CONCEPT_ID [--format text|json]
-okfsmith search BUNDLE QUERY [--limit N] [--format text|json] [--tier TIER] [--type TYPE]
+okfsmith search BUNDLE QUERY [--limit N] [--format text|json] [--tier TIER] [--type TYPE] [--as-of DATE] [--include-superseded]
 okfsmith graph BUNDLE [--format text|json|mermaid|html] [--output FILE]
 okfsmith mcp BUNDLE [--transport stdio|sse|streamable-http]
 okfsmith chat [BUNDLE] [--model NAME] [--provider NAME] [--api-base URL]
@@ -135,6 +135,17 @@ BM25 ranking over id, title, description, tags, and body (stdlib-only).
 Query syntax: bare terms, quoted phrases (`"knowledge graph"`), exclusions
 (`-deprecated`). Same engine as the MCP `search` tool and chat `/search`,
 so all three rank identically. See [Searching](searching.md).
+
+Retrieval is conflict-aware: results group by currency — validity window,
+then supersession, then trust tier, then `last_verified` recency. Current
+concepts rank first; expired/future concepts are demoted but shown (marked
+in the `Valid` column); superseded concepts are hidden unless
+`--include-superseded` is given (shown last, marked `superseded→<id>`).
+`--as-of <ISO-8601 date or datetime>` replays validity and supersession at
+that instant. JSON rows carry `temporal_status` and `superseded_by`; the
+envelope adds `as_of` and `superseded_hidden`. See the
+[Temporal model](https://bilal-junaid-jiwani.github.io/okfsmith/docs/temporality.html)
+docs page.
 
 ## graph — links between concepts
 

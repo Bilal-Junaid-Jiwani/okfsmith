@@ -23,6 +23,13 @@ Design notes:
 - The inverted index is built once in :meth:`SearchIndex.from_bundle`
   (document lengths and average document length are precomputed); per-query
   work touches only postings lists, never re-tokenizes the corpus.
+- Temporal ranking (:mod:`okfsmith.core.temporal`): hits are partitioned
+  into current → outside-validity-window → superseded, each group ordered
+  by BM25 score, then trust tier (``human-reviewed`` > ``machine-confirmed``
+  > ``unverified``), then ``last_verified`` recency, then concept id.
+  Superseded hits are excluded by default (never deleted) and can be
+  included with ``include_superseded=True``; an ``as_of`` datetime replays
+  the same partitioning at a past or future instant.
 """
 
 from __future__ import annotations
@@ -30,7 +37,10 @@ from __future__ import annotations
 import math
 import re
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING
+
+from okfsmith.core import temporal as _temporal
 
 if TYPE_CHECKING:
     from okfsmith.core.bundle import Bundle, Concept
@@ -39,8 +49,10 @@ __all__ = [
     "STOPWORDS",
     "Query",
     "SearchIndex",
+    "TemporalSearchResult",
     "parse_query",
     "search_bundle",
+    "search_bundle_detailed",
     "stem",
     "tokenize",
 ]
@@ -320,13 +332,73 @@ class SearchIndex:
 
 
 def search_bundle(
-    bundle: Bundle, query: str, limit: int = 10
+    bundle: Bundle,
+    query: str,
+    limit: int = 10,
+    *,
+    as_of: datetime | None = None,
+    include_superseded: bool = False,
 ) -> list[tuple[float, Concept]]:
     """Drop-in replacement for the old ``rank_concepts``.
 
     Returns ``[(score, concept), ...]`` best first, same shape as before;
     an empty or blank query returns ``[]``.
+
+    Temporal ranking applies: current concepts first, then concepts outside
+    their validity window, then (only with ``include_superseded=True``)
+    superseded concepts — demoted, never deleted. ``as_of`` replays the
+    partitioning at a past or future instant (default: now, UTC).
     """
-    if not query or not query.strip():
-        return []
-    return SearchIndex.from_bundle(bundle).search(query, limit=limit)
+    return search_bundle_detailed(
+        bundle, query, limit, as_of=as_of, include_superseded=include_superseded
+    ).hits
+
+
+@dataclass
+class TemporalSearchResult:
+    """Temporal-aware search output: ranked hits plus demotion accounting."""
+
+    hits: list[tuple[float, Concept]]
+    """``[(score, concept), ...]`` after temporal partitioning and truncation."""
+
+    as_of: datetime
+    """The instant the temporal partitioning was evaluated at (UTC)."""
+
+    superseded_hidden: int
+    """Superseded hits excluded from ``hits`` (0 when ``include_superseded``)."""
+
+
+def search_bundle_detailed(
+    bundle: Bundle,
+    query: str,
+    limit: int = 10,
+    *,
+    as_of: datetime | None = None,
+    include_superseded: bool = False,
+) -> TemporalSearchResult:
+    """Full temporal search: ranked hits plus demotion accounting.
+
+    Same ranking as :func:`search_bundle`, but also returns the ``as_of``
+    instant used and how many superseded hits were hidden, so callers can
+    report the demotion honestly instead of silently dropping matches.
+    """
+    moment = as_of if as_of is not None else _temporal.utcnow()
+    if moment.tzinfo is None:
+        # Defensive: a naive ``as_of`` from the Python API is read as UTC,
+        # matching the CLI (which parses to aware) and avoiding TypeError in
+        # aware/naive comparisons downstream.
+        moment = moment.replace(tzinfo=timezone.utc)
+    if not query or not query.strip() or limit <= 0:
+        return TemporalSearchResult([], moment, 0)
+    index = SearchIndex.from_bundle(bundle)
+    # Fetch every match: temporal exclusion happens after ranking, so the raw
+    # BM25 limit must not clip hits that would survive partitioning.
+    raw = index.search(query, limit=max(1, len(index._concepts)))
+    sindex = _temporal.SupersessionIndex.from_bundle(bundle)
+    part = _temporal.partition_hits(raw, sindex, moment)
+    hits = part.current + part.windowed
+    hidden = len(part.superseded)
+    if include_superseded:
+        hits.extend((score, concept) for score, concept, _ in part.superseded)
+        hidden = 0
+    return TemporalSearchResult(hits[:limit], moment, hidden)

@@ -5,7 +5,11 @@
 
 - Errors **E001–E004** map 1:1 to §11's three hard conformance rules; a bundle
   is conformant iff ``errors`` is empty.
-- Warnings **W001–W015** are advisory and never affect conformance.
+- Warnings **W001–W015** are advisory and never affect conformance
+  (verbatim from the contract).
+- Warnings **W016–W020** are okfsmith's own temporal-model advisories
+  (``valid_from`` / ``valid_until`` / ``supersedes`` / ``last_verified``);
+  likewise advisory, never affecting conformance.
 
 Pure and deterministic: stdlib + pyyaml only, no network, no LLM.
 """

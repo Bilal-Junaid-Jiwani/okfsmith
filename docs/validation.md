@@ -32,6 +32,17 @@ and the spec section it maps to.
 | W013 | §9 | `log.md` date headings are not newest-first |
 | W014 | §5.4 | unknown `status`; expected `draft` \| `stable` \| `deprecated` |
 | W015 | §5.1 | duplicate `sources[].id` |
+| W016 | temporal | malformed temporal field (`valid_from` / `valid_until` / `last_verified` not ISO-8601), or malformed/overlong `supersedes` |
+| W017 | temporal | `valid_until` is before `valid_from` |
+| W018 | temporal | `supersedes` names a concept id that does not exist in the bundle |
+| W019 | temporal | `supersedes` forms a cycle (retrieval treats the cycle as unresolved) |
+| W020 | temporal | `last_verified` is in the future |
+
+W016–W020 are okfsmith's temporal-model advisories (`valid_from` /
+`valid_until` / `supersedes` / `last_verified`) — advisory like all
+warnings, never affecting conformance. See the
+[Temporal model](https://bilal-junaid-jiwani.github.io/okfsmith/docs/temporality.html)
+docs page.
 
 ## Machine-readable reports
 

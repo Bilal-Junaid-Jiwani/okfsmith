@@ -43,8 +43,27 @@ okfsmith search ./kb -n 5 --format json "billing -refunds"
 | `--format text\|json` | Rich table (default) or machine-readable JSON. |
 | `--tier TIER` | Only concepts with this trust tier (`unverified`, `machine-confirmed`, `human-reviewed`). |
 | `--type TYPE` | Only concepts of this type. Same semantics and validation as `list`. |
+| `--as-of DATE\|DATETIME` | Replay the search at an ISO-8601 instant: validity windows and supersession chains are evaluated then, not now. |
+| `--include-superseded` | Also show superseded concepts (demoted, ranked last; never deleted). |
 
-Text output is a rich table — `Score | ID | Type | Title | Tier` —
+## Temporal ranking
+
+Search is conflict-aware. Results are grouped by currency, in this order —
+**validity window** first, then **supersession**, then **trust tier**, then
+`last_verified` recency:
+
+1. Current concepts (inside their `valid_from` / `valid_until` window, not superseded).
+2. Demoted but still shown: `expired` / `future` concepts (marked in the `Valid` column).
+3. Superseded concepts — hidden by default, shown last with `--include-superseded` (marked `superseded→<id>`).
+
+Within one group, BM25 score orders hits; trust tier and recency break ties.
+Recency alone never demotes a human-reviewed concept below an unverified
+one. A `--as-of` instant replays the whole evaluation at that time, so you
+can ask "what was current in June 2025?". JSON output always includes
+`as_of`, `superseded_hidden`, and per-row `temporal_status` /
+`superseded_by`. Full details: [Temporal model](https://bilal-junaid-jiwani.github.io/okfsmith/docs/temporality.html).
+
+Text output is a rich table — `Score | ID | Type | Title | Tier | Valid` —
 followed by an `N result(s)` line. IDs are never truncated, so they are
 copy-paste safe into `okfsmith read BUNDLE ID`. When nothing matches, the
 command exits 0, prints `0 result(s)`, and prints a hint to stderr. An

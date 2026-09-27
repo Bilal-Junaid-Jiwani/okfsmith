@@ -871,3 +871,66 @@ failed — all 3 pre-existing on the pristine commit (version string expects
 0.3.0; 2 markitdown office tests). `ruff check` clean on all touched
 files (the 44 repo-wide ruff hits in `docs/build.py` and one skills script
 are pre-existing lint debt, untouched).
+
+## 2026-09-28 — P2: Temporal model (validity windows + supersession)
+
+**What:** time-aware retrieval. Concepts can carry `valid_from` /
+`valid_until` (validity window), `supersedes` (replacement chain), and
+`last_verified` (freshness) in frontmatter. Search ranks hits by currency:
+validity window → supersession → trust tier → `last_verified` recency
+(BM25 score orders hits within a currency group; trust and recency are
+tie-breakers). Out-of-window concepts are demoted but still returned
+(`expired` / `future` marks); superseded concepts are hidden by default
+(`--include-superseded` shows them last, marked `superseded→<id>`) and
+are never deleted. `okfsmith search --as-of <ISO-8601>` replays validity
+and supersession at that instant. `list` gains a `Valid` column; `read`
+appends a `[temporal: …]` badge for temporal/superseded concepts (plain
+current concepts print byte-identical output); `validate` gains advisory
+warnings W016–W020 (warnings never affect conformance); `sync` preserves
+temporal frontmatter across re-ingests of same-id concepts. The shared
+BM25 engine means CLI, chat, and MCP rank identically.
+
+**Precedence (the contract):** (1) a concept outside its validity window
+loses to a current one even if human-reviewed; (2) an explicitly
+superseded concept loses to its chain head even if human-reviewed;
+(3) trust tier outranks recency — a stale human-reviewed concept is never
+ordered below a fresh unverified one on recency alone; (4) `last_verified`
+breaks remaining ties. Naive datetimes are read as UTC; date-only
+`valid_until` covers the whole calendar day through 23:59:59.999999 UTC.
+
+**Trade-offs:**
+- Superseded concepts are excluded by default rather than deleted: history
+  is preserved, at the cost of a `superseded_hidden` count the caller must
+  surface (the CLI prints a stderr hint).
+- Temporal frontmatter is untrusted input: malformed values degrade to
+  W016 warnings (never tracebacks); `supersedes` is capped at 100 ids;
+  no eval and no path use anywhere in the temporal path.
+- `sync` does not auto-stamp `supersedes`: P1's update path deletes old
+  concepts before re-ingest, so stamping deleted ids would create dangling
+  W018 references. Stating a replacement is the source's (or the user's)
+  job.
+- Cycles (W019) are retrieval-safe: cyclic supersession edges are ignored
+  for ranking, so cycle members stay visible at their own validity instead
+  of hiding each other.
+- `last_verified` in the future is W020 (likely clock skew), not an error.
+
+**Recovery note:** a `ruff format` pass mid-task reformatted many
+pre-existing lines; an attempted selective-revert script then corrupted
+four files by applying hunks at wrong offsets. Fixed by reconstructing
+each file from HEAD and re-applying only semantic edits at known function
+boundaries, with import/AST/ruff checks after every step. Lesson: never
+run repo-wide `ruff format` (the baseline is not format-clean), and never
+revert with zero-context patch scripts — backups
+(`/tmp/p2backup/`) were used only to extract functional blocks, not as
+wholesale restores.
+
+**Tests:** `tests/test_temporal.py` — 80 tests covering parse/validity/
+chains/cycles/dangling/diamonds/as-of queries/demotion-vs-deletion/
+precedence/trust-tier interaction/W016–W020/security caps/CLI UX/sync
+preservation. Full suite: **768 passed, 21 skipped, 3 failed** — all 3
+pre-existing on the pristine commit (`test_version` expects 0.3.0;
+2 markitdown office tests). `ruff check src/ tests/` clean. New docs
+page `docs/temporality.html` (wired into nav/sidebar/next-chain/sitemap/
+search index); validation, CLI, syncing, searching, commands, README,
+SITEMAP, and man page updated; `python3 docs/build.py` rebuilds clean
+(the one anchor warning is pre-existing).

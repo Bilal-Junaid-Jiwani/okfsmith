@@ -64,10 +64,31 @@ List concepts, optionally filtered by trust tier
 .RI ( unverified ,
 .IR machine-confirmed ,
 .IR human-reviewed ).
+The text table's
+.B Valid
+column shows the temporal status of each concept
+.RB ( \(em
+for concepts without temporal frontmatter, otherwise
+.IR current ,
+.IR expired ,
+.IR future ,
+or
+.IR superseded );
+JSON output adds
+.IR temporal_status .
 .TP
 .B read \fIBUNDLE\fR \fICONCEPT_ID\fR [\-\-format text|json]
 Print one concept (id is the bundle-relative path without
 .BR .md ).
+Concepts carrying temporal frontmatter
+.RB ( valid_from ,
+.BR valid_until ,
+.BR supersedes ,
+.BR last_verified )
+or superseded by another concept print a one-line
+.I [temporal: ...]
+badge after the body; JSON output adds
+.IR temporal_status .
 .TP
 .B graph \fIBUNDLE\fR [\-\-format text|json|mermaid|html] [\-\-output \fIFILE\fR]
 Show concept links. The
