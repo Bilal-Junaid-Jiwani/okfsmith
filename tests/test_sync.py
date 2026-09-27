@@ -494,7 +494,7 @@ def test_sync_llm_path_ingests(monkeypatch, tmp_path):
     runner.invoke(app, ["init", str(bundle)], env=WIDE)
 
     def fake_llm_one(path, target, **kwargs):
-        concept = target.write_concept(
+        target.write_concept(
             f"llm/{Path(path).stem}",
             {"type": "Note", "title": Path(path).stem,
              "resource": str(path)},
@@ -715,7 +715,12 @@ def test_scoped_sources_limits_deletions_to_given_roots():
 
 def test_load_sync_state_blank_and_corrupt(tmp_path):
     blank = core_sync.load_sync_state(Bundle(tmp_path / "kb"))
-    assert blank == {"version": 1, "incomplete": False, "sources": {}}
+    assert blank == {
+        "version": 1,
+        "incomplete": False,
+        "sources": {},
+        "permanent_failures": {},
+    }
 
     state_path = core_sync.sync_state_path(Bundle(tmp_path / "kb"))
     state_path.parent.mkdir(parents=True, exist_ok=True)
@@ -727,7 +732,12 @@ def test_load_sync_state_blank_and_corrupt(tmp_path):
 
 def test_save_sync_state_atomic_and_confined(tmp_path):
     target = Bundle(tmp_path / "kb")
-    state = {"version": 1, "incomplete": False, "sources": {}}
+    state = {
+        "version": 1,
+        "incomplete": False,
+        "sources": {},
+        "permanent_failures": {},
+    }
     core_sync.save_sync_state(target, state)
     leftovers = [
         p
@@ -815,3 +825,441 @@ def test_unrecord_digest(tmp_path):
     assert dedup_mod.unrecord_digest(target, digest) is False  # idempotent
     # After unrecording, a fresh ingest no longer claims "already ingested".
     assert dedup_mod.already_ingested(target, digest) is False
+
+
+# ===========================================================================
+# Regression tests: reviewer-1 findings on the sync feature (fix commit)
+# ===========================================================================
+
+
+def _sync_quiet(bundle: Path, *args: str):
+    return runner.invoke(
+        app, ["sync", str(bundle), *args, "--no-llm", "--quiet"], env=WIDE
+    )
+
+
+# --- Finding 1: symlinked sources are skipped, never followed ----------------
+
+
+def test_sync_skips_symlinked_source_file(tmp_path):
+    """A symlink inside the source dir must not ingest outside content."""
+    bundle = tmp_path / "kb"
+    src = tmp_path / "src"
+    src.mkdir()
+    outside = tmp_path / "outside-secret.md"
+    _doc(outside, "Secret", "topsecret-plans")
+    _doc(src / "real.md", "Real", "realcontent")
+    (src / "evil-link.md").symlink_to(outside)
+    runner.invoke(app, ["init", str(bundle)], env=WIDE)
+
+    result = _sync_quiet(bundle, str(src))
+    assert result.exit_code == 0, result.output
+    assert "1 added" in result.output
+    assert "1 skipped" in result.output
+    # The outside file's content was NOT ingested.
+    assert _concept_ids(bundle) == ["real/real"]
+    saved = _state(bundle)
+    assert list(saved["sources"]) == [str((src / "real.md").resolve())]
+
+
+def test_sync_symlink_skip_row_names_the_reason(tmp_path):
+    bundle = tmp_path / "kb"
+    src = tmp_path / "src"
+    src.mkdir()
+    target = _doc(src / "real.md", "Real", "realcontent")
+    (src / "link.md").symlink_to(target)  # even an in-dir link is skipped
+    runner.invoke(app, ["init", str(bundle)], env=WIDE)
+
+    result = runner.invoke(
+        app,
+        ["sync", str(bundle), str(src), "--no-llm", "--format", "json"],
+        env=WIDE,
+    )
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    rows = {f["path"]: f for f in payload["files"]}
+    assert rows[str(src / "link.md")]["change"] == "skipped"
+    assert "symlink" in rows[str(src / "link.md")]["detail"]
+    assert payload["summary"]["skipped"] == 1
+
+
+def test_sync_symlinked_source_dir_skipped(tmp_path):
+    bundle = tmp_path / "kb"
+    src = tmp_path / "src"
+    src.mkdir()
+    _doc(src / "real.md", "Real", "realcontent")
+    runner.invoke(app, ["init", str(bundle)], env=WIDE)
+
+    linkdir = tmp_path / "srcdir-link"
+    linkdir.symlink_to(src, target_is_directory=True)
+    result = _sync_quiet(bundle, str(linkdir))
+    assert result.exit_code == 0, result.output
+    assert "1 skipped" in result.output
+    assert "0 added" in result.output
+    assert _concept_ids(bundle) == []
+
+
+# --- Finding 2: updater's entry records only its own new concepts -----------
+
+
+def test_sync_update_then_delete_twin_releases_stale_concepts(tmp_path):
+    """orig+twin identical; update orig; delete twin -> no stale concepts."""
+    bundle = tmp_path / "kb"
+    src = tmp_path / "src"
+    src.mkdir()
+    orig = _doc(src / "orig.md", "Orig", "sharedcontent")
+    (src / "twin.md").write_bytes(orig.read_bytes())
+    runner.invoke(app, ["init", str(bundle)], env=WIDE)
+    assert _sync_quiet(bundle, str(src)).exit_code == 0
+    assert _concept_ids(bundle) == ["orig/orig"]
+
+    # Update orig: new content mints -2 ids; shared originals stay (twin).
+    orig.write_text(orig.read_text(encoding="utf-8") + "\n\nNew stuff. " * 200,
+                    encoding="utf-8")
+    result = _sync_quiet(bundle, str(src))
+    assert result.exit_code == 0, result.output
+    assert "1 updated" in result.output
+    assert _concept_ids(bundle) == ["orig/orig", "orig/orig-2"]
+    # The updater's entry must NOT have swept the shared originals in.
+    saved = _state(bundle)
+    assert saved["sources"][str(orig.resolve())]["concepts"] == ["orig/orig-2"]
+
+    # Deleting the twin drops the refcount -> stale originals are deleted.
+    (src / "twin.md").unlink()
+    result = _sync_quiet(bundle, str(src))
+    assert result.exit_code == 0, result.output
+    assert "1 removed" in result.output
+    assert _concept_ids(bundle) == ["orig/orig-2"]
+
+
+def test_concept_owners_lists_all_referencing_entries():
+    state = {
+        "sources": {
+            "/s/a.md": _entry("d1", ("c/1", "c/2")),
+            "/s/b.md": _entry("d1", ("c/1",)),
+        }
+    }
+    assert core_sync.concept_owners(state, "c/1") == ["/s/a.md", "/s/b.md"]
+    assert core_sync.concept_owners(state, "c/2") == ["/s/a.md"]
+    assert core_sync.concept_owners(state, "c/nope") == []
+
+
+# --- Finding 3: digest kept while other entries still reference it -----------
+
+
+def test_sync_update_keeps_digest_while_shared(tmp_path):
+    import hashlib
+
+    bundle = tmp_path / "kb"
+    src = tmp_path / "src"
+    src.mkdir()
+    orig = _doc(src / "orig.md", "Orig", "sharedcontent")
+    (src / "twin.md").write_bytes(orig.read_bytes())
+    runner.invoke(app, ["init", str(bundle)], env=WIDE)
+    assert _sync_quiet(bundle, str(src)).exit_code == 0
+
+    digest = hashlib.sha256(orig.read_bytes()).hexdigest()
+    target = Bundle.load(bundle)
+    assert digest in dedup_mod.load_manifest(target)
+
+    # Updating the recorded path must NOT drop the digest while twin.md
+    # still references it — otherwise a later ingest would duplicate.
+    orig.write_text(orig.read_text(encoding="utf-8") + "\n\nNew stuff. " * 200,
+                    encoding="utf-8")
+    assert _sync_quiet(bundle, str(src)).exit_code == 0
+    assert digest in dedup_mod.load_manifest(Bundle.load(bundle))
+    assert dedup_mod.already_ingested(Bundle.load(bundle), digest) is True
+
+
+# --- Finding 4: the bundle directory is never scanned as a source ------------
+
+
+def test_sync_excludes_bundle_dir_from_scan(tmp_path):
+    bundle = tmp_path / "src" / "kb"  # bundle INSIDE the source tree
+    src = tmp_path / "src"
+    src.mkdir(parents=True)
+    _doc(src / "a.md", "A", "realcontent")
+    runner.invoke(app, ["init", str(bundle)], env=WIDE)
+    assert _sync_quiet(bundle, str(src)).exit_code == 0
+    before = _concept_ids(bundle)
+
+    result = runner.invoke(
+        app, ["sync", str(bundle), str(src), "--no-llm", "--recursive"], env=WIDE
+    )
+    assert result.exit_code == 0, result.output
+    assert "0 added" in result.output
+    assert "never scanned as a source" in result.output
+    # The bundle's own concept files were not ingested as sources.
+    assert _concept_ids(bundle) == before
+
+    # And the next run is stable (no accumulating garbage).
+    again = _sync_quiet(bundle, str(src), "--recursive")
+    assert again.exit_code == 0, again.output
+    assert "0 added" in again.output
+    assert _concept_ids(bundle) == before
+
+
+# --- Finding 5: symlinked state path is refused -------------------------------
+
+
+def test_sync_refuses_symlinked_state_dir(tmp_path):
+    bundle = tmp_path / "kb"
+    src = tmp_path / "src"
+    src.mkdir()
+    _doc(src / "a.md", "A", "realcontent")
+    runner.invoke(app, ["init", str(bundle)], env=WIDE)
+    assert _sync_quiet(bundle, str(src)).exit_code == 0
+
+    outside = tmp_path / "evil-target"
+    outside.mkdir()
+    dotdir = bundle / ".okfsmith"
+    for child in dotdir.iterdir():
+        child.unlink()
+    dotdir.rmdir()
+    dotdir.symlink_to(outside)
+
+    result = _sync_quiet(bundle, str(src))
+    assert result.exit_code != 0
+    assert "error [sync-refused]" in result.output
+    assert "Traceback" not in result.output
+    # Nothing was written through the symlink.
+    assert list(outside.iterdir()) == []
+
+
+def test_save_sync_state_refuses_symlinked_statedir(tmp_path):
+    bundle = tmp_path / "kb"
+    bundle.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (bundle / ".okfsmith").symlink_to(outside, target_is_directory=True)
+    with pytest.raises(core_sync.SyncStateSymlinkError):
+        core_sync.save_sync_state(Bundle(bundle), core_sync._blank_state())
+    assert list(outside.iterdir()) == []
+
+
+# --- Finding 6: non-UTF-8 filenames round-trip -------------------------------
+
+
+def test_sync_non_utf8_filename_is_idempotent(tmp_path):
+    bundle = tmp_path / "kb"
+    src = tmp_path / "src"
+    src.mkdir()
+    raw_name = os.fsdecode(os.fsencode(str(src)) + b"/bad-\xff.md")
+    _doc(Path(raw_name), "Bad", "weirdname")
+    runner.invoke(app, ["init", str(bundle)], env=WIDE)
+
+    first = _sync_quiet(bundle, str(src))
+    assert first.exit_code == 0, first.output
+    assert "1 added" in first.output
+
+    second = _sync_quiet(bundle, str(src))
+    assert second.exit_code == 0, second.output
+    # No phantom rename/add/remove on the second pass.
+    assert "1 unchanged" in second.output
+    assert "0 added" in second.output
+    assert "0 renamed" in second.output
+    assert "0 removed" in second.output
+
+    # The raw (surrogate) key round-trips through the state file.
+    saved = core_sync.load_sync_state(Bundle.load(bundle))
+    assert raw_name in saved["sources"] or str(Path(raw_name).resolve()) in saved[
+        "sources"
+    ]
+
+
+def test_state_key_encoding_round_trip():
+    raw = "/s/bad-\udcff.md"  # lone surrogate, as from undecodable bytes
+    encoded = core_sync._encode_key(raw)
+    assert encoded != raw
+    assert encoded.startswith("sync-key-b64:")
+    assert core_sync._decode_key(encoded) == raw
+    # Plain UTF-8 keys (incl. non-ASCII) pass through untouched.
+    for plain in ["/s/a.md", "/s/caf\u00e9-\u65e5\u672c\u8a9e.md"]:
+        assert core_sync._encode_key(plain) == plain
+        assert core_sync._decode_key(plain) == plain
+    # A real filename that merely starts with the prefix is not mangled.
+    tricky = "sync-key-b64:not-base64!!"
+    assert core_sync._decode_key(tricky) == tricky
+
+
+# --- Finding 7: concurrent syncs ----------------------------------------------
+
+
+def test_sync_lock_is_exclusive_and_released(tmp_path):
+    target = Bundle(tmp_path / "kb")
+    (tmp_path / "kb").mkdir()
+    release = core_sync.acquire_sync_lock(target)
+    lock_path = core_sync.sync_lock_path(target)
+    assert lock_path.exists()
+    with pytest.raises(core_sync.SyncLockedError):
+        core_sync.acquire_sync_lock(target)
+    release()
+    assert not lock_path.exists()
+    # Re-acquire works after release.
+    release2 = core_sync.acquire_sync_lock(target)
+    release2()
+
+
+def test_sync_lock_stale_is_reclaimed(tmp_path):
+    import time
+
+    target = Bundle(tmp_path / "kb")
+    (tmp_path / "kb").mkdir()
+    lock_path = core_sync.sync_lock_path(target)
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    # Dead PID + ancient mtime: reclaimable.
+    lock_path.write_text("2147483647\n", encoding="utf-8")
+    old = time.time() - 7200
+    os.utime(lock_path, (old, old))
+    release = core_sync.acquire_sync_lock(target)
+    release()
+    assert not lock_path.exists()
+
+
+def test_sync_second_concurrent_sync_is_clean_error(tmp_path):
+    bundle = tmp_path / "kb"
+    src = tmp_path / "src"
+    src.mkdir()
+    _doc(src / "a.md", "A", "realcontent")
+    runner.invoke(app, ["init", str(bundle)], env=WIDE)
+
+    target = Bundle.load(bundle)
+    release = core_sync.acquire_sync_lock(target)
+    try:
+        result = _sync_quiet(bundle, str(src))
+    finally:
+        release()
+    assert result.exit_code != 0
+    assert "error [sync-locked]" in result.output
+    assert "Traceback" not in result.output
+    # No state was clobbered by the loser.
+    assert not (bundle / ".okfsmith" / "sync-state.json").exists()
+
+
+# --- Finding 8: watch --format json is JSONL ----------------------------------
+
+
+def test_sync_watch_json_is_jsonl(tmp_path, capsys):
+    """Each watch cycle emits exactly one single-line JSON object."""
+    bundle = tmp_path / "kb"
+    src = tmp_path / "src"
+    src.mkdir()
+    _doc(src / "a.md", "A", "realcontent")
+    runner.invoke(app, ["init", str(bundle)], env=WIDE)
+
+    stop = threading.Event()
+    thread = threading.Thread(
+        target=sync_mod.run_watch,
+        kwargs={
+            "bundle_path": bundle,
+            "sources": [src],
+            "config": sync_mod.SyncConfig(no_llm=True),
+            "interval": 0.05,
+            "output_format": "json",
+            "quiet": True,
+            "stop_event": stop,
+            "max_cycles": 2,
+        },
+        daemon=True,
+    )
+    try:
+        thread.start()
+        thread.join(timeout=30)
+        assert not thread.is_alive()
+    finally:
+        stop.set()
+    out = capsys.readouterr().out
+    lines = [line for line in out.splitlines() if line.strip()]
+    assert lines, "watch emitted no JSON lines"
+    for line in lines:
+        assert "\n" not in line
+        payload = json.loads(line)  # one JSON doc per line, no concat
+        assert set(payload) >= {"summary", "files", "resumed"}
+
+
+# --- Finding 9: permanent failures don't nag ----------------------------------
+
+
+def _docx_missing_extra(tmp_path: Path) -> Path | None:
+    """A .docx source that fails with a missing-extra error, else None."""
+    from okfsmith.parsers import parse_file
+
+    probe = tmp_path / "probe.docx"
+    probe.write_bytes(b"PK\x03\x04" + b"\x00" * 64)
+    try:
+        error = (parse_file(probe).meta or {}).get("error") or ""
+    finally:
+        probe.unlink(missing_ok=True)
+    if "markitdown is not installed" in error.lower():
+        return probe
+    return None
+
+
+def test_sync_permanent_failure_no_resume_nag(tmp_path):
+    src = tmp_path / "src"
+    src.mkdir()
+    probe = _docx_missing_extra(tmp_path)
+    if probe is None:
+        pytest.skip("office extra installed: no permanent-failure path")
+    docx = src / "report.docx"
+    docx.write_bytes(b"PK\x03\x04" + b"\x00" * 200)
+    bundle = tmp_path / "kb"
+    runner.invoke(app, ["init", str(bundle)], env=WIDE)
+
+    # Explicitly named: fails, but does not abort into a resume loop.
+    first = runner.invoke(
+        app, ["sync", str(bundle), str(docx), "--no-llm", "--quiet"], env=WIDE
+    )
+    assert first.exit_code != 0
+    assert "Traceback" not in first.output
+    assert "did not complete" not in first.output
+    saved = _state(bundle)
+    assert saved["incomplete"] is False
+    assert str(docx.resolve()) in saved["permanent_failures"]
+
+    second = runner.invoke(
+        app, ["sync", str(bundle), str(docx), "--no-llm", "--quiet"], env=WIDE
+    )
+    assert second.exit_code != 0
+    # Still reported every run, but without the resume nag.
+    assert "1 failed" in second.output
+    assert "did not complete" not in second.output
+    assert "resuming" not in second.output
+
+    # A good file alongside still syncs fine (exit 0, per-file failure).
+    good = _doc(src / "good.md", "Good", "goodcontent")
+    mixed = runner.invoke(
+        app,
+        ["sync", str(bundle), str(good), str(docx), "--no-llm", "--quiet"],
+        env=WIDE,
+    )
+    assert mixed.exit_code == 0, mixed.output
+    assert "1 added" in mixed.output
+    assert "1 failed" in mixed.output
+    assert "permanent" in mixed.output
+
+    # Once the file is gone, the stale permanent mark is dropped.
+    docx.unlink()
+    gone = _sync_quiet(bundle, str(src))
+    assert gone.exit_code == 0, gone.output
+    assert _state(bundle)["permanent_failures"] == {}
+
+
+# --- Finding 10: docs nits -----------------------------------------------------
+
+
+def test_docs_syncing_path_and_symlink_wording():
+    repo = Path(__file__).resolve().parent.parent
+    changelog = (repo / "CHANGELOG.md").read_text(encoding="utf-8")
+    # The guide lives at docs/src/syncing.md (built to docs/syncing.html).
+    assert "docs/src/syncing.md" in changelog
+    assert "docs/syncing.md" not in changelog.replace("docs/src/syncing.md", "")
+    guide = (repo / "docs" / "src" / "syncing.md").read_text(encoding="utf-8")
+    assert "symlink" in guide.lower()
+    assert "JSONL" in guide or "jsonl" in guide.lower()
+
+
+def test_sync_format_help_mentions_jsonl():
+    result = runner.invoke(app, ["sync", "--help"], env=WIDE)
+    assert result.exit_code == 0, result.output
+    assert "JSONL" in result.output

@@ -777,3 +777,52 @@ Post-build integration and QA pass, all verified in headless Firefox:
   `docs/commands.md`, `docs/src/cli.md`, `man/okfsmith.1`, README CLI
   table, CHANGELOG (Unreleased → Added; deferred M1 now superseded for
   the sync path — plain `ingest` re-ingest still versions by design).
+
+## 2026-09-28 — Sync hardening: reviewer-1's 10 findings fixed (FIXER-1)
+
+**Context:** the adversarial review of the P1 incremental sync feature
+(commit `45cf4e7`) failed it with 10 findings (1 HIGH, 4 MEDIUM, 5 LOW).
+Each was reproduced from the reviewer's repro labs before fixing, and
+verified fixed after.
+
+**What changed** (`src/okfsmith/core/sync.py`, `src/okfsmith/cli/sync.py`):
+- Symlinked sources are skipped with a per-file warning row — sync never
+  follows symlinks, so outside content can never be ingested and a
+  resolved-outside path can never enter the state (plain `ingest` keeps
+  its pre-existing follow behavior; only the sync path changed).
+- Concept ownership is now explicit (`core.sync.concept_owners`): an
+  updated file's state entry records only the concepts its own new
+  content produced, so deleting the last sharer of identical content
+  deletes the stale concepts (the old sweep-in bug left them forever).
+- The dedup-manifest digest record is only dropped when no other state
+  entry still references the digest.
+- Files under the bundle directory are excluded from source scanning
+  (with a stderr note); a bundle inside the synced tree can no longer
+  self-ingest its own concept files.
+- `save_sync_state` refuses symlinked `<bundle>/.okfsmith/` (or bundle
+  dir) with `SyncStateSymlinkError` → clean `error [sync-refused]`
+  (audit-C1 pattern); the lock acquisition refuses the same way.
+- Non-UTF-8 filenames round-trip through the state file reversibly
+  (plain UTF-8 keys untouched; others stored as `sync-key-b64:<base64>`
+  of the raw bytes) — second sync reports 0 changes, no phantom renames.
+- Per-bundle lock `<bundle>/.okfsmith/sync.lock` (`O_CREAT|O_EXCL`,
+  stdlib only): a concurrent sync exits with clean `error [sync-locked]`;
+  stale locks (dead PID or >10 min old) are reclaimed; dry runs don't
+  take the lock.
+- Watch-mode `--format json` is now JSONL (one compact object per line
+  per cycle), documented in `--help` and `docs/src/syncing.md`.
+- Sources that can never succeed without user action (e.g. `.docx`
+  without the `office` extra) are recorded as permanent per-source
+  failures: reported every run, but they no longer set `incomplete`,
+  so the resume nag is gone. Stale marks are dropped when the file
+  disappears or ingests cleanly.
+- Docs: `docs/src/syncing.md` safety section documents the actual
+  symlink/lock/JSONL/permanent-failure behavior; CHANGELOG path nit
+  (`docs/syncing.md` → `docs/src/syncing.md`) fixed; CHANGELOG
+  (Unreleased → Fixed) records all 10.
+
+**Tests:** 18 new regression tests in `tests/test_sync.py` (one per
+finding, several with two), plus updates to the two exact-shape state
+tests for the new `permanent_failures` field. Full suite green except
+the 3 pre-existing baseline failures (version string, 2 markitdown
+tests); `ruff check` clean on all touched files.

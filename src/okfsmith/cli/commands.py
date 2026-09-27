@@ -972,7 +972,9 @@ def sync(
         help="Only print warnings, errors, and the final summary line.",
     ),
     output_format: ValidateFormat = typer.Option(
-        ValidateFormat.text, "--format", help="Output format: text or json."
+        ValidateFormat.text, "--format",
+        help="Output format: text or json. In --watch mode, json emits one "
+        "compact object per line per cycle (JSONL).",
     ),
 ) -> None:
     """Incrementally sync BUNDLE with SOURCE... (SHA-256 change detection).

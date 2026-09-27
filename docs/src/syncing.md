@@ -101,6 +101,15 @@ up where it stopped. Errors also come back as JSON
 (`{"status": "error", "code": "...", "message": "...", "hint": "..."}`) when
 `--format json` is set.
 
+In `--watch` mode with `--format json`, the stream is **JSONL**: every
+cycle emits exactly one compact JSON object on one line — one line per
+cycle, no pretty-printing, so you can pipe it straight into `jq`:
+
+```bash
+okfsmith sync ./kb ./docs --no-llm --watch --interval 10 --format json | \
+  jq -c '.summary'
+```
+
 ## Safety guarantees
 
 These are the rules `sync` never breaks:
@@ -108,17 +117,36 @@ These are the rules `sync` never breaks:
 - **Atomic state.** `<bundle>/.okfsmith/sync-state.json` is written via
   temp-file + rename after every file, so a crash can never corrupt it.
   `okfsmith validate` ignores the state file — it never affects conformance.
+- **Symlink-safe state.** `sync` refuses to write through a symlinked
+  `<bundle>/.okfsmith/` (or bundle directory): the write is rejected with
+  a clean `error [sync-refused]` before anything is written, so sync state
+  can never land outside the bundle.
+- **Symlinked sources are skipped.** A source file that is a symlink is
+  never followed — it is reported as a `skipped` row with a warning, so
+  outside content can never be ingested through a link.
+- **The bundle is never its own source.** Files under the bundle directory
+  are excluded from source scanning (with a note), so syncing a tree that
+  contains the bundle cannot self-ingest the bundle's concept files.
+- **One sync at a time.** A per-bundle lock
+  (`<bundle>/.okfsmith/sync.lock`, `O_CREAT | O_EXCL`) serializes
+  concurrent syncs; a second concurrent sync exits with a clean
+  `error [sync-locked]` instead of clobbering the state. Stale locks
+  (dead process, or older than 10 minutes) are reclaimed automatically.
 - **Resumable.** An interrupted run leaves `incomplete: true` in the state;
   the next run announces the resume and adopts already-ingested concepts
-  instead of duplicating them.
+  instead of duplicating them. Sources that can never succeed without user
+  action (e.g. a `.docx` without the `office` extra) are recorded as
+  permanent per-source failures: they are reported every run, but they do
+  not set the `incomplete` flag, so there is no resume nag for them.
 - **Pre-flight on updates.** Before replacing a file's concepts, `sync`
   checks the new content would actually ingest. If it wouldn't (parse
   error, below the ~1000-char minimum, sectioning failure), the old
   concepts are kept and the file is reported `skipped` — updates never
   destroy knowledge.
 - **Shared content is reference-counted.** Two files with identical bytes
-  share one set of concepts; deleting one source drops the concepts only
-  when the last file with that content disappears.
+  share one set of concepts; each concept tracks which state entries own
+  it, and deleting a source drops the concepts only when the last owner
+  disappears.
 - **Scoped deletions.** `sync ./kb ./docs` only ever removes concepts
   that came from `./docs`. Other source trees are untouched.
 - **No path escapes.** Concept deletion is confined to the bundle root,

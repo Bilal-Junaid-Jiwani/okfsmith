@@ -182,16 +182,28 @@ sync: 0 added, 1 updated, 0 renamed, 0 removed, 1 unchanged, 0 skipped, 0 failed
 }
 </code></pre>
 <p><code>resumed: true</code> means the previous run was interrupted and this one picked up where it stopped. Errors also come back as JSON (<code>{"status": "error", "code": "...", "message": "...", "hint": "..."}</code>) when <code>--format json</code> is set.</p>
+<p>In <code>--watch</code> mode with <code>--format json</code>, the stream is <strong>JSONL</strong>: every cycle emits exactly one compact JSON object on one line — one line per cycle, no pretty-printing, so you can pipe it straight into <code>jq</code>:</p>
+<pre class="codeblock" data-lang="bash"><code>okfsmith sync ./kb ./docs --no-llm --watch --interval 10 --format json | \
+  jq -c '.summary'
+</code></pre>
 <h2 id="safety-guarantees">Safety guarantees</h2>
 <p>These are the rules <code>sync</code> never breaks:</p>
 <ul>
 <li><strong>Atomic state.</strong> <code>&lt;bundle&gt;/.okfsmith/sync-state.json</code> is written via temp-file + rename after every file, so a crash can never corrupt it. <code>okfsmith validate</code> ignores the state file — it never affects conformance.
 </li>
-<li><strong>Resumable.</strong> An interrupted run leaves <code>incomplete: true</code> in the state; the next run announces the resume and adopts already-ingested concepts instead of duplicating them.
+<li><strong>Symlink-safe state.</strong> <code>sync</code> refuses to write through a symlinked <code>&lt;bundle&gt;/.okfsmith/</code> (or bundle directory): the write is rejected with a clean <code>error [sync-refused]</code> before anything is written, so sync state can never land outside the bundle.
+</li>
+<li><strong>Symlinked sources are skipped.</strong> A source file that is a symlink is never followed — it is reported as a <code>skipped</code> row with a warning, so outside content can never be ingested through a link.
+</li>
+<li><strong>The bundle is never its own source.</strong> Files under the bundle directory are excluded from source scanning (with a note), so syncing a tree that contains the bundle cannot self-ingest the bundle's concept files.
+</li>
+<li><strong>One sync at a time.</strong> A per-bundle lock (<code>&lt;bundle&gt;/.okfsmith/sync.lock</code>, <code>O_CREAT | O_EXCL</code>) serializes concurrent syncs; a second concurrent sync exits with a clean <code>error [sync-locked]</code> instead of clobbering the state. Stale locks (dead process, or older than 10 minutes) are reclaimed automatically.
+</li>
+<li><strong>Resumable.</strong> An interrupted run leaves <code>incomplete: true</code> in the state; the next run announces the resume and adopts already-ingested concepts instead of duplicating them. Sources that can never succeed without user action (e.g. a <code>.docx</code> without the <code>office</code> extra) are recorded as permanent per-source failures: they are reported every run, but they do not set the <code>incomplete</code> flag, so there is no resume nag for them.
 </li>
 <li><strong>Pre-flight on updates.</strong> Before replacing a file's concepts, <code>sync</code> checks the new content would actually ingest. If it wouldn't (parse error, below the ~1000-char minimum, sectioning failure), the old concepts are kept and the file is reported <code>skipped</code> — updates never destroy knowledge.
 </li>
-<li><strong>Shared content is reference-counted.</strong> Two files with identical bytes share one set of concepts; deleting one source drops the concepts only when the last file with that content disappears.
+<li><strong>Shared content is reference-counted.</strong> Two files with identical bytes share one set of concepts; each concept tracks which state entries own it, and deleting a source drops the concepts only when the last owner disappears.
 </li>
 <li><strong>Scoped deletions.</strong> <code>sync ./kb ./docs</code> only ever removes concepts that came from <code>./docs</code>. Other source trees are untouched.
 </li>

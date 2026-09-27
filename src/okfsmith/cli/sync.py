@@ -23,6 +23,8 @@ Design notes:
 from __future__ import annotations
 
 import importlib
+import json
+import os
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -39,6 +41,7 @@ from okfsmith.cli.commands import (
     _dump_json,
     _ingest_llm_one,
     _ingest_no_llm_one,
+    _jsonable,
     _lazy_attr,
     _plural,
 )
@@ -103,7 +106,7 @@ class SyncResult:
     dry_run: bool = False
 
     def summary(self) -> dict[str, int]:
-        counts = {name: 0 for name in OUTCOME_ORDER}
+        counts = dict.fromkeys(OUTCOME_ORDER, 0)
         for result in self.results:
             counts[result.change] = counts.get(result.change, 0) + 1
         return counts
@@ -154,21 +157,74 @@ def _wiring(no_llm: bool) -> _Wiring:
 # ---------------------------------------------------------------------------
 
 
-def _scan_files(sources: list[Path], recursive: bool) -> list[Path]:
-    """Resolved source files across *sources*, de-duplicated.
+@dataclass
+class ScanResult:
+    """Outcome of scanning the sources."""
+
+    files: list[Path]
+    """Scannable source files (resolved, de-duplicated)."""
+
+    skipped: list[FileResult]
+    """Per-file skip rows (symlinked sources are never followed)."""
+
+    bundle_skipped: int = 0
+    """Files skipped because they live inside the bundle directory."""
+
+
+def _scan_files(
+    sources: list[Path], recursive: bool, bundle_root: Path | None = None
+) -> ScanResult:
+    """Scan *sources*; symlinks and bundle-internal files are skipped.
 
     Reuses the ingest command's collector (reserved ``index.md``/``log.md``
     are never sources; FIFOs and friends fail cleanly via CliError).
+
+    - Any source path that is itself a symlink is skipped with a per-file
+      warning row — sync never follows symlinks, so outside content can
+      never be ingested through one (and a resolved-outside path can never
+      enter the state).
+    - Files under *bundle_root* are skipped (a bundle is never its own
+      source); the caller reports the count as a single note.
     """
     seen: dict[str, Path] = {}
+    skipped: list[FileResult] = []
+    bundle_skipped = 0
+    bundle_real = os.path.realpath(bundle_root) if bundle_root is not None else None
     for source in sources:
+        if source.is_symlink():
+            # A symlinked source root is skipped outright (never descended).
+            skipped.append(
+                FileResult(
+                    path=str(source),
+                    change="skipped",
+                    detail="skipped: source is a symlink "
+                    "(sync never follows symlinks)",
+                )
+            )
+            continue
         for path in _collect_inputs(source, recursive):
+            if path.is_symlink():
+                skipped.append(
+                    FileResult(
+                        path=str(path),
+                        change="skipped",
+                        detail="skipped: source is a symlink "
+                        "(sync never follows symlinks)",
+                    )
+                )
+                continue
             try:
                 resolved = path.resolve()
             except OSError:
                 continue
+            if bundle_real is not None:
+                real = os.path.realpath(resolved)
+                if real == bundle_real or real.startswith(bundle_real + os.sep):
+                    bundle_skipped += 1
+                    continue
             seen.setdefault(str(resolved), resolved)
-    return [seen[key] for key in sorted(seen)]
+    files = [seen[key] for key in sorted(seen)]
+    return ScanResult(files=files, skipped=skipped, bundle_skipped=bundle_skipped)
 
 
 def _hash_files(
@@ -225,6 +281,24 @@ def _owned_concepts(target: Bundle, state: dict[str, Any], path: str) -> list[st
     return sorted(recorded - _referenced_by_others(state, path))
 
 
+def _save_state(target: Bundle, state: dict[str, Any]) -> None:
+    """Persist the sync state, mapping a symlinked state path to CliError.
+
+    :class:`core.sync.SyncStateSymlinkError` becomes a clean
+    ``error [sync-refused]``; other I/O failures propagate as OSError for
+    the caller's ``error [io-error]`` mapping.
+    """
+    try:
+        _state.save_sync_state(target, state)
+    except _state.SyncStateSymlinkError as exc:
+        raise CliError(
+            "sync-refused",
+            str(exc),
+            "Remove the symlink so '<bundle>/.okfsmith/' is a real "
+            "directory inside the bundle, then retry.",
+        ) from None
+
+
 def _record_source(
     target: Bundle,
     state: dict[str, Any],
@@ -244,11 +318,44 @@ def _record_source(
         "size": size,
         "mtime_ns": mtime_ns,
     }
-    _state.save_sync_state(target, state)
+    # A source that now ingests cleanly is no longer a permanent failure.
+    (state.get("permanent_failures") or {}).pop(path, None)
+    _save_state(target, state)
+
+
+def _record_permanent_failure(
+    target: Bundle,
+    state: dict[str, Any],
+    change: _state.FileChange,
+    exc: CliError,
+) -> FileResult:
+    """Record a never-retryable per-source failure without aborting the pass.
+
+    A source that can never succeed without user action (e.g. a ``.docx``
+    without the ``office`` extra) is recorded under
+    ``state["permanent_failures"]`` and reported as a ``failed`` row every
+    run — but it does NOT set the global ``incomplete`` flag, so later runs
+    do not print the resume nag for it.
+    """
+    state.setdefault("permanent_failures", {})[change.path] = {
+        "reason": exc.message,
+        "sha256": change.sha256,
+    }
+    _save_state(target, state)
+    hint = f" ({exc.hint})" if exc.hint else ""
+    return FileResult(
+        path=change.path,
+        change="failed",
+        detail=f"permanent failure: {exc.message}{hint}",
+    )
 
 
 def _unrecord_if_mine(
-    wiring: _Wiring, target: Bundle, digest: str | None, path: str
+    wiring: _Wiring,
+    target: Bundle,
+    digest: str | None,
+    path: str,
+    state: dict[str, Any],
 ) -> None:
     """Drop a stale dedup-manifest record for *digest* when it names *path*.
 
@@ -256,10 +363,15 @@ def _unrecord_if_mine(
     a digest was recorded for, the record must go too — otherwise a later
     plain ``ingest`` would report "already ingested" for content the bundle
     no longer contains. Records naming a *different* path (identical file
-    ingested elsewhere) are left alone.
+    ingested elsewhere) are left alone, and the record is kept whenever any
+    *other* state entry still references the digest (shared identical
+    content): unrecording it would silently break dedup for live concepts.
     """
     if not digest:
         return
+    for other, record in (state.get("sources") or {}).items():
+        if other != path and record.get("sha256") == digest:
+            return
     try:
         manifest = wiring.load_manifest(target)
     except Exception:  # noqa: BLE001 — manifest is advisory; never fatal
@@ -326,6 +438,33 @@ def _ingest_source(
         ) from None
 
 
+def _ingest_with_permanent_guard(
+    target: Bundle,
+    state: dict[str, Any],
+    change: _state.FileChange,
+    wiring: _Wiring,
+    config: SyncConfig,
+    *,
+    explicit: bool,
+) -> tuple[str, int] | FileResult:
+    """Ingest one file, converting permanent failures to a ``FileResult``.
+
+    A missing-extra :class:`CliError` (a source that can never succeed
+    without user action, e.g. ``.docx`` without the ``office`` extra) is
+    recorded via :func:`_record_permanent_failure` and returned as a
+    ``failed`` row instead of aborting the pass; every other ``CliError``
+    propagates.
+    """
+    try:
+        return _ingest_source(
+            Path(change.path), target, wiring, config, explicit=explicit
+        )
+    except CliError as exc:
+        if exc.code == "missing-extra":
+            return _record_permanent_failure(target, state, change, exc)
+        raise
+
+
 def _preflight(
     path: Path, wiring: _Wiring, config: SyncConfig, *, explicit: bool
 ) -> str | None:
@@ -384,7 +523,6 @@ def _apply_added(
     config: SyncConfig,
     explicit_paths: set[str],
 ) -> FileResult:
-    path = Path(change.path)
     # Interrupted-sync resume: the concepts may already exist (ingest ran,
     # state save did not). Adopt them instead of creating duplicates.
     existing = [
@@ -401,9 +539,13 @@ def _apply_added(
             concepts=len(existing),
             detail=f"adopted {len(existing)} existing concept(s)",
         )
-    status, _count = _ingest_source(
-        path, target, wiring, config, explicit=change.path in explicit_paths
+    ingested = _ingest_with_permanent_guard(
+        target, state, change, wiring, config,
+        explicit=change.path in explicit_paths,
     )
+    if isinstance(ingested, FileResult):
+        return ingested  # permanent failure: already recorded, keep going
+    status, _count = ingested
     # A dedup-skipped file shares its content's concepts with the source the
     # manifest names: share ownership instead of recording zero concepts.
     new_ids = _state.concepts_from_source(target, change.path)
@@ -452,9 +594,14 @@ def _apply_updated(
     explicit_paths: set[str],
 ) -> FileResult:
     path = Path(change.path)
-    reason = _preflight(
-        path, wiring, config, explicit=change.path in explicit_paths
-    )
+    try:
+        reason = _preflight(
+            path, wiring, config, explicit=change.path in explicit_paths
+        )
+    except CliError as exc:
+        if exc.code == "missing-extra":
+            return _record_permanent_failure(target, state, change, exc)
+        raise
     if reason is not None:
         outcome = "failed" if reason.startswith("failed") else "skipped"
         return FileResult(
@@ -468,16 +615,28 @@ def _apply_updated(
     # the id allocator does not mint -2/-3 duplicates).
     old_ids = _owned_concepts(target, state, change.path)
     removed = _state.remove_concepts(target, old_ids)
-    _unrecord_if_mine(wiring, target, change.old_sha256, change.path)
+    _unrecord_if_mine(wiring, target, change.old_sha256, change.path, state)
     # Content that reverted to a digest recorded for this same path would be
     # dedup-skipped even though its concepts are gone: drop the stale record.
-    _unrecord_if_mine(wiring, target, change.sha256, change.path)
-    status, _count = _ingest_source(
-        path, target, wiring, config, explicit=change.path in explicit_paths
+    _unrecord_if_mine(wiring, target, change.sha256, change.path, state)
+    ingested = _ingest_with_permanent_guard(
+        target, state, change, wiring, config,
+        explicit=change.path in explicit_paths,
     )
+    if isinstance(ingested, FileResult):
+        return ingested  # permanent failure: already recorded, keep going
+    status, _count = ingested
     new_ids = _state.concepts_from_source(target, change.path)
     if status == "skipped (already ingested)" and not new_ids:
         new_ids = _donor_concepts(target, wiring, state, change)
+    else:
+        # The updater's entry records only the concepts its own new content
+        # produced: pre-existing concepts shared with other entries (same
+        # bytes ingested under another source) keep their original owners.
+        # Otherwise a later deletion of the sharer would leave these stale
+        # concepts referenced forever.
+        shared = _referenced_by_others(state, change.path)
+        new_ids = [cid for cid in new_ids if cid not in shared]
     outcome = "updated" if status == "ok" else _outcome_of(status)
     # Like _apply_added: only successful (or stably dedup-shared) outcomes
     # are recorded; skipped/failed files are retried on the next pass.
@@ -519,6 +678,7 @@ def _apply_renamed(
     record = (state.get("sources") or {}).pop(old_path, {})
     record["sha256"] = change.sha256
     record["concepts"] = sorted(set(ids))
+    (state.get("permanent_failures") or {}).pop(old_path, None)
     try:
         stat = Path(change.path).stat()
         record["size"] = stat.st_size
@@ -526,7 +686,7 @@ def _apply_renamed(
     except OSError:
         pass
     state.setdefault("sources", {})[change.path] = record
-    _state.save_sync_state(target, state)
+    _save_state(target, state)
     return FileResult(
         path=change.path,
         change="renamed",
@@ -543,17 +703,23 @@ def _apply_removed(
     wiring: _Wiring,
 ) -> FileResult:
     sources = state.get("sources") or {}
+    my_concepts = set(
+        (sources.get(change.path) or {}).get("concepts") or change.concepts
+    )
+    # Identical content still tracked under another source: transfer
+    # ownership, keep the concepts. Sharing is decided by concept-id
+    # overlap (the owner list), not by digest equality.
     sharers = [
         other
         for other, record in sources.items()
-        if other != change.path and record.get("sha256") == change.old_sha256
+        if other != change.path
+        and my_concepts & set(record.get("concepts") or [])
     ]
     if sharers:
-        # Identical content still tracked under another source: transfer
-        # ownership, keep the concepts.
         kept = list(change.concepts)
         sources.pop(change.path, None)
-        _state.save_sync_state(target, state)
+        (state.get("permanent_failures") or {}).pop(change.path, None)
+        _save_state(target, state)
         return FileResult(
             path=change.path,
             change="removed",
@@ -566,9 +732,10 @@ def _apply_removed(
     removed = _state.remove_concepts(
         target, _owned_concepts(target, state, change.path)
     )
-    _unrecord_if_mine(wiring, target, change.old_sha256, change.path)
+    _unrecord_if_mine(wiring, target, change.old_sha256, change.path, state)
     sources.pop(change.path, None)
-    _state.save_sync_state(target, state)
+    (state.get("permanent_failures") or {}).pop(change.path, None)
+    _save_state(target, state)
     return FileResult(
         path=change.path,
         change="removed",
@@ -633,7 +800,12 @@ def run_once(
     config: SyncConfig,
     _wiring: _Wiring | None = None,
 ) -> SyncResult:
-    """Run a single sync pass: detect changes, apply them, update the state."""
+    """Run a single sync pass: detect changes, apply them, update the state.
+
+    Non-dry-run passes hold the per-bundle sync lock
+    (``<bundle>/.okfsmith/sync.lock``); a second concurrent sync fails fast
+    with ``error [sync-locked]`` instead of clobbering the state.
+    """
     wiring = _wiring or _wiring_factory(config.no_llm)
     try:
         target = Bundle.load(bundle_path)
@@ -644,7 +816,7 @@ def run_once(
             "Check the path is writable and not on a read-only filesystem.",
         ) from None
 
-    files = _scan_files(sources, config.recursive)
+    scan = _scan_files(sources, config.recursive, bundle_root=Path(target.root))
     roots = sorted({str(source.resolve()) for source in sources})
     # M19 parity with ingest: only sources the user named directly as files
     # escalate missing-extra parse failures; directory-discovered files
@@ -655,10 +827,17 @@ def run_once(
     state = _state.load_sync_state(target)
     resumed = bool(state.get("incomplete"))
     scoped = _state.scoped_sources(state, roots)
-    current, hash_failed = _hash_files(files, wiring)
+    current, hash_failed = _hash_files(scan.files, wiring)
     plan = _state.plan_sync(current, scoped)
 
-    results: list[FileResult] = list(hash_failed)
+    results: list[FileResult] = list(scan.skipped)
+    results.extend(hash_failed)
+    if not config.dry_run:
+        # Drop permanent-failure marks for files that no longer exist: the
+        # user fixed the problem by deleting the source.
+        failures = state.get("permanent_failures") or {}
+        for failed_path in [p for p in failures if p not in current]:
+            del failures[failed_path]
     if config.dry_run:
         for change in plan:
             detail = {
@@ -679,14 +858,63 @@ def run_once(
             )
         return SyncResult(results=results, resumed=resumed, dry_run=True)
 
+    if scan.bundle_skipped and not config.quiet:
+        typer.echo(
+            f"note: skipped {scan.bundle_skipped} file(s) inside the bundle "
+            f"directory '{bundle_path}' — a bundle is never scanned as a "
+            "source.",
+            err=True,
+        )
     if resumed:
         typer.echo(
             "note: the previous sync did not complete; resuming.",
             err=True,
         )
+
+    # Dry runs never take the lock (they write nothing); every mutating
+    # pass serializes on it.
+    release = None
+    try:
+        release = _state.acquire_sync_lock(target)
+    except _state.SyncLockedError as exc:
+        raise CliError(
+            "sync-locked",
+            str(exc),
+            "If no sync is actually running, delete "
+            f"'{_state.sync_lock_path(target)}' and retry.",
+        ) from None
+    except _state.SyncStateSymlinkError as exc:
+        raise CliError(
+            "sync-refused",
+            str(exc),
+            "Remove the symlink so '<bundle>/.okfsmith/' is a real "
+            "directory inside the bundle, then retry.",
+        ) from None
+    try:
+        return _run_pass(
+            target, bundle_path, plan, state, wiring, config, explicit_paths,
+            results, resumed,
+        )
+    finally:
+        if release is not None:
+            release()
+
+
+def _run_pass(
+    target: Bundle,
+    bundle_path: Path,
+    plan: list[_state.FileChange],
+    state: dict[str, Any],
+    wiring: _Wiring,
+    config: SyncConfig,
+    explicit_paths: set[str],
+    results: list[FileResult],
+    resumed: bool,
+) -> SyncResult:
+    """Apply *plan* under the sync lock; see :func:`run_once`."""
     state["incomplete"] = True
     try:
-        _state.save_sync_state(target, state)
+        _save_state(target, state)
     except OSError as exc:
         raise CliError(
             "io-error",
@@ -719,7 +947,7 @@ def run_once(
             ) from None
     state["incomplete"] = False
     try:
-        _state.save_sync_state(target, state)
+        _save_state(target, state)
     except OSError as exc:
         raise CliError(
             "io-error",
@@ -745,28 +973,36 @@ def print_result(
     *,
     output_format: str = "text",
     quiet: bool = False,
+    jsonl: bool = False,
 ) -> None:
-    """Render a sync result as a rich table or JSON."""
+    """Render a sync result as a rich table or JSON.
+
+    With ``jsonl=True`` (used by ``--watch``) the JSON form is a single
+    compact object on one line — the watch stream is JSONL: one object per
+    line, one per cycle.
+    """
     if output_format == "json":
-        _dump_json(
-            {
-                "bundle": str(bundle_path),
-                "sources": [str(source) for source in sources],
-                "dry_run": result.dry_run,
-                "resumed": result.resumed,
-                "summary": result.summary(),
-                "files": [
-                    {
-                        "path": item.path,
-                        "change": item.change,
-                        "old_path": item.old_path,
-                        "concepts": item.concepts,
-                        "detail": item.detail,
-                    }
-                    for item in result.results
-                ],
-            }
-        )
+        payload = {
+            "bundle": str(bundle_path),
+            "sources": [str(source) for source in sources],
+            "dry_run": result.dry_run,
+            "resumed": result.resumed,
+            "summary": result.summary(),
+            "files": [
+                {
+                    "path": item.path,
+                    "change": item.change,
+                    "old_path": item.old_path,
+                    "concepts": item.concepts,
+                    "detail": item.detail,
+                }
+                for item in result.results
+            ],
+        }
+        if jsonl:
+            typer.echo(json.dumps(_jsonable(payload), separators=(",", ":")))
+        else:
+            _dump_json(payload)
         return
     if not quiet:
         table = Table(title=f"Sync summary — {bundle_path}")
@@ -804,7 +1040,11 @@ def _summary_line(summary: dict[str, int]) -> str:
 
 
 def _build_snapshot(
-    sources: list[Path], recursive: bool, wiring: _Wiring, state: dict[str, Any]
+    sources: list[Path],
+    recursive: bool,
+    wiring: _Wiring,
+    state: dict[str, Any],
+    bundle_root: Path | None = None,
 ) -> dict[str, tuple[int, int, str | None]]:
     """``{path: (mtime_ns, size, sha256)}``; SHA-256 seeded from the state.
 
@@ -812,7 +1052,9 @@ def _build_snapshot(
     digest (fast path); anything else is hashed (SHA-256 confirm).
     """
     snapshot: dict[str, tuple[int, int, str | None]] = {}
-    for path in _scan_files(sources, recursive):
+    for path in _scan_files(
+        sources, recursive, bundle_root=bundle_root
+    ).files:
         key = str(path)
         try:
             stat = path.stat()
@@ -839,6 +1081,7 @@ def _poll_changed(
     recursive: bool,
     wiring: _Wiring,
     snapshot: dict[str, tuple[int, int, str | None]],
+    bundle_root: Path | None = None,
 ) -> bool:
     """True when a re-sync is warranted; updates *snapshot* in place.
 
@@ -846,7 +1089,7 @@ def _poll_changed(
     with SHA-256 before reporting a change (a bare ``touch`` does not sync).
     """
     try:
-        files = _scan_files(sources, recursive)
+        files = _scan_files(sources, recursive, bundle_root=bundle_root).files
     except CliError:
         # A source vanished mid-watch; the sync pass reports it cleanly.
         return True
@@ -891,12 +1134,21 @@ def run_watch(
     """
     wiring = _wiring(config.no_llm)
     target = Bundle(bundle_path)  # no I/O; only used for the state path
+    bundle_root = Path(target.root)
     state = _state.load_sync_state(target)
-    snapshot = _build_snapshot(sources, config.recursive, wiring, state)
+    snapshot = _build_snapshot(
+        sources, config.recursive, wiring, state, bundle_root=bundle_root
+    )
 
     def emit(result: SyncResult) -> None:
+        # Watch-mode JSON is JSONL: one compact object per line, per cycle.
         print_result(
-            result, bundle_path, sources, output_format=output_format, quiet=quiet
+            result,
+            bundle_path,
+            sources,
+            output_format=output_format,
+            quiet=quiet,
+            jsonl=True,
         )
 
     def cycle() -> None:
@@ -912,7 +1164,10 @@ def run_watch(
         state_now = _state.load_sync_state(Bundle(bundle_path))
         snapshot.clear()
         snapshot.update(
-            _build_snapshot(sources, config.recursive, wiring, state_now)
+            _build_snapshot(
+                sources, config.recursive, wiring, state_now,
+                bundle_root=bundle_root,
+            )
         )
 
     typer.echo(
@@ -927,7 +1182,10 @@ def run_watch(
         while True:
             if stop.wait(interval):
                 break
-            if _poll_changed(sources, config.recursive, wiring, snapshot):
+            if _poll_changed(
+                sources, config.recursive, wiring, snapshot,
+                bundle_root=bundle_root,
+            ):
                 cycle()
             cycles += 1
             if max_cycles is not None and cycles >= max_cycles:

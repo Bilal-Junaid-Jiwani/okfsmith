@@ -6,7 +6,15 @@ The sync state lives in ``<bundle>/.okfsmith/sync-state.json``::
      "sources": {"<abs path>": {"sha256": "<hex>",
                                 "concepts": ["<concept-id>", ...],
                                 "size": 1234,
-                                "mtime_ns": 123456789}, ...}}
+                                "mtime_ns": 123456789}, ...},
+     "permanent_failures": {"<abs path>": {"reason": "...",
+                                           "sha256": "<hex>"}, ...}}
+
+State keys round-trip exactly, including non-UTF-8 filenames (stored as
+``sync-key-b64:<base64>`` of the raw path bytes). A per-bundle lock file
+``<bundle>/.okfsmith/sync.lock`` (``O_CREAT | O_EXCL``) serializes
+concurrent syncs; stale locks (dead PID, or older than 10 minutes) are
+reclaimed.
 
 Reads never crash on a missing or corrupt state file (treated as empty, so
 a damaged state degrades to a full re-scan, never a traceback). Writes are
@@ -19,10 +27,14 @@ No network calls; stdlib only.
 
 from __future__ import annotations
 
+import base64
+import contextlib
 import json
 import logging
 import os
 import tempfile
+import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -34,6 +46,23 @@ log = logging.getLogger(__name__)
 
 STATE_VERSION = 1
 SYNC_STATE_FILENAME = "sync-state.json"
+SYNC_LOCK_FILENAME = "sync.lock"
+
+#: A lock older than this (or naming a dead PID) is treated as stale and
+#: reclaimed by the next sync.
+_LOCK_STALE_SECONDS = 600
+
+#: Prefix marking a state key that could not be stored as plain UTF-8
+#: (non-UTF-8 filenames); the remainder is base64 of the raw path bytes.
+_NONUTF8_KEY_PREFIX = "sync-key-b64:"
+
+
+class SyncStateSymlinkError(OSError):
+    """The sync-state path (or the bundle dir) is a symlink; write refused."""
+
+
+class SyncLockedError(Exception):
+    """Another sync pass currently holds the bundle's sync lock."""
 
 # Processing order: additions and updates land before anything is deleted,
 # so a rename (add new + delete old) never leaves a gap where queries fail.
@@ -70,8 +99,118 @@ def sync_state_path(bundle: Bundle) -> Path:
     return Path(bundle.root) / MANIFEST_DIRNAME / SYNC_STATE_FILENAME
 
 
+def sync_lock_path(bundle: Bundle) -> Path:
+    """Path of the per-bundle sync lock file (not created by this call)."""
+    from okfsmith.parsers.dedup import MANIFEST_DIRNAME
+
+    return Path(bundle.root) / MANIFEST_DIRNAME / SYNC_LOCK_FILENAME
+
+
+def concept_owners(state: dict[str, Any], concept_id: str) -> list[str]:
+    """State entries currently recording *concept_id* — its owner list.
+
+    Shared concepts (identical files ingested twice hit ingest's content
+    dedup) are owned by every entry that references them; a concept is only
+    safe to delete when this list is empty.
+    """
+    return sorted(
+        path
+        for path, record in (state.get("sources") or {}).items()
+        if concept_id in (record.get("concepts") or [])
+    )
+
+
+def _lock_is_stale(path: Path) -> bool:
+    """Whether an existing lock file may be reclaimed.
+
+    Stale = the owning PID is dead, or the lock is older than
+    ``_LOCK_STALE_SECONDS``. Unreadable locks fall back to the age check.
+    """
+    try:
+        age = time.time() - path.stat().st_mtime
+    except OSError:
+        return True  # vanished between check and open: caller retries
+    try:
+        pid = int(path.read_text(encoding="utf-8").strip().split()[0])
+    except (OSError, ValueError, IndexError):
+        return age > _LOCK_STALE_SECONDS
+    if pid == os.getpid():
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return True
+    except OSError:
+        return age > _LOCK_STALE_SECONDS  # cannot signal: age decides
+    return age > _LOCK_STALE_SECONDS
+
+
+def acquire_sync_lock(bundle: Bundle) -> Callable[[], None]:
+    """Create the per-bundle sync lock; return a releaser callable.
+
+    The lock file is created with ``O_CREAT | O_EXCL`` (stdlib only, no new
+    dependencies), so two concurrent syncs cannot both hold it — the loser
+    gets :class:`SyncLockedError`. Stale locks (dead PID or older than 10
+    minutes) are reclaimed. The releaser only removes the lock when it still
+    names our own PID, and never raises.
+
+    Raises :class:`SyncStateSymlinkError` when the state dir is a symlink
+    (same C1 refusal as the state write itself).
+    """
+    _refuse_symlinked_state_path(bundle)
+    path = sync_lock_path(bundle)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _refuse_symlinked_state_path(bundle)  # TOCTOU backstop after mkdir
+    try:
+        fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
+        if _lock_is_stale(path):
+            with contextlib.suppress(OSError):
+                path.unlink()
+            try:
+                fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            except FileExistsError:
+                raise SyncLockedError(
+                    f"another sync is already running for this bundle "
+                    f"(lock: {path})"
+                ) from None
+        else:
+            raise SyncLockedError(
+                f"another sync is already running for this bundle "
+                f"(lock: {path})"
+            ) from None
+    try:
+        handle = os.fdopen(fd, "w", encoding="utf-8")
+    except OSError:
+        os.close(fd)
+        raise
+    try:
+        with handle:
+            handle.write(f"{os.getpid()}\n")
+    except OSError:
+        with contextlib.suppress(OSError):
+            path.unlink()
+        raise
+
+    def release() -> None:
+        try:
+            tag = path.read_text(encoding="utf-8").strip().split()[0]
+        except (OSError, ValueError, IndexError):
+            return
+        if tag == str(os.getpid()):
+            with contextlib.suppress(OSError):
+                path.unlink()
+
+    return release
+
+
 def _blank_state() -> dict[str, Any]:
-    return {"version": STATE_VERSION, "incomplete": False, "sources": {}}
+    return {
+        "version": STATE_VERSION,
+        "incomplete": False,
+        "sources": {},
+        "permanent_failures": {},
+    }
 
 
 def load_sync_state(bundle: Bundle) -> dict[str, Any]:
@@ -102,41 +241,114 @@ def load_sync_state(bundle: Bundle) -> dict[str, Any]:
     # Keep only well-formed string-keyed records; drop anything else rather
     # than crashing on a hand-edited file.
     clean = {
-        str(k): v
+        _decode_key(str(k)): v
         for k, v in sources.items()
         if isinstance(v, dict)
     }
+    failures = data.get("permanent_failures")
+    if not isinstance(failures, dict):
+        failures = {}
     return {
         "version": data.get("version", STATE_VERSION),
         "incomplete": bool(data.get("incomplete", False)),
         "sources": clean,
+        "permanent_failures": {
+            str(k): v for k, v in failures.items() if isinstance(v, dict)
+        },
     }
 
 
-def _sanitize(value: str) -> str:
-    """Make *value* safely encodable as UTF-8 JSON (M8-style paths)."""
-    return value.encode("utf-8", errors="backslashreplace").decode("utf-8")
+def _encode_key(value: str) -> str:
+    """Encode a state key reversibly (finding: non-UTF-8 filenames).
+
+    Keys that encode as plain UTF-8 pass through untouched (human-readable,
+    stable for every existing state file). Keys containing surrogates
+    (undecodable filename bytes) become ``sync-key-b64:<base64>`` of the raw
+    bytes via surrogateescape. :func:`_decode_key` reverses it exactly, so a
+    second sync sees the same key — no phantom renames.
+    """
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError:
+        raw = value.encode("utf-8", errors="surrogateescape")
+        return _NONUTF8_KEY_PREFIX + base64.b64encode(raw).decode("ascii")
+    return value
+
+
+def _decode_key(value: str) -> str:
+    """Reverse :func:`_encode_key`; unknown shapes pass through unchanged."""
+    if value.startswith(_NONUTF8_KEY_PREFIX):
+        blob = value[len(_NONUTF8_KEY_PREFIX):]
+        try:
+            raw = base64.b64decode(blob, validate=True)
+            decoded = raw.decode("utf-8", errors="surrogateescape")
+        except ValueError:
+            return value
+        # Round-trip check: a real filename that merely *starts* with the
+        # prefix must not be mangled.
+        if _encode_key(decoded) == value:
+            return decoded
+    return value
+
+
+def _refuse_symlinked_state_path(bundle: Bundle) -> None:
+    """Refuse when the bundle dir or any state-path component is a symlink.
+
+    Audit-C1 pattern (mirrors ``indexlog._refuse_symlink``): only components
+    at/below the bundle root are inspected — never the absolute prefix
+    (on some platforms ``/tmp`` itself is a symlink, which must not break
+    normal use).
+    """
+    from okfsmith.parsers.dedup import MANIFEST_DIRNAME
+
+    root = Path(bundle.root)
+    if root.is_symlink():
+        raise SyncStateSymlinkError(
+            f"refusing to write sync state: bundle directory is a symlink: {root}"
+        )
+    candidate = root
+    for part in (MANIFEST_DIRNAME, SYNC_STATE_FILENAME):
+        candidate = candidate / part
+        if candidate.is_symlink():
+            raise SyncStateSymlinkError(
+                f"refusing to write sync state through symlink: {candidate}"
+            )
 
 
 def save_sync_state(bundle: Bundle, state: dict[str, Any]) -> None:
     """Write the sync state atomically (temp file + ``os.replace``).
 
-    Creates ``<bundle>/.okfsmith/`` on demand. Raises :exc:`OSError` on I/O
-    failure so the caller can surface a clean ``error [io-error]``.
+    Creates ``<bundle>/.okfsmith/`` on demand. Refuses (with
+    :class:`SyncStateSymlinkError`) when the bundle dir or any component of
+    the state path is a symlink, so state can never be written outside the
+    bundle. Raises :exc:`OSError` on I/O failure so the caller can surface a
+    clean ``error [io-error]``.
     """
+    _refuse_symlinked_state_path(bundle)
     path = sync_state_path(bundle)
     path.parent.mkdir(parents=True, exist_ok=True)
+    # Post-mkdir re-check: best-effort TOCTOU backstop against a symlink
+    # swapped in between the check and the write.
+    _refuse_symlinked_state_path(bundle)
     payload = {
         "version": STATE_VERSION,
         "incomplete": bool(state.get("incomplete", False)),
         "sources": {
-            _sanitize(str(k)): {
+            _encode_key(str(k)): {
                 "sha256": v.get("sha256"),
                 "concepts": sorted(set(map(str, v.get("concepts") or []))),
                 "size": v.get("size"),
                 "mtime_ns": v.get("mtime_ns"),
             }
             for k, v in (state.get("sources") or {}).items()
+            if isinstance(v, dict)
+        },
+        "permanent_failures": {
+            str(k): {
+                "reason": str(v.get("reason") or ""),
+                "sha256": v.get("sha256"),
+            }
+            for k, v in (state.get("permanent_failures") or {}).items()
             if isinstance(v, dict)
         },
     }
@@ -299,12 +511,18 @@ def remove_concepts(bundle: Bundle, concept_ids: list[str]) -> list[str]:
 __all__ = [
     "FileChange",
     "STATE_VERSION",
+    "SYNC_LOCK_FILENAME",
     "SYNC_STATE_FILENAME",
+    "SyncLockedError",
+    "SyncStateSymlinkError",
+    "acquire_sync_lock",
+    "concept_owners",
     "concepts_from_source",
     "load_sync_state",
     "plan_sync",
     "remove_concepts",
     "save_sync_state",
     "scoped_sources",
+    "sync_lock_path",
     "sync_state_path",
 ]

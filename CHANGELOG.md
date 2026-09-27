@@ -33,7 +33,7 @@ follow SemVer.
   `okfsmith.cli.sync` (engine + rendering + watch loop);
   `Bundle.delete_concept()` (path-confined) and
   `dedup.unrecord_digest()` (stale manifest cleanup on replace/delete).
-  39 new tests in `tests/test_sync.py`. Guides: `docs/syncing.md`
+  39 new tests in `tests/test_sync.py`. Guides: `docs/src/syncing.md`
   (new docs-site page), `docs/commands.md`, `docs/src/cli.md`, man
   page, README CLI table. This addresses deferred item M1 (re-ingest
   pruning) for the sync path — see below.
@@ -67,6 +67,29 @@ follow SemVer.
 ### Fixed
 Fixed in this cycle from the pre-release QA audit (full details in the
 QA bug report); criticals and highs listed, mediums/lows summarized.
+- **Sync hardening (reviewer-1, 10 findings on `okfsmith sync`):**
+  symlinked sources are now skipped with a per-file warning row instead of
+  ingesting outside content (resolved-outside paths can never enter the
+  sync state); an updated file's state entry records only the concepts its
+  own new content produced, so deleting the last sharer of identical
+  content deletes the stale concepts (per-concept owner lists via
+  `core.sync.concept_owners`); the dedup-manifest digest record is kept
+  while any other state entry still references the digest; files under the
+  bundle directory are excluded from source scanning (with a note), so a
+  bundle inside the synced tree can no longer self-ingest; the sync state
+  refuses to write through a symlinked `<bundle>/.okfsmith/`
+  (`error [sync-refused]`, audit-C1 pattern); non-UTF-8 filenames now
+  round-trip through the state file reversibly (no more phantom renames —
+  second sync reports 0 changes); concurrent syncs serialize on
+  `<bundle>/.okfsmith/sync.lock` (`O_CREAT|O_EXCL`, stale locks reclaimed,
+  loser exits with clean `error [sync-locked]`); watch-mode
+  `--format json` is now JSONL (one compact object per line per cycle),
+  documented in `--help` and `docs/src/syncing.md`; sources that can never
+  succeed without user action (e.g. `.docx` without the `office` extra)
+  are recorded as permanent per-source failures and reported every run
+  without setting the `incomplete` flag (no more resume nag);
+  `docs/src/syncing.md` safety wording updated to the actual symlink
+  behavior. 18 new regression tests in `tests/test_sync.py`.
 - **Critical (10):** symlink escapes confined to the bundle root in
   `ensure_index`/`append_log` (C1); concept ids `index`/`log` no longer
   overwrite the reserved files (C2); same-stem files in different
