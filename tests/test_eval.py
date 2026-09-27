@@ -286,6 +286,27 @@ class TestDiagnosis:
         assert question.missing_must_cite == ["zoo/giraffe"]
         assert question.retrieved_ids == []
 
+    def test_unretrieved_must_cite_fails_even_when_scores_pass(self, tmp_path):
+        """Phantom must_cite id: metrics pass, the question still fails."""
+        bdir = _good_bundle(tmp_path)
+        _write_golden(
+            bdir,
+            [
+                {
+                    "id": "phantom",
+                    "question": "How long do customers have to request a refund?",
+                    "expected_answer": "Customers get a full refund within 30 days.",
+                    "must_cite": ["concepts/phantom-widget"],
+                }
+            ],
+        )
+        report = E.run_eval(Bundle.load(bdir), bdir, no_llm=True)
+        question = report.questions[0]
+        assert not question.passed
+        assert question.diagnosis == "retrieval"
+        assert question.missing_must_cite == ["concepts/phantom-widget"]
+        assert "must_cite" in question.failing_metrics
+
     def test_end_to_end_generation_failure(self, tmp_path):
         """Concept retrieved, but the answer misses the question's terms."""
         bdir = _write_bundle(
@@ -408,6 +429,46 @@ class TestLLMJudge:
             include_superseded=False,
         )
         assert all(s.method == "heuristic" for s in result.scores.values())
+
+    def test_all_judge_calls_failing_is_heuristic_mode(
+        self, tmp_path, monkeypatch
+    ):
+        # A configured backend whose every judge call fails must label the
+        # run "heuristic", not "mixed".
+        bdir = _good_bundle(tmp_path)
+        monkeypatch.setattr(
+            E, "_resolve_judge_backend", lambda **kwargs: _BrokenJudge()
+        )
+        report = E.run_eval(Bundle.load(bdir), bdir)
+        assert report.judge_mode == "heuristic"
+        assert all(
+            score.method == "heuristic"
+            for question in report.questions
+            for score in question.scores.values()
+        )
+
+    def test_all_judge_calls_succeeding_is_llm_judge_mode(
+        self, tmp_path, monkeypatch
+    ):
+        bdir = _good_bundle(tmp_path)
+        payload = {
+            "relevant": ["policies/refunds", "policies/shipping"],
+            "claims": [{"claim": "x", "supported": True}],
+            "score": 0.9,
+            "reason": "on topic",
+        }
+        monkeypatch.setattr(
+            E,
+            "_resolve_judge_backend",
+            lambda **kwargs: _FakeJudge(payload),
+        )
+        report = E.run_eval(Bundle.load(bdir), bdir)
+        assert report.judge_mode == "llm-judge"
+        assert all(
+            score.method == "llm-judge"
+            for question in report.questions
+            for score in question.scores.values()
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -544,6 +605,70 @@ class TestEvalCLI:
         result = runner.invoke(app, ["eval", str(bdir), "--init-sample"], env=WIDE)
         assert result.exit_code == 1
         assert "error [golden-no-concepts]" in result.output
+
+    def test_init_sample_set_passes_own_gate(self, tmp_path):
+        # --init-sample questions must pass eval --no-llm on a healthy
+        # bundle: the question wording is self-consistent by construction.
+        bdir = _write_bundle(
+            tmp_path / "kb",
+            {
+                "policies/refunds": (
+                    {
+                        "type": "Policy",
+                        "title": "Refund policy",
+                        "description": "Customers get a full refund within 30 days.",
+                    },
+                    "The refund policy states that customers get a full "
+                    "refund within 30 days of purchase.\n",
+                ),
+                "policies/shipping": (
+                    {
+                        "type": "Policy",
+                        "title": "Shipping policy",
+                        "description": "Orders ship within 2 business days.",
+                    },
+                    "Orders ship within 2 business days via tracked "
+                    "courier.\n",
+                ),
+            },
+        )
+        wrote = runner.invoke(
+            app, ["eval", str(bdir), "--init-sample"], env=WIDE
+        )
+        assert wrote.exit_code == 0, wrote.output
+        report = E.run_eval(Bundle.load(bdir), bdir, no_llm=True)
+        assert all(q.passed for q in report.questions), [
+            (q.id, q.failing_metrics, q.diagnosis) for q in report.questions
+        ]
+
+
+# ---------------------------------------------------------------------------
+# Sample golden sets are self-consistent
+# ---------------------------------------------------------------------------
+
+
+class TestSampleGoldenSet:
+    def test_sample_question_tokens_covered_by_answer(self, tmp_path):
+        # Every sample question's content tokens appear in its concept's
+        # own extractive answer, so the keyless answer-relevancy heuristic
+        # scores 1.0 by construction — even for titles with no vocabulary
+        # overlap (falls back to the cited concept id).
+        bdir = _write_bundle(
+            tmp_path / "kb",
+            {
+                "guides/getting-started": (
+                    {"type": "Guide", "title": "A Completely Unrelated Heading"},
+                    "This body says nothing about the heading at all.\n",
+                ),
+            },
+        )
+        concepts = list(Bundle.load(bdir).iter_concepts())
+        records = E.sample_golden_set(concepts)
+        assert len(records) == 1
+        answer, _ = E.extractive_answer(concepts)
+        value, _ = E.heuristic_answer_relevancy(records[0]["question"], answer)
+        assert value == 1.0, records[0]["question"]
+        assert records[0]["must_cite"] == ["guides/getting-started"]
 
 
 # ---------------------------------------------------------------------------

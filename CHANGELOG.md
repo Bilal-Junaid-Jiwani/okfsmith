@@ -227,6 +227,20 @@ QA bug report); criticals and highs listed, mediums/lows summarized.
   (M25), `graph --format text` inflection and other low-severity
   polish (L1–L25); stale `--bundle` flag usage removed from the MCP
   README (M26).
+- **okfsmith eval (reviewer-2, 4 findings on the P4 eval harness):** a golden
+  `must_cite` concept that retrieval never surfaced now fails its question
+  with a `retrieval` diagnosis (previously it silently passed whenever the
+  metric scores cleared their thresholds); the run's judge mode is derived
+  from the per-score method labels alone — a configured LLM judge whose
+  every call fails reports `heuristic`, and `mixed` is reserved for
+  genuinely mixed runs (the text header wording updated to match);
+  `--init-sample` starter questions are now self-consistent (phrased from
+  the concept's own vocabulary instead of `What is {title}?`, whose
+  question-word the keyless answer-relevancy heuristic could never cover),
+  so the starter set passes `eval --no-llm` on a healthy bundle; removed
+  the dead duplicate `eval` command — the old spec-YAML design whose
+  `from okfsmith.cli.eval import ...` never resolved — leaving only the P4
+  `eval`.
 
 ### Deferred (deliberate, pending design decisions)
 - Re-ingest pruning / ghost-concept cleanup (M1): superseded for the

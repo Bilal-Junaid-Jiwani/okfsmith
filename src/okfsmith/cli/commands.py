@@ -2155,10 +2155,11 @@ def eval_bundle(
 def _print_eval_text(report: Any) -> None:
     """Rich per-question table plus retrieval-vs-generation diagnosis."""
     judge_note = {
-        "heuristic": "heuristic mode — no LLM judge (keyless scoring)",
+        "heuristic": "heuristic mode — keyless scoring "
+        "(no metric was LLM-judged)",
         "llm-judge": "LLM judge mode — all scores LLM-judged",
-        "mixed": "mixed mode — some metrics fell back to heuristics "
-        "(see per-score detail)",
+        "mixed": "mixed mode — some metrics LLM-judged, others fell back "
+        "to heuristics (see per-score detail)",
     }[report.judge_mode]
     typer.echo(
         f"Evaluated {report.bundle}: {len(report.questions)} question(s), "

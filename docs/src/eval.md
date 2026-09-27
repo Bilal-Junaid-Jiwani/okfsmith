@@ -21,6 +21,10 @@ okfsmith eval ./kb --format json   # machine-readable full report
 okfsmith eval ./kb --fail-under 70 # CI gate: exit 1 when the score is below 70
 ```
 
+The starter set is self-consistent by construction: each generated question
+uses only its concept's own vocabulary, so `eval --no-llm` passes it on a
+healthy bundle — edit the questions into curated ones from there.
+
 ## Golden sets
 
 Golden sets live at `<bundle>/eval/golden.json` — a JSON list of question records:
@@ -64,7 +68,9 @@ Every score is labeled with its method:
 
 If a judge call fails, that metric degrades to the heuristic — the method
 label always tells the truth, never the reverse. The run header states the
-overall mode (`heuristic`, `llm-judge`, or `mixed`).
+overall mode: `heuristic` when no metric was LLM-judged (including a
+configured judge whose every call failed), `llm-judge` when every metric
+was, and `mixed` only when some metrics were judged and others fell back.
 
 ## Retrieval vs generation: the actionable output
 
@@ -73,6 +79,8 @@ question gets a diagnosis:
 
 - **retrieval** — a golden `must_cite` concept was not retrieved, or nothing
   retrieved is relevant. Fix: improve ingest coverage, titles, or wording.
+  An unretrieved `must_cite` concept fails its question even when every
+  metric score passes its threshold.
 - **generation** — the right concepts *were* retrieved but the answer failed.
   Fix: the answer construction / prompting, not the content.
 

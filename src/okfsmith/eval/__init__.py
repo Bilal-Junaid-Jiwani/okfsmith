@@ -22,7 +22,10 @@ tells the truth, never the other way around.
 Failing questions get a *retrieval-vs-generation* diagnosis: if a golden
 ``must_cite`` concept was not retrieved (or nothing retrieved shares
 vocabulary with the question), the failure is labeled ``retrieval``;
-otherwise it is labeled ``generation``. This is the actionable output.
+otherwise it is labeled ``generation``. This is the actionable output. An
+unretrieved golden ``must_cite`` concept fails its question even when every
+metric score passes its threshold — the golden set demands evidence from a
+concept retrieval never surfaced.
 """
 
 from __future__ import annotations
@@ -34,7 +37,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from okfsmith.search import search_bundle_detailed, tokenize
+from okfsmith.search import STOPWORDS, search_bundle_detailed, tokenize
 
 __all__ = [
     "EvalError",
@@ -235,12 +238,40 @@ def _validate_golden(raw: Any, path: Path) -> list[GoldenQuestion]:
     return questions
 
 
+def _sample_question(concept_id: str, title: str, answer_text: str) -> str:
+    """A question the extractive answer provably covers.
+
+    The keyless answer-relevancy heuristic scores the fraction of the
+    question's content tokens covered by the answer. A template like
+    ``"What is {title}?"`` fails its own gate — "what" never appears in an
+    extractive answer — so the question is phrased from the concept title's
+    content words ("About" is a stopword and never affects the score),
+    filtered to words the answer excerpt actually contains. When the title
+    shares no vocabulary with its own excerpt, the concept id is used
+    instead: the extractive answer always cites ``[concept.id]``, so the
+    id's tokens are guaranteed present.
+    """
+    answer_tokens = _content_tokens(answer_text)
+    words = [
+        word
+        for word in re.findall(r"[A-Za-z0-9_]+", title or "")
+        if word.lower() not in STOPWORDS
+    ]
+    kept = [word for word in words if _content_tokens(word) <= answer_tokens]
+    if kept:
+        return "About " + " ".join(kept) + "?"
+    return concept_id + "?"
+
+
 def sample_golden_set(concepts: list[Any], max_questions: int = 3) -> list[dict]:
     """Build a small demo golden set derived from real *concepts*.
 
-    Each record asks about one concept's title and expects its description
-    (falling back to the body lead), with ``must_cite`` pointing at that
-    concept — self-consistent for any bundle, marked as a demo starter.
+    Each record asks about one concept with a question whose content words
+    all appear in the concept (see :func:`_sample_question`), so the
+    starter set passes its own default thresholds under keyless heuristic
+    scoring. ``expected_answer`` is the description (falling back to the
+    body lead); ``must_cite`` points at the concept. Marked as a demo
+    starter.
     """
     records: list[dict] = []
     for concept in concepts[:max_questions]:
@@ -248,10 +279,11 @@ def sample_golden_set(concepts: list[Any], max_questions: int = 3) -> list[dict]
         expected = str(concept.frontmatter.get("description") or "").strip()
         if not expected:
             expected = _first_sentences(concept.body, n=2)
+        answer_text, _ = extractive_answer([concept])
         records.append(
             {
                 "id": f"demo-{concept.id.replace('/', '-').replace('.', '-')}",
-                "question": f"What is {title}?",
+                "question": _sample_question(concept.id, title, answer_text),
                 "expected_answer": expected,
                 "must_cite": [concept.id],
                 "tags": ["demo"],
@@ -896,14 +928,26 @@ def score_question(
         )[0]
         > 0
     )
-    diagnosis, reason = diagnose(question, retrieved_ids, relevant_retrieved, failing)
+    missing_must_cite = [
+        cid for cid in question.must_cite if cid not in retrieved_ids
+    ]
+    diagnosis, reason = diagnose(
+        question, retrieved_ids, relevant_retrieved, failing
+    )
+    if missing_must_cite and not failing:
+        # A golden must_cite concept that retrieval never surfaced fails the
+        # question on its own — the golden set demands evidence from a
+        # concept retrieval did not return, even when the metric scores
+        # happen to pass their thresholds.
+        failing = ["must_cite"]
+        diagnosis, reason = diagnose(
+            question, retrieved_ids, relevant_retrieved, failing
+        )
     return QuestionResult(
         id=question.id,
         question=question.question,
         retrieved_ids=retrieved_ids,
-        missing_must_cite=[
-            cid for cid in question.must_cite if cid not in retrieved_ids
-        ],
+        missing_must_cite=missing_must_cite,
         scores=scores,
         passed=not failing,
         failing_metrics=failing,
@@ -963,7 +1007,7 @@ def run_eval(
         for question in questions
     ]
     methods = {s.method for q in results for s in q.scores.values()}
-    if backend is None:
+    if methods == {"heuristic"}:
         judge_mode = "heuristic"
     elif methods == {"llm-judge"}:
         judge_mode = "llm-judge"
