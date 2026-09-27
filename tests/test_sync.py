@@ -1263,3 +1263,133 @@ def test_sync_format_help_mentions_jsonl():
     result = runner.invoke(app, ["sync", "--help"], env=WIDE)
     assert result.exit_code == 0, result.output
     assert "JSONL" in result.output
+
+
+# --- Finding A (re-verification): dedup donor misattribution --------------------
+
+
+def _doc_text(title: str, seed: str, paras: int = 25) -> str:
+    """Same generator as :func:`_doc`, but returns the text (for identical files)."""
+    body = "".join(
+        f"{seed} paragraph {i}: " + "lorem ipsum dolor sit amet. " * 12 + "\n\n"
+        for i in range(paras)
+    )
+    text = f"# {title}\n\n{body}"
+    assert len(text) > 1000
+    return text
+
+
+def _concept_body(bundle: Path, concept_id: str) -> str:
+    for concept in Bundle.load(bundle).iter_concepts():
+        if concept.id == concept_id:
+            return concept.body
+    raise AssertionError(f"concept {concept_id} not found")
+
+
+def test_sync_stale_dedup_donor_is_verified_before_sharing(tmp_path):
+    """A dedup-skipped file must share concepts with a source whose recorded
+    sha256 matches its digest — never a stale manifest donor.
+
+    Repro: a.md + b.md hold identical X -> sync; a.md is updated to Y ->
+    sync; c.md is added holding the original X -> sync. The dedup manifest
+    still names a.md for digest(X) even though a.md now holds Y, so c.md
+    must resolve to b.md (recorded sha256 == X), not a.md.
+    """
+    bundle = tmp_path / "kb"
+    src = tmp_path / "src"
+    src.mkdir()
+    assert runner.invoke(app, ["init", str(bundle)], env=WIDE).exit_code == 0
+
+    text_x = _doc_text("Shared", "sharedseed")
+    text_y = _doc_text("AlphaUpdated", "updatedseed")
+    (src / "a.md").write_text(text_x, encoding="utf-8")
+    (src / "b.md").write_text(text_x, encoding="utf-8")
+    assert _sync(bundle, src).exit_code == 0
+
+    (src / "a.md").write_text(text_y, encoding="utf-8")
+    assert _sync(bundle, src).exit_code == 0
+
+    (src / "c.md").write_text(text_x, encoding="utf-8")
+    result = _sync(bundle, src)
+    assert result.exit_code == 0, result.output
+
+    saved = _state(bundle)
+    a, b, c = (str(src / f"{name}.md") for name in "abc")
+    assert saved["sources"][b]["sha256"] == saved["sources"][c]["sha256"]
+    assert saved["sources"][a]["sha256"] != saved["sources"][b]["sha256"]
+    # c.md (X content) shares the X-content concepts — b.md's, not a.md's Y.
+    assert saved["sources"][c]["concepts"] == saved["sources"][b]["concepts"]
+    assert set(saved["sources"][c]["concepts"]) != set(saved["sources"][a]["concepts"])
+    body = _concept_body(bundle, saved["sources"][c]["concepts"][0])
+    assert "sharedseed" in body and "updatedseed" not in body
+
+    # Removing a.md releases the Y-content concepts: nothing may survive
+    # pinned by c.md, which holds X.
+    (src / "a.md").unlink()
+    result = _sync(bundle, src)
+    assert result.exit_code == 0, result.output
+    remaining = {
+        concept.id: _concept_body(bundle, concept.id)
+        for concept in Bundle.load(bundle).iter_concepts()
+    }
+    assert not any("updatedseed" in text for text in remaining.values())
+    assert any("sharedseed" in text for text in remaining.values())
+
+
+def _fake_wiring(manifest: dict, on_unrecord: list):
+    return sync_mod._Wiring(
+        parse_file=None,
+        sha256_of=None,
+        already_ingested=None,
+        record_ingested=None,
+        unrecord_digest=lambda target, digest: on_unrecord.append(digest),
+        load_manifest=lambda target: manifest,
+        ingest_no_llm=None,
+        sectioning=None,
+    )
+
+
+def test_donor_concepts_prefers_valid_sibling_over_stale_donor():
+    """Manifest names a.md for the digest but a.md's recorded sha256 no
+    longer matches: resolve to b.md, whose recorded sha256 does."""
+    digest = "f" * 64
+    state = {
+        "sources": {
+            "/src/a.md": {"sha256": "e" * 64, "concepts": ["a/y"]},
+            "/src/b.md": {"sha256": digest, "concepts": ["a/x"]},
+        }
+    }
+    wiring = _fake_wiring({digest: {"path": "/src/a.md"}}, [])
+    change = core_sync.FileChange(path="/src/c.md", change="added", sha256=digest)
+    assert sync_mod._donor_concepts(None, wiring, state, change) == ["a/x"]
+
+
+def test_donor_concepts_trusts_valid_manifest_donor():
+    """Manifest donor whose recorded sha256 still matches is used directly."""
+    digest = "f" * 64
+    state = {
+        "sources": {
+            "/src/a.md": {"sha256": digest, "concepts": ["a/x"]},
+        }
+    }
+    unrecorded: list = []
+    wiring = _fake_wiring({digest: {"path": "/src/a.md"}}, unrecorded)
+    change = core_sync.FileChange(path="/src/c.md", change="added", sha256=digest)
+    assert sync_mod._donor_concepts(None, wiring, state, change) == ["a/x"]
+    assert unrecorded == []
+
+
+def test_donor_concepts_rejects_stale_donor_with_no_valid_sibling():
+    """No state source holds the digest: share nothing, and drop the stale
+    manifest record so the file is ingested for real on the next pass."""
+    digest = "f" * 64
+    state = {
+        "sources": {
+            "/src/a.md": {"sha256": "e" * 64, "concepts": ["a/y"]},
+        }
+    }
+    unrecorded: list = []
+    wiring = _fake_wiring({digest: {"path": "/src/a.md"}}, unrecorded)
+    change = core_sync.FileChange(path="/src/c.md", change="added", sha256=digest)
+    assert sync_mod._donor_concepts(None, wiring, state, change) == []
+    assert unrecorded == [digest]

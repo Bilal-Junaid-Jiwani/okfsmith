@@ -58,7 +58,12 @@ _NONUTF8_KEY_PREFIX = "sync-key-b64:"
 
 
 class SyncStateSymlinkError(OSError):
-    """The sync-state path (or the bundle dir) is a symlink; write refused."""
+    """A sync-state path component at/below the bundle root is a symlink; write refused.
+
+    (A user-named symlinked *bundle directory* is not refused: ``Bundle``
+    resolves it to its real path at startup, which is standard path
+    resolution, not an attack. Only a symlinked ``.okfsmith/`` component
+    is refused.)"""
 
 
 class SyncLockedError(Exception):
@@ -292,12 +297,16 @@ def _decode_key(value: str) -> str:
 
 
 def _refuse_symlinked_state_path(bundle: Bundle) -> None:
-    """Refuse when the bundle dir or any state-path component is a symlink.
+    """Refuse when a state-path component at/below the bundle root is a symlink.
 
     Audit-C1 pattern (mirrors ``indexlog._refuse_symlink``): only components
     at/below the bundle root are inspected — never the absolute prefix
     (on some platforms ``/tmp`` itself is a symlink, which must not break
-    normal use).
+    normal use). A user-named symlinked *bundle directory* is not refused:
+    ``Bundle`` resolves it to its real path at startup, which is standard
+    path resolution, not an attack; only a symlinked ``.okfsmith/``
+    component (or the state file itself) is refused, so sync state can
+    never be written outside the bundle.
     """
     from okfsmith.parsers.dedup import MANIFEST_DIRNAME
 
@@ -319,9 +328,11 @@ def save_sync_state(bundle: Bundle, state: dict[str, Any]) -> None:
     """Write the sync state atomically (temp file + ``os.replace``).
 
     Creates ``<bundle>/.okfsmith/`` on demand. Refuses (with
-    :class:`SyncStateSymlinkError`) when the bundle dir or any component of
-    the state path is a symlink, so state can never be written outside the
-    bundle. Raises :exc:`OSError` on I/O failure so the caller can surface a
+    :class:`SyncStateSymlinkError`) when a component of the state path
+    at/below the bundle root is a symlink, so state can never be written
+    outside the bundle. (A symlinked bundle directory itself is resolved
+    to its real path by ``Bundle`` at startup and is not refused.)
+    Raises :exc:`OSError` on I/O failure so the caller can surface a
     clean ``error [io-error]``.
     """
     _refuse_symlinked_state_path(bundle)

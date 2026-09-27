@@ -546,8 +546,9 @@ def _apply_added(
     if isinstance(ingested, FileResult):
         return ingested  # permanent failure: already recorded, keep going
     status, _count = ingested
-    # A dedup-skipped file shares its content's concepts with the source the
-    # manifest names: share ownership instead of recording zero concepts.
+    # A dedup-skipped file shares its content's concepts with a *verified*
+    # source of the same digest (never a stale manifest donor): share
+    # ownership instead of recording zero concepts.
     new_ids = _state.concepts_from_source(target, change.path)
     if status == "skipped (already ingested)" and not new_ids:
         new_ids = _donor_concepts(target, wiring, state, change)
@@ -571,17 +572,44 @@ def _apply_added(
 def _donor_concepts(
     target: Bundle, wiring: _Wiring, state: dict[str, Any], change: _state.FileChange
 ) -> list[str]:
-    """Concept ids of another source with the same content digest, if any."""
+    """Concept ids of another source with the same content digest, if any.
+
+    The dedup manifest names *one* source that held this digest, but that
+    record can go stale: the named source may since have been updated to
+    different content. A donor is only trusted when the sync state still
+    records the *same* sha256 for its path; otherwise another state source
+    whose recorded sha256 matches the digest is used (e.g. an identical
+    sibling file). When no valid donor exists the stale manifest record is
+    dropped so the file is ingested for real on the next pass — concepts
+    are never silently shared from unrelated content.
+    """
+    digest = change.sha256 or ""
+    if not digest:
+        return []
+    sources = state.get("sources") or {}
     try:
         manifest = wiring.load_manifest(target)
     except Exception:  # noqa: BLE001 — advisory only
-        return []
-    record = manifest.get(change.sha256 or "")
+        manifest = {}
+    record = manifest.get(digest)
     donor_path = record.get("path") if isinstance(record, dict) else None
+    candidates: list[str] = []
     if donor_path and donor_path != change.path:
-        return list(
-            (state.get("sources") or {}).get(donor_path, {}).get("concepts") or []
-        )
+        candidates.append(donor_path)
+    for other in sources:
+        if other != change.path and other not in candidates:
+            candidates.append(other)
+    for candidate in candidates:
+        entry = sources.get(candidate) or {}
+        if entry.get("sha256") == digest:
+            return list(entry.get("concepts") or [])
+    # No live source holds this digest: the manifest record is stale.
+    # Drop it so the next pass ingests the file for real instead of
+    # dedup-skipping against content the bundle no longer tracks.
+    try:
+        wiring.unrecord_digest(target, digest)
+    except OSError:
+        pass
     return []
 
 

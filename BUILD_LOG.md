@@ -826,3 +826,48 @@ finding, several with two), plus updates to the two exact-shape state
 tests for the new `permanent_failures` field. Full suite green except
 the 3 pre-existing baseline failures (version string, 2 markitdown
 tests); `ruff check` clean on all touched files.
+
+## 2026-09-28 — FIXER-1b: P1 re-verification leftovers (2 findings)
+
+Two findings from the P1 re-verification of `8526552` were still broken.
+Both reproduced first, then fixed.
+
+**Finding A [functional] — dedup donor misattribution (`_donor_concepts`,
+`src/okfsmith/cli/sync.py`).** Repro: a.md + b.md identical content X →
+sync; a.md updated to Y → sync; c.md added holding original X → sync. The
+dedup manifest still named a.md for digest(X) even though a.md now held Y,
+and `_donor_concepts` trusted it blindly — so c.md (sha256 == b.md's) was
+recorded with a.md's Y-content concepts. Worse, after `rm src/a.md` + sync,
+the Y concepts survived, pinned by c.md which holds X — orphaned concepts
+that could never be released. Fix: a manifest donor is only trusted when
+the sync state still records the *same* sha256 for its path; otherwise the
+donor resolves to another state source whose recorded sha256 matches the
+digest (e.g. b.md). When no valid donor exists, the stale manifest record
+is dropped so the file is ingested for real on the next pass — concepts
+are never silently shared from unrelated content.
+
+**Finding B [docs] — inaccurate safety wording.** `docs/src/syncing.md`
+(and the `SyncStateSymlinkError` / `_refuse_symlinked_state_path` /
+`save_sync_state` docstrings in `src/okfsmith/core/sync.py`) claimed sync
+"refuses to write through a symlinked `<bundle>/.okfsmith/` (or bundle
+directory)". But `Bundle.__init__` does `Path(root).resolve()`, so a
+symlinked bundle dir (e.g. `kb -> real-kb`) is resolved before inspection
+and sync proceeds through it — the parenthetical was false (the
+`.okfsmith/` symlink refusal itself is real: verified `error
+[sync-refused]`). Fix: dropped the parenthetical and replaced with
+accurate wording — a user-named symlinked bundle dir is standard path
+resolution, not an attack; only a symlinked `.okfsmith/` component is
+refused. Rebuilt the docs site (`python3 docs/build.py`): `docs/syncing.html`
++ search index regenerated; the one anchor warning
+(`troubleshooting.html -> cli.html#search-and-get`) is pre-existing.
+
+**Tests:** 4 new regression tests in `tests/test_sync.py` — the exact
+end-to-end repro including the `rm a.md` orphan check
+(`test_sync_stale_dedup_donor_is_verified_before_sharing`), plus unit
+tests for `_donor_concepts`: valid sibling wins over stale donor, valid
+manifest donor used directly, and no-valid-donor shares nothing while
+unrecording the stale digest. Full suite: 688 passed, 21 skipped, 3
+failed — all 3 pre-existing on the pristine commit (version string expects
+0.3.0; 2 markitdown office tests). `ruff check` clean on all touched
+files (the 44 repo-wide ruff hits in `docs/build.py` and one skills script
+are pre-existing lint debt, untouched).

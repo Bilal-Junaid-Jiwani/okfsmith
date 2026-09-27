@@ -118,9 +118,11 @@ These are the rules `sync` never breaks:
   temp-file + rename after every file, so a crash can never corrupt it.
   `okfsmith validate` ignores the state file — it never affects conformance.
 - **Symlink-safe state.** `sync` refuses to write through a symlinked
-  `<bundle>/.okfsmith/` (or bundle directory): the write is rejected with
-  a clean `error [sync-refused]` before anything is written, so sync state
-  can never land outside the bundle.
+  `<bundle>/.okfsmith/`: the write is rejected with a clean
+  `error [sync-refused]` before anything is written, so sync state
+  can never land outside the bundle. A symlinked *bundle directory*
+  itself is fine — it is resolved to its real path at startup, which is
+  standard path resolution, not an attack.
 - **Symlinked sources are skipped.** A source file that is a symlink is
   never followed — it is reported as a `skipped` row with a warning, so
   outside content can never be ingested through a link.
