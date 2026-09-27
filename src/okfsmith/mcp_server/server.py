@@ -348,7 +348,11 @@ def _manifest_relpath(bundle: Bundle, raw_path: Any) -> str | None:
 
     The parent directory is resolved (catching escapes through a symlinked
     parent directory); the entry itself is never followed — a symlinked
-    entry is rejected outright. Never raises.
+    entry is rejected outright. The final path is then re-resolved so
+    trailing ``..`` components (e.g. ``"sub/.."``, ``"a.md/.."``, or even
+    ``".."``) normalize to the bundle root — or to an ancestor — instead of
+    slipping past as a literal string; ``"."`` (the root itself) and any
+    outside path return ``None``. Never raises.
     """
     if not isinstance(raw_path, str) or not raw_path.strip():
         return None
@@ -363,7 +367,10 @@ def _manifest_relpath(bundle: Bundle, raw_path: Any) -> str | None:
         final = parent / candidate.name
         if final.is_symlink():
             return None
-        rel = final.relative_to(root).as_posix()
+        resolved = final.resolve()
+        if resolved != root and root not in resolved.parents:
+            return None
+        rel = resolved.relative_to(root).as_posix()
     except (OSError, RuntimeError, ValueError):
         return None
     return None if rel == "." else rel

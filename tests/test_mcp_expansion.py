@@ -756,6 +756,46 @@ def test_sync_state_symlink_entry_rejected(tmp_path: Path) -> None:
     assert "## Changed (0)" in out
 
 
+def test_provenance_trailing_dotdot_manifest_paths_not_echoed(
+    tmp_path: Path,
+) -> None:
+    kb = tmp_path / "kb"
+    _write_bundle(
+        kb, {"a.md": "---\ntitle: A\nsources:\n  - id: s1\n---\n\nbody\n"}
+    )
+    (kb / "good.md").write_text("real source", encoding="utf-8")
+    _write_sync_state(
+        kb,
+        {
+            "sub/..": {"sha256": "d" * 64, "concepts": ["a"]},
+            "sub/../..": {"sha256": "d" * 64, "concepts": ["a"]},
+            "a.md/..": {"sha256": "d" * 64, "concepts": ["a"]},
+            "..": {"sha256": "d" * 64, "concepts": ["a"]},
+            "good.md": {"sha256": "d" * 64, "concepts": ["a"]},
+        },
+    )
+    out = BundleTools(Bundle.load(kb)).provenance("a")
+    # trailing-.. entries are untrusted, never echoed as ingested records
+    assert "## Ingested source records (1)" in out
+    assert "`good.md`" in out
+    for bad in ("`sub/..`", "`a.md/..`", "`sub/../..`", "`..`"):
+        assert bad not in out
+    assert "untrusted manifest" in out
+
+
+def test_manifest_relpath_trailing_dotdot_rejected(tmp_path: Path) -> None:
+    from okfsmith.mcp_server.server import _manifest_relpath
+
+    kb = tmp_path / "kb"
+    _write_bundle(kb, {"a.md": _concept_doc("Aye", "body a\n")})
+    bundle = Bundle.load(kb)
+    for raw in ("sub/..", "sub/../..", "a.md/..", "..", "./sub/..", "sub//.."):
+        assert _manifest_relpath(bundle, raw) is None, raw
+    # legit entries still resolve to bundle-relative paths
+    assert _manifest_relpath(bundle, "a.md") == "a.md"
+    assert _manifest_relpath(bundle, "sub/../a.md") == "a.md"
+
+
 def test_provenance_outside_manifest_path_not_echoed(tmp_path: Path) -> None:
     kb = tmp_path / "kb"
     _write_bundle(
