@@ -708,3 +708,72 @@ Post-build integration and QA pass, all verified in headless Firefox:
 - All terminal content is REAL captured CLI output (pip install, init, ingest 12 concepts, chat Q&A, validate) — no hallucinated text.
 - 7-scene English AI voiceover (Meta AI voice), one per scene, mixed on a timed timeline.
 - Build sources: `~/workspace/video-demo/` (build.py, render.py, assemble.sh, cap/, audio/).
+
+## 2026-09-28 — P1: incremental sync (`okfsmith sync`)
+
+- **What:** `okfsmith sync BUNDLE SOURCE...` — SHA-256 change detection,
+  new/changed/deleted/renamed handling, ADD-before-DELETE ordering,
+  atomic resumable state, `--watch`/`--interval` (documented default
+  one-shot `--poll`), text table + `--format json`, `--dry-run`,
+  keyless `--no-llm` minimum with the existing LLM path supported.
+- **Why:** market research (Part C) flagged freshness/versioning as the
+  top community pain (GraphRAG issues); `ingest` alone can't track
+  living documents — re-ingest either duplicated (`-2` versions, the
+  deferred M1 problem) or skipped silently.
+- **Architecture:**
+  - `src/okfsmith/core/sync.py` — state I/O
+    (`<bundle>/.okfsmith/sync-state.json`: `{version, incomplete,
+    sources: {abs-path: {sha256, concepts, size, mtime_ns}}}`),
+    `plan_sync()` (classifies added/updated/renamed/removed/unchanged;
+    renames paired by identical SHA-256 at a different path;
+    emitted in ADD-before-DELETE order), `concepts_from_source()`
+    (finds concepts by `resource` frontmatter), `remove_concepts()`.
+    Corrupt/missing state degrades to blank + `incomplete: true`
+    (resume flag). Atomic writes via same-dir temp file + `os.replace`.
+    Deletions scoped to the roots passed in the current invocation.
+  - `src/okfsmith/cli/sync.py` — engine: reuses the existing
+    `sha256_of`, `_ingest_no_llm_one`, `_ingest_llm_one`,
+    parser/dedup helpers (M19 explicit-flag parity: only directly-named
+    files escalate missing-extra failures). Updated files get a
+    **pre-flight** (parse/section/threshold) *before* old concepts are
+    deleted — would-skip content keeps old concepts and old state.
+    Renames rewrite `resource` frontmatter in place (ids + log history
+    preserved). Identical-content files are reference-counted.
+    State saved after every file op; `incomplete` set before mutations,
+    cleared after. Stdlib polling watch loop (mtime+size fast path,
+    SHA-256 confirm; Ctrl-C clean; injectable `stop_event`/`max_cycles`
+    for tests).
+  - `Bundle.delete_concept()` (path-confined to bundle root) and
+    `dedup.unrecord_digest()` (stale manifest cleanup so a replaced
+    file's digest can be re-ingested after revert).
+- **Decisions / trade-offs:**
+  - Within one *file*, old concepts are deleted before re-ingest (so the
+    id allocator reuses ids instead of minting `-2`); ADD-before-DELETE
+    applies across *files* in the plan.
+  - Skipped/failed files are not recorded as synchronized — retried next run.
+  - State keys are resolved absolute paths (unambiguous identity).
+  - Watch is stdlib polling, no new dependency.
+  - JSON error objects for `--format json` (fixed `fail()` calls in the
+    sync command that ignored the format — `source-not-found`,
+    `not-a-directory`, `sync-failed` now raise `CliError` so `_cli`
+    emits `{"status": "error", ...}`).
+- **Tests:** `tests/test_sync.py` — 39 tests: lifecycle
+  (add/unchanged/update/rename/remove), no-duplicate re-ingest, revert
+  A→B→A, pre-flight keeps old concepts, duplicate-content sharing,
+  binary change, empty dir, unicode filenames, recursive, scoped
+  deletions, interrupted-resume adoption, corrupt-state recovery,
+  adopt-after-`ingest`, dry-run writes nothing, JSON shape, JSON error
+  object, flag conflicts, LLM-unavailable + LLM-path wiring, watch
+  detects change / ignores bare touch / Ctrl-C clean, plus unit tests
+  for `plan_sync`, state I/O, `delete_concept` confinement,
+  `unrecord_digest`.
+- **Result:** 666 passed, 21 skipped; the only 3 failures are the
+  pre-existing baseline ones (version-string assertion, 2
+  markitdown office-parser tests — optional extra not installed).
+  Ruff unavailable in this environment (not installed); line-length
+  (≤100) and import order checked manually.
+- **Docs:** new docs-site page `docs/src/syncing.md` (+ built
+  `docs/syncing.html`, nav/sitemap/llms.txt/search-index regenerated),
+  `docs/commands.md`, `docs/src/cli.md`, `man/okfsmith.1`, README CLI
+  table, CHANGELOG (Unreleased → Added; deferred M1 now superseded for
+  the sync path — plain `ingest` re-ingest still versions by design).

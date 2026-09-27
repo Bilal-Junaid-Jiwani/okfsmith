@@ -241,3 +241,32 @@ class Bundle:
     def get(self, concept_id: str) -> Concept | None:
         """Return the concept with *concept_id*, or ``None`` if absent."""
         return self._concepts.get(concept_id)
+
+    def delete_concept(self, concept_id: str) -> bool:
+        """Delete a concept: remove its ``.md`` file and unregister it.
+
+        Returns ``True`` when a concept was removed. The file must resolve
+        inside the bundle root and must not be a symlink; anything else
+        (unknown id, escaping path, symlink, unlink failure) returns
+        ``False`` instead of raising, so batch deletions never abort midway.
+        """
+        concept = self._concepts.get(concept_id)
+        if concept is None:
+            return False
+        try:
+            resolved = concept.path.resolve()
+        except OSError:
+            return False
+        try:
+            resolved.relative_to(self.root)
+        except ValueError:
+            # Escapes the bundle root: refuse to touch it.
+            return False
+        if resolved.is_symlink() or not resolved.is_file():
+            return False
+        try:
+            resolved.unlink()
+        except OSError:
+            return False
+        self._concepts.pop(concept_id, None)
+        return True

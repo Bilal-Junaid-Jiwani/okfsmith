@@ -6,6 +6,37 @@ follow SemVer.
 ## [Unreleased]
 
 ### Added
+- `okfsmith sync BUNDLE SOURCE...`: incremental synchronization (P1).
+  Each source file is SHA-256 fingerprinted and diffed against
+  `<bundle>/.okfsmith/sync-state.json`; only new, changed, renamed, or
+  deleted files are processed. `added` ingests (same LLM / `--no-llm`
+  path as `ingest`); `updated` re-ingests and *replaces* the old
+  concepts under the same ids (never `name-2` duplicates);
+  `renamed` (identical content hash at a new path) keeps concept ids
+  and history, rewriting only the `resource` provenance; `removed`
+  deletes the file's concepts. Additions are applied before
+  deletions. State writes are atomic (temp-file + rename) and resumable:
+  an interrupted run leaves `incomplete: true` and the next run adopts
+  already-ingested concepts instead of duplicating them. Safety rules:
+  pre-flight on updates (a changed file whose new content would not
+  ingest keeps its old concepts — reported `skipped`, never wiped),
+  shared identical content is reference-counted, deletions are scoped
+  to the sources passed in the current run, concept deletion is
+  confined to the bundle root, and unreadable files become per-file
+  `failed` rows instead of aborting the run. Modes: one-shot by
+  default (`--poll` makes it explicit), `--watch` re-scans on a timer
+  (`--interval` seconds, default 5; Ctrl-C stops cleanly),
+  `--dry-run` previews without writing, `--format text|json` (stable
+  JSON shape: `bundle`, `sources`, `dry_run`, `resumed`, `summary`,
+  `files`; errors also come back as JSON error objects). New modules:
+  `okfsmith.core.sync` (state, `plan_sync`, concept helpers),
+  `okfsmith.cli.sync` (engine + rendering + watch loop);
+  `Bundle.delete_concept()` (path-confined) and
+  `dedup.unrecord_digest()` (stale manifest cleanup on replace/delete).
+  39 new tests in `tests/test_sync.py`. Guides: `docs/syncing.md`
+  (new docs-site page), `docs/commands.md`, `docs/src/cli.md`, man
+  page, README CLI table. This addresses deferred item M1 (re-ingest
+  pruning) for the sync path — see below.
 - `okfsmith search BUNDLE QUERY`: BM25 full-text search over a bundle,
   stdlib-only (no new dependencies). Query syntax: bare terms, quoted
   phrases (`"knowledge graph"`), exclusions (`-deprecated`); an
@@ -86,10 +117,12 @@ QA bug report); criticals and highs listed, mediums/lows summarized.
   README (M26).
 
 ### Deferred (deliberate, pending design decisions)
-- Re-ingest pruning / ghost-concept cleanup (M1): re-ingesting a source
-  never overwrites in place (see the C3 fix above) and stale concepts
-  from changed sources are not pruned yet; repeated re-ingests will
-  accumulate `-2`, `-3`, … suffixed duplicates until pruning lands.
+- Re-ingest pruning / ghost-concept cleanup (M1): superseded for the
+  `sync` path — `okfsmith sync` now replaces concepts on update and
+  deletes concepts for removed sources (see Added above). Plain
+  `ingest` still creates `-2`, `-3`, … suffixed versions on re-ingest
+  by design (the C3 no-silent-overwrite rule); use `sync` when sources
+  change in place.
 - Validator line numbers (M29): cosmetic; `Finding` carries no line
   field by design.
 - Byte-identical ingest output (L12): `generated.at` timestamps are

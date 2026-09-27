@@ -4,16 +4,16 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>CLI reference — okfsmith docs</title>
-  <meta name="description" content="Every okfsmith command on one page — init, ingest, list, read, validate, graph, doctor, chat, mcp — with real syntax, flags, and runnable examples.">
+  <meta name="description" content="Every okfsmith command on one page — init, ingest, sync, list, read, validate, graph, doctor, chat, mcp — with real syntax, flags, and runnable examples.">
   <meta property="og:title" content="CLI reference — okfsmith docs">
-  <meta property="og:description" content="Every okfsmith command on one page — init, ingest, list, read, validate, graph, doctor, chat, mcp — with real syntax, flags, and runnable examples.">
+  <meta property="og:description" content="Every okfsmith command on one page — init, ingest, sync, list, read, validate, graph, doctor, chat, mcp — with real syntax, flags, and runnable examples.">
   <meta property="og:type" content="article">
   <meta property="og:url" content="https://bilal-junaid-jiwani.github.io/okfsmith/docs/cli.html">
   <meta property="og:site_name" content="okfsmith docs">
   <meta property="og:locale" content="en_US">
   <meta name="twitter:card" content="summary">
   <meta name="twitter:title" content="CLI reference — okfsmith docs">
-  <meta name="twitter:description" content="Every okfsmith command on one page — init, ingest, list, read, validate, graph, doctor, chat, mcp — with real syntax, flags, and runnable examples.">
+  <meta name="twitter:description" content="Every okfsmith command on one page — init, ingest, sync, list, read, validate, graph, doctor, chat, mcp — with real syntax, flags, and runnable examples.">
   <link rel="canonical" href="https://bilal-junaid-jiwani.github.io/okfsmith/docs/cli.html">
   <link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="assets/css/docs.css">
@@ -29,7 +29,7 @@
     "@context": "https://schema.org",
     "@type": "TechArticle",
     "headline": "CLI reference",
-    "description": "Every okfsmith command on one page — init, ingest, list, read, validate, graph, doctor, chat, mcp — with real syntax, flags, and runnable examples.",
+    "description": "Every okfsmith command on one page — init, ingest, sync, list, read, validate, graph, doctor, chat, mcp — with real syntax, flags, and runnable examples.",
     "inLanguage": "en",
     "isPartOf": {
       "@type": "WebSite",
@@ -106,6 +106,11 @@
 <li><a href="#ingest-options">Common options</a></li>
 </ul>
 </li>
+<li><a href="#okfsmith-sync">okfsmith sync</a>
+<ul class="toc-sub">
+<li><a href="#how-it-works">How it works</a></li>
+</ul>
+</li>
 <li><a href="#okfsmith-list">okfsmith list</a>
 <ul class="toc-sub">
 <li><a href="#list-options">Common options</a></li>
@@ -116,7 +121,10 @@
 <li><a href="#read-options">Common options</a></li>
 </ul>
 </li>
-<li><a href="#search-and-get">search and get</a>
+<li><a href="#okfsmith-search">okfsmith search</a>
+<ul class="toc-sub">
+<li><a href="#search-options">Common options</a></li>
+</ul>
 </li>
 <li><a href="#okfsmith-validate">okfsmith validate</a>
 <ul class="toc-sub">
@@ -155,12 +163,12 @@
       <div class="prose">
         <h2 id="cli-reference">CLI reference</h2>
 <p>One page, every command. New here? Start with <a href="quickstart.html">the quickstart</a> to learn by doing — this page is the cheat sheet you keep open afterwards.</p>
-<aside class="admonition note"><span class="admon-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.75" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 7.25v3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="5" r="0.9" fill="currentColor"/></svg></span><div class="admon-body"><p class="admon-title">Note</p><p><strong>Looking for <code>search</code> or <code>get</code>?</strong> They are not CLI commands. <code>search</code> and <code>get</code> exist as <strong>MCP server tools</strong> (see <a href="mcp.html">the MCP server page</a>) and as <strong>chat slash commands</strong> (<code>/search</code>, <code>/read</code> inside <a href="chat.html">chat</a>). The CLI analogues are <a href="#okfsmith-list"><code>list</code></a> and <a href="#okfsmith-read"><code>read</code></a>. Shell completion is not a command either — it's the global <code>--install-completion</code> flag (see <a href="#global-flags">Global flags</a>).</p></div></aside>
+<aside class="admonition note"><span class="admon-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.75" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 7.25v3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="5" r="0.9" fill="currentColor"/></svg></span><div class="admon-body"><p class="admon-title">Note</p><p><strong>Looking for <code>get</code>?</strong> It is not a CLI command — <code>get</code> exists as an <strong>MCP server tool</strong> (see <a href="mcp.html">the MCP server page</a>) and as the <code>/read</code> chat slash command (inside <a href="chat.html">chat</a>); the CLI analogue is <a href="#okfsmith-read"><code>read</code></a>. Full-text search <em>is</em> a CLI command now: <a href="#okfsmith-search"><code>okfsmith search</code></a>. Shell completion is not a command either — it's the global <code>--install-completion</code> flag (see <a href="#global-flags">Global flags</a>).</p></div></aside>
 <p>All examples assume a bundle at <code>./kb</code> created with <code>init</code> (paths like <code>kb</code> and <code>big.md</code> come straight from verified runs — adapt them to your own files).</p>
 <hr>
 <h2 id="global-flags">Global flags</h2>
 <p>These work on every command, including with no subcommand:</p>
-<div class="table-wrap"><table><thead><tr><th>Flag</th><th>What it does</th></tr></thead><tbody><tr><td><code>--help</code></td><td>Show help for the CLI or a specific command (<code>okfsmith ingest --help</code>).</td></tr><tr><td><code>--version</code></td><td>Print the version (e.g. <code>0.3.0</code>) and exit.</td></tr><tr><td><code>--format json</code></td><td>Where supported (<code>list</code>, <code>read</code>, <code>validate</code>, <code>graph</code>): emit machine-readable JSON instead of rich text.</td></tr><tr><td><code>--no-llm</code></td><td>Where supported (<code>ingest</code>, <code>chat</code>): run fully deterministic, no LLM involved.</td></tr><tr><td><code>--install-completion</code></td><td>Install shell completion for the current shell.</td></tr><tr><td><code>--show-completion</code></td><td>Print the completion script instead of installing it.</td></tr></tbody></table></div>
+<div class="table-wrap"><table><thead><tr><th>Flag</th><th>What it does</th></tr></thead><tbody><tr><td><code>--help</code></td><td>Show help for the CLI or a specific command (<code>okfsmith ingest --help</code>).</td></tr><tr><td><code>--version</code></td><td>Print the version (e.g. <code>0.3.0</code>) and exit.</td></tr><tr><td><code>--format json</code></td><td>Where supported (<code>list</code>, <code>read</code>, <code>validate</code>, <code>graph</code>, <code>sync</code>): emit machine-readable JSON instead of rich text.</td></tr><tr><td><code>--no-llm</code></td><td>Where supported (<code>ingest</code>, <code>sync</code>, <code>chat</code>): run fully deterministic, no LLM involved.</td></tr><tr><td><code>--install-completion</code></td><td>Install shell completion for the current shell.</td></tr><tr><td><code>--show-completion</code></td><td>Print the completion script instead of installing it.</td></tr></tbody></table></div>
 <aside class="admonition tip"><span class="admon-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.75a4.5 4.5 0 0 0-2.6 8.15c.6.48 1.1 1.1 1.1 1.85V12h3v-.25c0-.75.5-1.37 1.1-1.85A4.5 4.5 0 0 0 8 1.75z" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M6.5 14h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></span><div class="admon-body"><p class="admon-title">Tip</p><p>JSON output always has a stable top-level shape, e.g. <code>{"concepts": [{"id", "type", "title", "tier"}]}</code> for <code>list</code>. Pipe it to <code>jq</code> in scripts.</p></div></aside>
 <hr>
 <h2 id="okfsmith-init">okfsmith init</h2>
@@ -208,6 +216,46 @@ ingested 18 concept(s) from 1 file(s) into kb
 - `--model` cannot be combined with `--no-llm`.
 </details>
 <aside class="admonition note"><span class="admon-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.75" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 7.25v3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="5" r="0.9" fill="currentColor"/></svg></span><div class="admon-body"><p class="admon-title">Note</p><p><code>OKFSMITH_API_KEY</code> is preferred over <code>--api-key</code> — the latter lands in your shell history.</p></div></aside>
+<hr>
+<h2 id="okfsmith-sync">okfsmith sync</h2>
+<p>Incrementally sync a bundle with its source documents — only new, changed, renamed, or deleted files are processed. This is the command to reach for when your sources keep changing: run it after every edit instead of re-ingesting everything.</p>
+<pre class="codeblock" data-lang="bash"><code>okfsmith sync [OPTIONS] {bundle} {sources}...
+</code></pre>
+<pre class="codeblock" data-lang="bash"><code># One-shot: ingest what's new, update what's changed, drop what's deleted
+okfsmith sync ./kb ./docs --no-llm
+
+# Keep watching: re-sync whenever sources change (Ctrl-C stops)
+okfsmith sync ./kb ./docs --no-llm --watch --interval 10
+
+# Preview without writing anything
+okfsmith sync ./kb ./docs --no-llm --dry-run
+</code></pre>
+<p>Real output (the table and summary line are exactly what you see):</p>
+<pre class="codeblock" data-lang="text"><code>                 Sync summary — kb
+┏━━━━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━━━━┓
+┃ File         ┃ Change ┃ Concepts ┃ Detail       ┃
+┡━━━━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━━━━┩
+│ src/guide.md │ added  │        1 │ 1 concept(s) │
+│ src/notes.md │ added  │        1 │ 1 concept(s) │
+└──────────────┴────────┴──────────┴──────────────┘
+sync: 2 added, 0 updated, 0 renamed, 0 removed, 0 unchanged, 0 skipped, 0 failed → kb
+</code></pre>
+<h3 id="how-it-works">How it works</h3>
+<p>Each source file is fingerprinted with SHA-256 and recorded in <code>&lt;bundle&gt;/.okfsmith/sync-state.json</code>. On every run, <code>sync</code> diffs the live files against that state and classifies each file:</p>
+<div class="table-wrap"><table><thead><tr><th>Change</th><th>What happens</th></tr></thead><tbody><tr><td><code>added</code></td><td>Ingested (LLM or <code>--no-llm</code> path, same as <code>ingest</code>).</td></tr><tr><td><code>updated</code></td><td>Old concepts are <strong>replaced</strong> — re-ingested under the same ids, never duplicated as <code>name-2</code>.</td></tr><tr><td><code>renamed</code></td><td>Detected by identical content hash; concepts keep their ids and history, only the <code>resource</code> provenance is updated.</td></tr><tr><td><code>removed</code></td><td>Concepts are deleted from the bundle.</td></tr><tr><td><code>unchanged</code></td><td>Skipped entirely — no parsing, no LLM calls.</td></tr></tbody></table></div>
+<p>Additions are applied <strong>before</strong> deletions, so a rename or replace can never leave the bundle momentarily empty. Writes are atomic and resumable: if a sync is interrupted (Ctrl-C, power loss), the state is marked incomplete and the next run picks up where it stopped — already-ingested concepts are adopted, never duplicated.</p>
+<p>A few safety rules worth knowing:</p>
+<ul>
+<li><strong>Pre-flight on updates.</strong> If a changed file's new content would be skipped (unparseable, below the ~1000-char minimum, sectioning fails), the old concepts are kept instead of being wiped — you get a <code>skipped</code> row, not data loss.
+</li>
+<li><strong>Shared content is reference-counted.</strong> Two identical files share one set of concepts; deleting one source only drops the concepts when the last file with that content is gone.
+</li>
+<li><strong>Deletions are scoped.</strong> <code>sync ./kb ./docs</code> only ever removes concepts that came from <code>./docs</code> — other source trees are untouched.
+</li>
+<li><strong>Unreadable files fail per-file</strong> (<code>failed</code> row) instead of aborting the whole run.
+</li>
+</ul>
+<p>See <a href="syncing.html">Syncing sources</a> for the full guide, including <code>--watch</code> mode, <code>--format json</code> for scripts, and the state-file format.</p>
 <hr>
 <h2 id="okfsmith-list">okfsmith list</h2>
 <p>List concepts in the bundle: id, type, title, trust tier.</p>
@@ -273,8 +321,18 @@ Run `okfsmith init ./kb` to create a new bundle, then ingest documents.
 - Unknown concept ids produce an error — `read` never fabricates a concept.
 </details>
 <hr>
-<h2 id="search-and-get">search and get</h2>
-<aside class="admonition note"><span class="admon-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.75" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 7.25v3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="5" r="0.9" fill="currentColor"/></svg></span><div class="admon-body"><p class="admon-title">Note</p><p><strong><code>okfsmith search</code> and <code>okfsmith get</code> do not exist.</strong> Typing them gives <code>No such command</code> (<code>get</code> even suggests <em>"Did you mean 'ingest'?"</em>). Both live in two other places:</p><p>| What you want | Where to find it | |---|---| | <strong>Search concepts from the terminal</strong> | <a href="#okfsmith-list"><code>okfsmith list</code></a> — filter with <code>--type</code> / <code>--tier</code> and grep | | <strong>Read a concept from the terminal</strong> | <a href="#okfsmith-read"><code>okfsmith read</code></a> — e.g. <code>okfsmith read ./kb big/installation</code> | | <strong>Search interactively</strong> | <code>/search &lt;keywords&gt;</code> inside <a href="#okfsmith-chat"><code>okfsmith chat</code></a> | | <strong>Search/get as an agent</strong> | The <code>search</code> and <code>get</code> <strong>MCP tools</strong> on the <a href="#okfsmith-mcp"><code>okfsmith mcp</code></a> server — see <a href="mcp.html">MCP server</a> |</p><p>This is deliberate: the CLI works on files on disk; <code>search</code>/<code>get</code> are server-side tools for connected agents and the REPL.</p></div></aside>
+<h2 id="okfsmith-search">okfsmith search</h2>
+<p>Full-text search over a bundle: id, title, description, tags, and body, ranked with BM25 (stdlib-only, no new dependencies). The same engine powers the MCP server's <code>search</code> tool and chat's <code>/search</code>, so all three rank identically. See <a href="../searching.md">Searching a bundle</a> for the query syntax (phrases, exclusions, stemming) and scoring details.</p>
+<pre class="codeblock" data-lang="bash"><code>okfsmith search [OPTIONS] {bundle} {query}
+</code></pre>
+<pre class="codeblock" data-lang="bash"><code>okfsmith search ./kb "knowledge graph"
+okfsmith search ./kb "quarterly revenue" --tier human-reviewed -n 5
+okfsmith search ./kb "api design" --format json
+</code></pre>
+<p>Results print as a <code>Score | ID | Type | Title | Tier</code> table (IDs never truncated) plus an <code>N result(s)</code> line; zero results exit 0 with <code>0 result(s)</code> and a stderr hint. An empty query is a usage error (exit 2).</p>
+<h3 id="search-options">Common options</h3>
+<div class="table-wrap"><table><thead><tr><th>Flag</th><th>What it does</th></tr></thead><tbody><tr><td><code>--limit &lt;n&gt;</code> / <code>-n</code></td><td>Maximum results (default <code>10</code>, must be ≥ 1).</td></tr><tr><td>`--format &lt;text\</td><td>json&gt;`</td><td>Output format (default <code>text</code>).</td></tr><tr><td><code>--type &lt;str&gt;</code></td><td>Only concepts of this type.</td></tr><tr><td><code>--tier &lt;str&gt;</code></td><td>Only this trust tier: <code>unverified</code>, <code>machine-confirmed</code>, <code>human-reviewed</code>.</td></tr></tbody></table></div>
+<aside class="admonition note"><span class="admon-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.75" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 7.25v3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="5" r="0.9" fill="currentColor"/></svg></span><div class="admon-body"><p class="admon-title">Note</p><p><strong><code>okfsmith get</code> does not exist.</strong> Typing it gives <code>No such command</code> (it even suggests <em>"Did you mean 'ingest'?"</em>). <code>get</code> lives in two other places:</p><p>| What you want | Where to find it | |---|---| | <strong>Read a concept from the terminal</strong> | <a href="#okfsmith-read"><code>okfsmith read</code></a> — e.g. <code>okfsmith read ./kb big/installation</code> | | <strong>Search interactively</strong> | <code>/search &lt;keywords&gt;</code> inside <a href="#okfsmith-chat"><code>okfsmith chat</code></a> | | <strong>Search/get as an agent</strong> | The <code>search</code> and <code>get</code> <strong>MCP tools</strong> on the <a href="#okfsmith-mcp"><code>okfsmith mcp</code></a> server — see <a href="mcp.html">MCP server</a> |</p></div></aside>
 <hr>
 <h2 id="okfsmith-validate">okfsmith validate</h2>
 <p>Validate a bundle against OKF v0.2 (E001–E004 / W001–W015).</p>
@@ -422,10 +480,10 @@ hint: Install it with: pip install "okfsmith[mcp]" (or pipx: pipx install "okfsm
 </code></pre>
 <h3 id="mcp-options">Common options</h3>
 <div class="table-wrap"><table><thead><tr><th>Flag</th><th>What it does</th></tr></thead><tbody><tr><td>`--transport &lt;stdio\</td><td>sse\</td><td>streamable-http&gt;`</td><td>Transport (default <code>stdio</code>).</td></tr></tbody></table></div>
-<p>The server exposes five <strong>MCP tools</strong> — <code>index</code>, <code>list</code>, <code>search</code>, <code>get</code>, <code>neighbors</code>. These are tools for connected agents, not CLI commands (that's why there's no <code>okfsmith search</code>). Client config examples for Claude Code/Desktop, Cursor, Copilot, and Gemini are on <a href="mcp.html">MCP server</a>.</p>
+<p>The server exposes five <strong>MCP tools</strong> — <code>index</code>, <code>list</code>, <code>search</code>, <code>get</code>, <code>neighbors</code>. These are tools for connected agents; <code>search</code> is also a CLI command (<code>okfsmith search</code>), while <code>get</code> remains MCP-only (the CLI analogue is <code>read</code>). Client config examples for Claude Code/Desktop, Cursor, Copilot, and Gemini are on <a href="mcp.html">MCP server</a>.</p>
 <hr>
 <h2 id="exit-codes">Exit codes</h2>
-<div class="table-wrap"><table><thead><tr><th>Exit</th><th>Meaning</th></tr></thead><tbody><tr><td><code>0</code></td><td>Success — <code>validate</code> prints <code>Conformant: no errors, no warnings.</code></td></tr><tr><td><code>1</code></td><td>Validation failed (errors, or warnings under <code>--strict</code>); or a general command error.</td></tr><tr><td><code>2</code></td><td>CLI usage error — e.g. <code>No such command</code> for <code>okfsmith search</code>.</td></tr></tbody></table></div>
+<div class="table-wrap"><table><thead><tr><th>Exit</th><th>Meaning</th></tr></thead><tbody><tr><td><code>0</code></td><td>Success — <code>validate</code> prints <code>Conformant: no errors, no warnings.</code></td></tr><tr><td><code>1</code></td><td>Validation failed (errors, or warnings under <code>--strict</code>); or a general command error.</td></tr><tr><td><code>2</code></td><td>CLI usage error — e.g. <code>No such command</code> for <code>okfsmith get</code>.</td></tr></tbody></table></div>
 <hr>
 <p><strong>Next:</strong> <a href="mcp.html">MCP server →</a> — bundle built, now serve it to agents.</p>
       </div>
@@ -452,6 +510,11 @@ hint: Install it with: pip install "okfsmith[mcp]" (or pipx: pipx install "okfsm
 <li><a href="#ingest-options">Common options</a></li>
 </ul>
 </li>
+<li><a href="#okfsmith-sync">okfsmith sync</a>
+<ul class="toc-sub">
+<li><a href="#how-it-works">How it works</a></li>
+</ul>
+</li>
 <li><a href="#okfsmith-list">okfsmith list</a>
 <ul class="toc-sub">
 <li><a href="#list-options">Common options</a></li>
@@ -462,7 +525,10 @@ hint: Install it with: pip install "okfsmith[mcp]" (or pipx: pipx install "okfsm
 <li><a href="#read-options">Common options</a></li>
 </ul>
 </li>
-<li><a href="#search-and-get">search and get</a>
+<li><a href="#okfsmith-search">okfsmith search</a>
+<ul class="toc-sub">
+<li><a href="#search-options">Common options</a></li>
+</ul>
 </li>
 <li><a href="#okfsmith-validate">okfsmith validate</a>
 <ul class="toc-sub">

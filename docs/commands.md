@@ -8,6 +8,10 @@ okfsmith init BUNDLE [--force] [--yes]
 okfsmith ingest BUNDLE SOURCE... [--recursive] [--no-llm] [--model NAME]
                                  [--provider NAME] [--api-base URL] [--api-key KEY]
                                  [--dry-run] [--quiet]
+okfsmith sync BUNDLE SOURCE... [--recursive] [--no-llm] [--model NAME]
+                               [--provider NAME] [--api-base URL] [--api-key KEY]
+                               [--watch] [--interval SECONDS] [--poll]
+                               [--dry-run] [--quiet] [--format text|json]
 okfsmith validate BUNDLE [--format text|json] [--strict]
 okfsmith list BUNDLE [--format text|json] [--tier TIER]
 okfsmith read BUNDLE CONCEPT_ID [--format text|json]
@@ -54,6 +58,38 @@ okfsmith ingest ./kb paper.pdf --quiet       # one-line summary, no tables
   (`AGENTROUTER_API_KEY` for `agentrouter`). See [LLM & no-LLM](llm.md).
 - Failures are reported per file; a summary table shows SHA-256, concept
   count, and status for each input. If *all* inputs fail, the exit code is 1.
+
+## sync — incrementally sync sources
+
+```bash
+okfsmith sync ./kb docs/ --no-llm
+okfsmith sync ./kb docs/ --recursive --no-llm --dry-run   # preview only
+okfsmith sync ./kb docs/ --no-llm --watch --interval 10  # keep watching
+okfsmith sync ./kb report.pdf --format json              # machine-readable
+```
+
+Keeps a bundle aligned with changing sources. Each file is SHA-256
+fingerprinted and diffed against `<bundle>/.okfsmith/sync-state.json`; only
+new, changed, renamed, or deleted files are processed:
+
+- **added** — ingested (same LLM / `--no-llm` path as `ingest`).
+- **updated** — old concepts are *replaced* under the same ids, never
+  duplicated as `name-2`.
+- **renamed** — detected by identical content hash at a new path; concepts
+  keep their ids and history, only the `resource` provenance is updated.
+- **removed** — the file is gone, so its concepts are deleted from the bundle.
+- **unchanged** — skipped entirely.
+
+Additions are applied before deletions. State writes are atomic and the run
+is resumable: an interrupted sync leaves `incomplete: true` in the state and
+the next run picks up where it stopped, adopting already-ingested concepts
+instead of duplicating them. Deletions are scoped to the sources passed in
+the current run, shared identical content is reference-counted, and a
+changed file whose new content would not ingest keeps its old concepts
+(`skipped`) rather than being wiped. One-shot by default (`--poll` makes it
+explicit); `--watch` re-scans on a timer (Ctrl-C stops cleanly). Errors use
+the standard `error [CODE]` form, or a JSON error object with
+`--format json`.
 
 ## validate — check OKF v0.2 conformance
 

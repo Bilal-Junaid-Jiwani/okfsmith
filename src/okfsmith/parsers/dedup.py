@@ -14,6 +14,8 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
+import tempfile
 from pathlib import Path
 
 log = logging.getLogger(__name__)
@@ -73,12 +75,44 @@ def already_ingested(bundle, digest: str) -> bool:
     return digest in load_manifest(bundle)
 
 
+def unrecord_digest(bundle, digest: str) -> bool:
+    """Forget a recorded *digest* (its concepts are gone); True when removed.
+
+    Used by incremental sync when it deletes the concepts a digest was
+    recorded for: leaving the record would make a later ``ingest`` report
+    "already ingested" for content the bundle no longer contains. The write
+    is atomic (temp file + ``os.replace``).
+    """
+    mp = manifest_path(bundle)
+    sources = load_manifest(bundle)
+    if digest not in sources:
+        return False
+    del sources[digest]
+    mp.parent.mkdir(parents=True, exist_ok=True)
+    text = json.dumps({"sources": sources}, indent=2, sort_keys=True) + "\n"
+    fd, tmp_name = tempfile.mkstemp(
+        dir=str(mp.parent), prefix=MANIFEST_FILENAME + ".", suffix=".tmp"
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        os.replace(tmp_name, mp)
+    except OSError:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
+    return True
+
+
 __all__ = [
     "sha256_of",
     "manifest_path",
     "load_manifest",
     "record_ingested",
     "already_ingested",
+    "unrecord_digest",
     "MANIFEST_DIRNAME",
     "MANIFEST_FILENAME",
 ]

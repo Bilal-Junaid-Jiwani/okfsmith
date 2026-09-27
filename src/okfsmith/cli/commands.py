@@ -898,6 +898,189 @@ def _ingest_dry_run(
 
 
 # ---------------------------------------------------------------------------
+# sync
+# ---------------------------------------------------------------------------
+
+
+@app.command(rich_help_panel=PANEL_KNOWLEDGE)
+@_cli
+def sync(
+    bundle: Path = typer.Argument(
+        ..., help="Bundle directory to sync into (created if missing)."
+    ),
+    sources: list[Path] = typer.Argument(
+        ..., help="File(s) or directories to keep in sync with the bundle."
+    ),
+    no_llm: bool = typer.Option(
+        False,
+        "--no-llm",
+        help="Use deterministic sectioning (okfsmith.parsers) instead of an LLM.",
+    ),
+    model: str | None = typer.Option(
+        None, "--model", help="Model to use for LLM extraction."
+    ),
+    provider: str | None = typer.Option(
+        None,
+        "--provider",
+        help="LLM provider preset: openrouter, groq, mistral, deepseek, "
+        "together, fireworks, deepinfra, anyscale, perplexity, xai, gemini, "
+        "openai, agentrouter, lmstudio, ollama (or OKFSMITH_PROVIDER).",
+    ),
+    api_base: str | None = typer.Option(
+        None,
+        "--api-base",
+        help="Custom OpenAI-compatible base URL (or OKFSMITH_API_BASE). "
+        "Overrides --provider.",
+    ),
+    api_key: str | None = typer.Option(
+        None,
+        "--api-key",
+        help="API key for the endpoint (or OKFSMITH_API_KEY env var, "
+        "preferred — --api-key lands in shell history).",
+    ),
+    recursive: bool = typer.Option(
+        False,
+        "--recursive",
+        help="Recurse into subdirectories when a SOURCE is a directory.",
+    ),
+    watch: bool = typer.Option(
+        False,
+        "--watch",
+        help="Keep watching: re-run the sync whenever sources change "
+        "(polling). Ctrl-C stops cleanly.",
+    ),
+    interval: float = typer.Option(
+        5.0,
+        "--interval",
+        help="Polling interval in seconds for --watch (must be > 0).",
+    ),
+    poll: bool = typer.Option(
+        False,
+        "--poll",
+        help="One-shot mode: scan once and exit. This is the default; "
+        "--watch switches to continuous mode.",
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Report what would change without writing anything.",
+    ),
+    quiet: bool = typer.Option(
+        False,
+        "--quiet",
+        "-q",
+        help="Only print warnings, errors, and the final summary line.",
+    ),
+    output_format: ValidateFormat = typer.Option(
+        ValidateFormat.text, "--format", help="Output format: text or json."
+    ),
+) -> None:
+    """Incrementally sync BUNDLE with SOURCE... (SHA-256 change detection).
+
+    Only new, changed, renamed, or deleted sources are processed: new files
+    are ingested, changed files are re-ingested (their old concepts are
+    replaced, never duplicated), renamed files keep their concepts, and
+    deleted files have their concepts removed. Additions are applied before
+    deletions. State lives in ``<bundle>/.okfsmith/sync-state.json``; a sync
+    interrupted midway is resumed safely by the next run.
+
+    One-shot by default; ``--watch`` polls for changes instead.
+
+    \b
+    Examples:
+        okfsmith sync ./kb docs/ --no-llm
+        okfsmith sync ./kb docs/ --recursive --no-llm --dry-run
+        okfsmith sync ./kb docs/ --no-llm --watch --interval 10
+        okfsmith sync ./kb report.pdf --format json
+    """
+    # --- validate everything before any lazy import (review-gate item 4) ---
+    if model is not None and no_llm:
+        raise typer.BadParameter(
+            "--model cannot be combined with --no-llm: no LLM is used in that mode."
+        )
+    for flag_name, flag_value in (
+        ("--provider", provider),
+        ("--api-base", api_base),
+        ("--api-key", api_key),
+    ):
+        if flag_value is not None and no_llm:
+            raise typer.BadParameter(
+                f"{flag_name} cannot be combined with --no-llm: "
+                "no LLM is used in that mode."
+            )
+    if api_key is not None:
+        _warn_api_key_flag()
+    if watch and poll:
+        raise typer.BadParameter(
+            "--watch and --poll are mutually exclusive: --poll is the "
+            "default one-shot mode, --watch is continuous."
+        )
+    if interval <= 0:
+        raise typer.BadParameter("--interval must be > 0.")
+    if dry_run and watch:
+        raise typer.BadParameter(
+            "--dry-run cannot be combined with --watch: nothing would "
+            "ever be written."
+        )
+    # H9: a file passed as the bundle is a usage error, not a traceback.
+    if bundle.exists() and not bundle.is_dir():
+        raise CliError(
+            "not-a-directory",
+            f"'{bundle}' exists but is not a directory.",
+            "Pass a bundle directory (created if missing), not a file.",
+        )
+    for source in sources:
+        if not source.exists():
+            raise CliError(
+                "source-not-found",
+                f"source '{source}' does not exist.",
+                "Pass an existing file or directory.",
+            )
+    # Lazy import: the engine imports this module's helpers at its top
+    # level, so it must be imported after this module is fully loaded.
+    from okfsmith.cli import sync as _sync_engine
+
+    config = _sync_engine.SyncConfig(
+        no_llm=no_llm,
+        recursive=recursive,
+        dry_run=dry_run,
+        quiet=quiet,
+        model=model,
+        provider=provider,
+        api_base=api_base,
+        api_key=api_key,
+    )
+    bundle_path = bundle
+    if watch:
+        _sync_engine.run_watch(
+            bundle_path,
+            list(sources),
+            config,
+            interval=interval,
+            output_format=output_format.value,
+            quiet=quiet,
+        )
+        return
+    # CliError (bad bundle, LLM outage, ...) is turned into the standard
+    # `error [CODE]` + hint by the @_cli wrapper; --format json commands get
+    # a JSON error object via the output_format kwarg.
+    result = _sync_engine.run_once(bundle_path, list(sources), config)
+    _sync_engine.print_result(
+        result, bundle_path, list(sources),
+        output_format=output_format.value, quiet=quiet,
+    )
+    summary = result.summary()
+    failures = summary["failed"]
+    changed = sum(summary[name] for name in ("added", "updated", "renamed", "removed"))
+    if result.results and failures and not changed:
+        raise CliError(
+            "sync-failed",
+            "all sources failed to sync.",
+            "Run with --dry-run to inspect without writing.",
+        )
+
+
+# ---------------------------------------------------------------------------
 # validate
 # ---------------------------------------------------------------------------
 

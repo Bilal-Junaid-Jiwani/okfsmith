@@ -76,6 +76,7 @@ knowledge usually lives, and that's what okfsmith ingests first:
 |---|---|
 | `okfsmith init BUNDLE` | scaffold `index.md` + `log.md` |
 | `okfsmith ingest BUNDLE SOURCE...` | parse, section, extract → draft concepts |
+| `okfsmith sync BUNDLE SOURCE...` | incremental sync: only new/changed/renamed/deleted sources processed (flags: `--watch`/`--interval`, `--dry-run`, `--format text\|json`) |
 | `okfsmith validate BUNDLE` | check OKF §11 conformance (exit 0 = conformant) |
 | `okfsmith list BUNDLE` | list concepts (filter by `--tier`, `--type`) |
 | `okfsmith read BUNDLE ID` | print one concept |

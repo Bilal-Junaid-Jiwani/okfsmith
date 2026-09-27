@@ -1,7 +1,7 @@
 ---
 title: CLI reference
 eyebrow: CLI reference
-description: Every okfsmith command on one page — init, ingest, list, read, validate, graph, doctor, chat, mcp — with real syntax, flags, and runnable examples.
+description: Every okfsmith command on one page — init, ingest, sync, list, read, validate, graph, doctor, chat, mcp — with real syntax, flags, and runnable examples.
 ---
 
 ## CLI reference
@@ -23,8 +23,8 @@ These work on every command, including with no subcommand:
 |---|---|
 | `--help` | Show help for the CLI or a specific command (`okfsmith ingest --help`). |
 | `--version` | Print the version (e.g. `0.3.0`) and exit. |
-| `--format json` | Where supported (`list`, `read`, `validate`, `graph`): emit machine-readable JSON instead of rich text. |
-| `--no-llm` | Where supported (`ingest`, `chat`): run fully deterministic, no LLM involved. |
+| `--format json` | Where supported (`list`, `read`, `validate`, `graph`, `sync`): emit machine-readable JSON instead of rich text. |
+| `--no-llm` | Where supported (`ingest`, `sync`, `chat`): run fully deterministic, no LLM involved. |
 | `--install-completion` | Install shell completion for the current shell. |
 | `--show-completion` | Print the completion script instead of installing it. |
 
@@ -110,6 +110,80 @@ ingested 18 concept(s) from 1 file(s) into kb
 
 > [!NOTE]
 > `OKFSMITH_API_KEY` is preferred over `--api-key` — the latter lands in your shell history.
+
+---
+
+## okfsmith sync
+
+Incrementally sync a bundle with its source documents — only new, changed,
+renamed, or deleted files are processed. This is the command to reach for
+when your sources keep changing: run it after every edit instead of
+re-ingesting everything.
+
+```bash
+okfsmith sync [OPTIONS] {bundle} {sources}...
+```
+
+```bash
+# One-shot: ingest what's new, update what's changed, drop what's deleted
+okfsmith sync ./kb ./docs --no-llm
+
+# Keep watching: re-sync whenever sources change (Ctrl-C stops)
+okfsmith sync ./kb ./docs --no-llm --watch --interval 10
+
+# Preview without writing anything
+okfsmith sync ./kb ./docs --no-llm --dry-run
+```
+
+Real output (the table and summary line are exactly what you see):
+
+```text
+                 Sync summary — kb
+┏━━━━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━━━━┓
+┃ File         ┃ Change ┃ Concepts ┃ Detail       ┃
+┡━━━━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━━━━┩
+│ src/guide.md │ added  │        1 │ 1 concept(s) │
+│ src/notes.md │ added  │        1 │ 1 concept(s) │
+└──────────────┴────────┴──────────┴──────────────┘
+sync: 2 added, 0 updated, 0 renamed, 0 removed, 0 unchanged, 0 skipped, 0 failed → kb
+```
+
+### How it works
+
+Each source file is fingerprinted with SHA-256 and recorded in
+`<bundle>/.okfsmith/sync-state.json`. On every run, `sync` diffs the live
+files against that state and classifies each file:
+
+| Change | What happens |
+|---|---|
+| `added` | Ingested (LLM or `--no-llm` path, same as `ingest`). |
+| `updated` | Old concepts are **replaced** — re-ingested under the same ids, never duplicated as `name-2`. |
+| `renamed` | Detected by identical content hash; concepts keep their ids and history, only the `resource` provenance is updated. |
+| `removed` | Concepts are deleted from the bundle. |
+| `unchanged` | Skipped entirely — no parsing, no LLM calls. |
+
+Additions are applied **before** deletions, so a rename or replace can never
+leave the bundle momentarily empty. Writes are atomic and resumable: if a
+sync is interrupted (Ctrl-C, power loss), the state is marked incomplete and
+the next run picks up where it stopped — already-ingested concepts are
+adopted, never duplicated.
+
+A few safety rules worth knowing:
+
+- **Pre-flight on updates.** If a changed file's new content would be
+  skipped (unparseable, below the ~1000-char minimum, sectioning fails),
+  the old concepts are kept instead of being wiped — you get a `skipped`
+  row, not data loss.
+- **Shared content is reference-counted.** Two identical files share one
+  set of concepts; deleting one source only drops the concepts when the
+  last file with that content is gone.
+- **Deletions are scoped.** `sync ./kb ./docs` only ever removes concepts
+  that came from `./docs` — other source trees are untouched.
+- **Unreadable files fail per-file** (`failed` row) instead of aborting
+  the whole run.
+
+See [Syncing sources](syncing.html) for the full guide, including
+`--watch` mode, `--format json` for scripts, and the state-file format.
 
 ---
 

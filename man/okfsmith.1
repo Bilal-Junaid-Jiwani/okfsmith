@@ -41,6 +41,19 @@ already-ingested files are skipped.
 .B \-\-no\-llm
 writes one draft concept per section, fully offline.
 .TP
+.B sync \fIBUNDLE\fR \fISOURCE\fR... [\-\-recursive] [\-\-no\-llm] [\-\-model \fINAME\fR] [\-\-provider \fINAME\fR] [\-\-api\-base \fIURL\fR] [\-\-api\-key \fIKEY\fR] [\-\-watch] [\-\-interval \fISECONDS\fR] [\-\-poll] [\-\-dry\-run] [\-\-quiet] [\-\-format text|json]
+Incrementally sync the bundle with its sources: each file is SHA-256
+fingerprinted and only new, changed, renamed, or deleted files are
+processed. Changed files have their concepts replaced (never duplicated);
+renamed files keep their concepts; deleted files have their concepts
+removed. Additions are applied before deletions. State lives in
+.IBUNDLE /.okfsmith/sync-state.json
+and interrupted runs resume cleanly.
+.B \-\-watch
+re-scans on a timer (Ctrl-C stops);
+.B \-\-dry\-run
+reports without writing.
+.TP
 .B validate \fIBUNDLE\fR [\-\-format text|json] [\-\-strict]
 Check OKF \(sc11 conformance. Exit 0 means conformant.
 .B \-\-strict
