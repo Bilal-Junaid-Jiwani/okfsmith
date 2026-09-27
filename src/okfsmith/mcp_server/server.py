@@ -1,8 +1,18 @@
 """MCP server over an OKF v0.2 knowledge bundle (FastMCP).
 
-The bundle is loaded **once** at server startup; every tool call afterwards
-reads from the in-memory :class:`~okfsmith.core.bundle.Bundle`. All tools are
-read-only — nothing here can modify the bundle.
+The bundle is loaded **once** at server startup; every read tool call
+afterwards reads from the in-memory :class:`~okfsmith.core.bundle.Bundle`.
+
+Eight tools are read-only (``index``, ``list``, ``search``, ``get``,
+``neighbors``, ``traverse``, ``provenance``, ``diff``). Four more provide
+**governed write-back**: ``preview_write_concept`` (side-effect-free dry
+run), ``write_concept`` (create), ``update_concept`` (patch, with
+human-reviewed trust protection), and ``audit_log`` (read the append-only
+audit trail). Writes are atomic (temp file + rename), always land at the
+``unverified`` trust tier, carry a ``provenance`` history in frontmatter,
+are gated on the bundle validator (new errors ⇒ refused and rolled back),
+never overwrite an existing concept, and are recorded in the append-only
+``<bundle>/.okfsmith/audit.jsonl``.
 
 FastMCP is imported lazily so the base ``okfsmith`` install stays light.
 Without the ``mcp`` extra installed, :func:`build_server` / :func:`serve`
@@ -17,18 +27,28 @@ from __future__ import annotations
 
 import base64
 import binascii
+import difflib
 import hashlib
 import json
 import os
 import re
+import time
+import uuid
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
 from okfsmith.core import frontmatter as _fm
 from okfsmith.core import temporal as _temporal
-from okfsmith.core.bundle import Bundle, Concept
-from okfsmith.core.spec import MACHINE_CONFIRMED, UNVERIFIED, trust_tier
+from okfsmith.core.bundle import Bundle, Concept, _slug_id, concept_path_for
+from okfsmith.core.spec import (
+    HUMAN_REVIEWED,
+    MACHINE_CONFIRMED,
+    RESERVED_FILES,
+    UNVERIFIED,
+    trust_tier,
+    utc_now_iso,
+)
 
 #: Regex for markdown links ``[text](target)``; footnote refs ``[^x]`` are
 #: excluded by requiring the char before ``[`` to not be ``^``.
@@ -54,21 +74,18 @@ def _coerce_tags(frontmatter: Mapping) -> list[str]:
 
 
 def _trust_tier_safe(frontmatter: Any) -> str:
-    """Derive the trust tier, tolerating scalar ``verified`` frontmatter.
+    """Derive the trust tier, tolerating non-mapping frontmatter.
 
-    ``verified: yes`` (a bare YAML bool) is the most natural thing a human
-    writes, but :func:`~okfsmith.core.spec.trust_tier` expects a mapping or
-    list. A non-iterable scalar therefore degrades per the §5.3 trust-tier
-    rules instead of raising: a truthy scalar claims verification without
-    naming a ``human:`` actor → ``"machine-confirmed"``; a falsy/absent
-    scalar → ``"unverified"``. Never raises on malformed input (C10).
+    Delegates to :func:`~okfsmith.core.spec.trust_tier` — the canonical
+    trust-tier implementation shared with the CLI — so MCP tools and the
+    CLI always agree on a concept's tier (QA L6). That function treats a
+    scalar ``verified`` (``verified: yes`` in hand-written YAML) as
+    ``"unverified"``: with no actor information there is no basis for a
+    trust tier. Never raises on malformed input (C10).
     """
     if not isinstance(frontmatter, Mapping):
         return UNVERIFIED
-    verified = frontmatter.get("verified")
-    if verified is None or isinstance(verified, (Mapping, list, tuple, set)):
-        return trust_tier(frontmatter)
-    return MACHINE_CONFIRMED if verified else UNVERIFIED
+    return trust_tier(frontmatter)
 
 
 def _coerce_limit(limit: Any, default: int) -> int:
@@ -514,9 +531,9 @@ def _one_line(text: str, width: int = 140) -> str:
 def _concept_label(concept: Concept) -> str:
     """One-line markdown summary of a concept: id, type, title, trust tier.
 
-    The trust tier is derived defensively: scalar ``verified`` frontmatter
-    (``verified: yes`` in hand-written YAML) degrades per the §5.3 rules
-    instead of raising (C10).
+    The trust tier is derived defensively via :func:`_trust_tier_safe`
+    (scalar ``verified`` frontmatter degrades to ``unverified`` per the
+    canonical spec rule instead of raising — C10).
     """
     fm = concept.frontmatter
     ctype = str(fm.get("type", "?"))
@@ -546,12 +563,506 @@ def _bundle_links(target: str) -> str | None:
     return candidate or None
 
 
+# ---------------------------------------------------------------------------
+# Governed write-back helpers (module-level; used by the BundleTools methods
+# ``preview_write_concept`` / ``write_concept`` / ``update_concept`` /
+# ``audit_log``).
+# ---------------------------------------------------------------------------
+
+#: Markdown filename suffix (mirrors ``okfsmith.core.bundle._SUFFIX``).
+_MD_SUFFIX = ".md"
+
+#: Default frontmatter ``type`` for concepts created through write-back.
+_WRITEBACK_TYPE = "Note"
+
+#: Actor recorded in provenance for every write-back operation.
+_WRITEBACK_ACTOR_PREFIX = "mcp:"
+
+#: Audit log filename inside the bundle manifest dir (``<bundle>/.okfsmith/``,
+#: the same directory that holds ``sync-state.json``).
+_AUDIT_FILENAME = "audit.jsonl"
+
+#: Input size guards for write-back (fail fast with a clean error).
+_WRITEBACK_MAX_TITLE_CHARS = 500
+_WRITEBACK_MAX_BODY_CHARS = 1_000_000
+#: Max entries in a ``sources``/``links`` list. Input coercion copies and
+#: recursively sanitizes every item, so an unbounded list is a CPU/memory
+#: denial of service (QA M2): reject oversized lists before touching them.
+_WRITEBACK_MAX_ITEMS = 1000
+
+#: Age after which a leftover ``.preview-*.md`` validation temp file is
+#: considered an orphan from a crashed preview and swept at session start
+#: (QA L5). A live preview's temp file only exists for milliseconds, so a
+#: 10-minute threshold can never catch one in flight.
+_PREVIEW_ORPHAN_MAX_AGE_S = 10 * 60
+
+#: Marker comment identifying the auto-generated links section at the end of
+#: a write-back body, so ``update_concept`` can replace it instead of
+#: stacking a second ``## Links`` section.
+_LINKS_SECTION_MARKER = "<!-- okfsmith:mcp:links -->"
+
+#: A rendered auto link row: ``- [text](target)`` (target has no spaces by
+#: construction of the coercion below).
+_LINK_ROW_RE = re.compile(r"\s*-\s*\[[^\]]*\]\([^)\s]+\)\s*")
+
+
+def _coerce_nonempty_text(value: Any) -> str | None:
+    """``str(value).strip()``, or ``None`` when blank.
+
+    Never raises: ``None`` and whitespace-only input both become ``None``
+    so callers can emit a clean "empty title/body" error.
+    """
+    if value is None:
+        return None
+    text = value if isinstance(value, str) else str(value)
+    return text.strip() or None
+
+
+def _coerce_bool(value: Any) -> bool:
+    """Coerce *value* to bool; never raises.
+
+    Real bools pass through; numbers follow truthiness; strings accept
+    ``1/true/yes/y/on`` (case-insensitive); anything else falls back to
+    ``bool(value)``.
+    """
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        return value.strip().lower() in ("1", "true", "yes", "y", "on")
+    return bool(value)
+
+
+def _coerce_item_list(value: Any) -> list[Any]:
+    """Coerce ``sources``/``links`` input to a list; never raises.
+
+    ``None`` → ``[]``; a scalar → a single-entry list (mirroring
+    :func:`_coerce_tags`); a list/tuple → a shallow copy.
+    """
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple)):
+        return list(value)
+    return [value]
+
+
+def _check_item_count(name: str, value: Any) -> str | None:
+    """Return an ``Error: ...`` string when a ``sources``/``links`` input
+    exceeds :data:`_WRITEBACK_MAX_ITEMS`; else ``None``.
+
+    Checked *before* coercion copies and recursively sanitizes the items
+    (QA M2). Non-list scalars become single-entry lists, so only sized
+    list/tuple inputs can trip the cap. Never raises.
+    """
+    if isinstance(value, (list, tuple)) and len(value) > _WRITEBACK_MAX_ITEMS:
+        return (
+            f"Error: `{name}` has {len(value)} items "
+            f"(max {_WRITEBACK_MAX_ITEMS}) — split it into smaller calls."
+        )
+    return None
+
+
+def _realpath_within(root: Path, path: Path) -> bool:
+    """``True`` when *path* resolves inside *root* after symlinks.
+
+    A lexical ``relative_to`` check is fooled by a symlinked parent
+    directory (``bundle/sub -> /tmp/outside`` makes ``sub/evil.md`` escape
+    while looking contained — QA M1). Resolving both sides with
+    :func:`os.path.realpath` (which also resolves symlink components of
+    not-yet-existing paths) closes that hole. Never raises.
+    """
+    try:
+        real_root = os.path.realpath(root)
+        real_path = os.path.realpath(path)
+    except OSError:
+        return False
+    try:
+        Path(real_path).relative_to(real_root)
+    except ValueError:
+        return False
+    return True
+
+
+def _prune_empty_parents(start: Path, stop: Path) -> None:
+    """Remove empty directories from *start* up to (not incl.) *stop*.
+
+    Undoes the parent-directory creation that preview validation performs
+    for nested ids (QA L4): a directory that still holds files — pre-
+    existing or written concurrently — is not empty, so the walk stops
+    there. Never raises.
+    """
+    try:
+        current = start
+        while current != stop and current.is_dir():
+            try:
+                current.rmdir()
+            except OSError:
+                break
+            current = current.parent
+    except OSError:
+        pass
+
+
+def _sweep_stale_preview_files(root: Path) -> None:
+    """Delete orphaned ``.preview-*.md`` validation temp files.
+
+    A crashed preview can leave its temp ``.md`` file behind, and the next
+    bundle load would read it as a phantom concept (QA L5). Files older
+    than :data:`_PREVIEW_ORPHAN_MAX_AGE_S` are orphans by definition — a
+    live preview's temp file only exists for milliseconds — so sweeping
+    them at session start can never catch an in-flight preview, even with
+    concurrent server sessions. Never raises.
+    """
+    try:
+        now = time.time()
+        for tmp in root.rglob(".preview-*.md"):
+            try:
+                if tmp.is_file() and not tmp.is_symlink():
+                    if now - tmp.stat().st_mtime > _PREVIEW_ORPHAN_MAX_AGE_S:
+                        tmp.unlink(missing_ok=True)
+            except OSError:
+                continue
+    except OSError:
+        pass
+
+
+def _strip_verified_markers(node: Any) -> Any:
+    """Deep-copy *node* with every ``verified`` mapping key removed.
+
+    Write-back output must always be ``unverified`` (spec §5.3: only
+    ``human:``-prefixed actors grant verification), so any ``verified``
+    markers smuggled into caller-supplied ``sources``/``links`` structures
+    are stripped before they can reach frontmatter. Never raises.
+    """
+    if isinstance(node, Mapping):
+        return {
+            key: _strip_verified_markers(val)
+            for key, val in node.items()
+            if key != "verified"
+        }
+    if isinstance(node, (list, tuple)):
+        return [_strip_verified_markers(val) for val in node]
+    return node
+
+
+def _sanitize_yaml_value(value: Any) -> Any:
+    """Deep-convert *value* to YAML-safe plain types.
+
+    ``yaml.safe_dump`` raises on exotic objects (sets, arbitrary class
+    instances) that can arrive through direct Python calls; this converts
+    anything that is not ``None``/``bool``/``int``/``float``/``str``/list/
+    dict via ``str()`` (mapping keys via ``str()`` too), so serialization
+    of caller input can never crash. Never raises.
+    """
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return value
+    if isinstance(value, Mapping):
+        try:
+            items = list(value.items())
+        except Exception:
+            return str(value)
+        return {str(k): _sanitize_yaml_value(v) for k, v in items}
+    if isinstance(value, (list, tuple)):
+        return [_sanitize_yaml_value(v) for v in value]
+    try:
+        return str(value)
+    except Exception:
+        return ""
+
+
+def _provenance_entry(
+    action: str, actor: str, sources: list[Any] | None = None, **extra: Any
+) -> dict[str, Any]:
+    """One frontmatter ``provenance`` history entry; never raises."""
+    entry: dict[str, Any] = {
+        "action": str(action),
+        "actor": str(actor),
+        "at": utc_now_iso(),
+    }
+    if sources:
+        entry["sources"] = list(sources)
+    for key, val in extra.items():
+        entry[str(key)] = _sanitize_yaml_value(val)
+    return entry
+
+
+def _coerce_link_rows(links: list[Any]) -> list[str]:
+    """Render ``links`` input to ``- [text](target)`` markdown rows.
+
+    Each item is a concept-id string (link text = the id) or a mapping
+    with ``target`` (or ``id``) and optional ``text``. Blank targets are
+    dropped; targets are whitespace-collapsed so a row can never break the
+    ``[text](target)`` shape. Never raises.
+    """
+    rows: list[str] = []
+    for link in links:
+        if isinstance(link, Mapping):
+            target = link.get("target", link.get("id", ""))
+            text = link.get("text", target)
+        else:
+            target = link
+            text = link
+        target = " ".join(str(target).split())
+        text = " ".join(str(text).split()) or target
+        if target:
+            rows.append(f"- [{text}]({target})")
+    return rows
+
+
+def _strip_links_section(body: str) -> str:
+    """Remove an auto-generated links section from *body*.
+
+    Only a ``## Links`` section carrying the
+    :data:`_LINKS_SECTION_MARKER` comment is removed — a hand-written
+    ``## Links`` section is never touched. The section is consumed
+    wherever it appears: blank lines and ``- [text](target)`` rows after
+    the marker belong to the section, so text trailing the section no
+    longer causes a second ``## Links`` section to stack on update
+    (QA L1). Anything that is not a blank line or a link row ends the
+    section and is preserved. Never raises.
+    """
+    head = "## Links\n\n" + _LINKS_SECTION_MARKER
+    idx = body.rfind(head)
+    if idx == -1:
+        return body
+    tail = body[idx + len(head) :]
+    pos = 0
+    for line in tail.split("\n"):
+        if not line.strip() or _LINK_ROW_RE.fullmatch(line):
+            pos += len(line) + 1  # +1 for the "\n" split off
+        else:
+            break
+    stripped = body[:idx] + tail[pos:]
+    # A mid-body removal can leave a run of blank lines; collapse.
+    return re.sub(r"\n{3,}", "\n\n", stripped)
+
+
+def _links_section(body: str) -> str:
+    """Return the auto-generated links section of *body*, or ``""``.
+
+    Only a ``## Links`` section carrying :data:`_LINKS_SECTION_MARKER`
+    is recognized (same rule as :func:`_strip_links_section`); a
+    hand-written ``## Links`` section is never treated as generated.
+    The returned text is in canonical form
+    (``## Links\\n\\n<marker>\\n<rows>``) so it can be re-attached to a
+    replacement body. Never raises.
+    """
+    head = "## Links\n\n" + _LINKS_SECTION_MARKER
+    idx = body.rfind(head)
+    if idx == -1:
+        return ""
+    rows: list[str] = []
+    for line in body[idx + len(head) :].split("\n"):
+        if _LINK_ROW_RE.fullmatch(line):
+            rows.append(line)
+        elif line.strip():
+            break
+    if not rows:
+        return ""
+    return head + "\n" + "\n".join(rows)
+
+
+def _with_links_section(body: str, links: list[Any]) -> str:
+    """Return *body* with the auto-generated links section (re)built.
+
+    A previous auto-generated section (marker-identified) is replaced, not
+    stacked; with no valid links the section is removed entirely.
+    """
+    rows = _coerce_link_rows(links)
+    base = _strip_links_section(body).rstrip("\n")
+    if not rows:
+        return base + "\n" if base else ""
+    section = "## Links\n\n" + _LINKS_SECTION_MARKER + "\n" + "\n".join(rows)
+    return f"{base}\n\n{section}\n" if base else f"{section}\n"
+
+
+def _build_writeback_document(
+    *,
+    title: str,
+    body: str,
+    sources: list[Any],
+    links: list[Any],
+    actor: str,
+    ts: str,
+) -> tuple[dict[str, Any], str, str]:
+    """Build the would-be concept document for a write-back create.
+
+    Returns ``(frontmatter, body_with_links, serialized_text)``. Governance
+    is baked in: ``sources``/``links`` are sanitized to YAML-safe types and
+    stripped of any ``verified`` markers, the ``links`` become a marked
+    auto-generated section, and the frontmatter carries ``type: Note``, a
+    ``generated: {by, at}`` block mirroring the CLI ingest shape, the input
+    ``sources``, and a ``provenance`` history entry (``action: created``).
+    No ``verified`` key is ever emitted, so
+    :func:`~okfsmith.core.spec.trust_tier` always derives ``"unverified"``.
+    Never raises on plain-data input.
+    """
+    clean_sources = _sanitize_yaml_value(_strip_verified_markers(list(sources)))
+    clean_links = _sanitize_yaml_value(_strip_verified_markers(list(links)))
+    full_body = _with_links_section(body, clean_links)
+    frontmatter: dict[str, Any] = {
+        "type": _WRITEBACK_TYPE,
+        "title": title,
+        "description": _one_line(full_body),
+        "generated": {"by": actor, "at": ts},
+    }
+    if clean_sources:
+        frontmatter["sources"] = clean_sources
+    frontmatter["provenance"] = [
+        _provenance_entry("created", actor, sources=clean_sources or None)
+    ]
+    return frontmatter, full_body, _fm.serialize_frontmatter(frontmatter, full_body)
+
+
+def _atomic_write_bytes(
+    path: Path, data: bytes, *, overwrite: bool = False
+) -> None:
+    """Write *data* to *path* atomically: temp file + rename.
+
+    The temp file lives in the same directory (so the rename never crosses
+    filesystems) and is removed on any failure — a crash can never leave a
+    half-written concept file behind. With ``overwrite=False`` (creates) an
+    already-existing *path* raises :class:`FileExistsError` instead of
+    clobbering it; symlinks are always refused, never followed. The rename
+    goes through the module-level :data:`_os_replace` alias so tests can
+    simulate rename failure without touching the global ``os`` module.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.is_symlink():
+        raise FileExistsError(f"refusing to touch symlink: {path}")
+    if not overwrite and path.exists():
+        raise FileExistsError(f"refusing to overwrite existing path: {path}")
+    tmp = path.with_name(f".{path.name}.tmp-{uuid.uuid4().hex[:8]}")
+    try:
+        tmp.write_bytes(data)
+        _os_replace(tmp, path)
+    except BaseException:
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
+
+
+def _atomic_write_text(
+    path: Path, text: str, *, overwrite: bool = False
+) -> None:
+    """Write *text* to *path* atomically (UTF-8), via
+    :func:`_atomic_write_bytes`."""
+    _atomic_write_bytes(path, text.encode("utf-8"), overwrite=overwrite)
+
+
+#: Alias of :func:`os.replace` used by :func:`_atomic_write_bytes`; a
+#: module-level seam so tests can simulate rename failure.
+_os_replace = os.replace
+
+
+def _audit_path(bundle: Bundle) -> Path:
+    """Path of the append-only audit log: ``<bundle>/.okfsmith/audit.jsonl``.
+
+    The manifest directory is the same one that holds ``sync-state.json``
+    (see :func:`_load_sync_state`); the filename is fixed, so caller input
+    can never influence the path (no traversal surface).
+    """
+    from okfsmith.parsers.dedup import MANIFEST_DIRNAME
+
+    return bundle.root / MANIFEST_DIRNAME / _AUDIT_FILENAME
+
+
+def _append_audit(
+    bundle: Bundle,
+    *,
+    actor: str,
+    action: str,
+    concept_id: str,
+    summary: str,
+) -> bool:
+    """Append one JSON line to the audit log; ``True`` on success.
+
+    The entry carries a UTC ISO-8601 timestamp, the actor, the action, the
+    concept id, and a one-line summary. A symlinked audit file is never
+    followed. ``False`` (never an exception) on any failure — callers roll
+    the concept write back so there are no unaudited writes.
+    """
+    try:
+        path = _audit_path(bundle)
+        if path.is_symlink():
+            return False
+        path.parent.mkdir(parents=True, exist_ok=True)
+        entry = {
+            "ts": utc_now_iso(),
+            "actor": str(actor),
+            "action": str(action),
+            "concept_id": str(concept_id),
+            "summary": _one_line(str(summary), 200),
+        }
+        with open(path, "a", encoding="utf-8") as handle:
+            handle.write(
+                json.dumps(entry, ensure_ascii=False, sort_keys=True) + "\n"
+            )
+            handle.flush()
+            os.fsync(handle.fileno())
+        return True
+    except (OSError, ValueError):
+        return False
+
+
+def _read_audit(bundle: Bundle, limit: int) -> list[dict[str, Any]]:
+    """Read up to *limit* audit entries (oldest first); never raises.
+
+    Corrupt lines are skipped; a missing file, a symlink (never followed),
+    or any I/O failure yields ``[]``.
+    """
+    if limit <= 0:
+        return []
+    try:
+        path = _audit_path(bundle)
+        if path.is_symlink() or not path.is_file():
+            return []
+        entries: list[dict[str, Any]] = []
+        for line in path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                obj = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(obj, dict):
+                entries.append(obj)
+    except (OSError, ValueError, UnicodeError):
+        return []
+    return entries[max(0, len(entries) - limit) :]
+
+
+def _verifier_names(frontmatter: Mapping) -> list[str]:
+    """The ``by`` actors of a concept's ``verified`` markers; never raises."""
+    verified = frontmatter.get("verified") if isinstance(frontmatter, Mapping) else None
+    if isinstance(verified, Mapping):
+        verified = [verified]
+    if not isinstance(verified, (list, tuple)):
+        return []
+    names: list[str] = []
+    for entry in verified:
+        by = entry.get("by") if isinstance(entry, Mapping) else None
+        if by:
+            names.append(str(by))
+    return names
+
+
 class BundleTools:
-    """The eight MCP tool functions, bound to one loaded bundle.
+    """The twelve MCP tool functions, bound to one loaded bundle.
 
     Instances are created by :func:`build_server`; each method is registered
     as an MCP tool. They are also directly callable (as the tests do), with
     no MCP transport required.
+
+    Eight tools are read-only (``index``, ``list``, ``search``, ``get``,
+    ``neighbors``, ``traverse``, ``provenance``, ``diff``) and four provide
+    governed write-back (``preview_write_concept``, ``write_concept``,
+    ``update_concept``, ``audit_log``) — see each method's docstring for
+    the governance contract.
 
     Every method returns compact markdown text. Lookup failures return a
     plain-English ``Error: ...`` string — never an exception — so agents get
@@ -568,6 +1079,22 @@ class BundleTools:
 
     def __init__(self, bundle: Bundle) -> None:
         self.bundle = bundle
+        # Sweep orphaned preview temp files from crashed sessions so they
+        # can never load as phantom concepts (QA L5).
+        _sweep_stale_preview_files(bundle.root)
+        # The bundle may have been loaded *before* the sweep above (the
+        # caller owns the Bundle.load call), leaving phantom concepts in
+        # the in-memory index for files that are now gone. Evict any
+        # in-memory concept backed by a `.preview-*.md` temp file — those
+        # are never real concepts, so dropping them from the index is
+        # always safe (the on-disk temp file itself is untouched).
+        for concept in list(bundle.iter_concepts()):
+            try:
+                name = concept.path.name
+            except OSError:
+                continue
+            if name.startswith(".preview-") and name.endswith(".md"):
+                bundle._concepts.pop(concept.id, None)
         # Built once: the bundle is loaded once at server startup, so the
         # supersession graph is stable for the server's lifetime.
         self._sindex = _temporal.SupersessionIndex.from_bundle(bundle)
@@ -1527,6 +2054,785 @@ class BundleTools:
         )
 
 
+    # -- governed write-back ------------------------------------------------
+    #
+    # Four tools: ``preview_write_concept`` (dry run), ``write_concept``
+    # (create), ``update_concept`` (patch), ``audit_log`` (read the trail).
+    # Governance contract, enforced in code:
+    #
+    # * Provenance: every write stamps frontmatter ``provenance`` (a history
+    #   list — updates append, never rewrite) with the actor
+    #   (``mcp:<tool-name>``), a UTC ISO-8601 timestamp, and the input
+    #   sources; a ``generated: {by, at}`` block mirrors the CLI ingest
+    #   shape.
+    # * Trust: write-back output is ALWAYS ``unverified`` — no ``verified``
+    #   key is ever emitted, and any ``verified`` markers smuggled into
+    #   caller input are stripped before serialization. Only ``human:``-
+    #   prefixed actors can grant verification (spec §5.3), and an MCP
+    #   caller is never one.
+    # * Collisions: an existing concept id is never overwritten —
+    #   ``write_concept`` returns a structured error suggesting
+    #   ``update_concept``.
+    # * Human-reviewed protection: ``update_concept`` refuses to touch a
+    #   human-reviewed concept unless ``downgrade_trust=true`` is passed
+    #   explicitly; the downgrade removes the ``verified`` marker and is
+    #   recorded in provenance.
+    # * Validation gate: the bundle validator runs before and after every
+    #   write; a write introducing new errors is refused and rolled back.
+    #   A validator failure fails closed (the write is refused).
+    # * Atomicity: concept files are written to a temp file in the same
+    #   directory and renamed into place; the temp file is removed on any
+    #   failure, so half-written concept files cannot survive.
+    # * Audit: every applied write appends one JSON line to the append-only
+    #   ``<bundle>/.okfsmith/audit.jsonl``. An audit failure rolls the
+    #   concept write back — there are no unaudited writes.
+    # * Containment: ids/slugs are slugified (``..`` and absolute paths
+    #   cannot survive slugification); updates additionally reject
+    #   ``..``/absolute ids outright, refuse symlinked concept files, and
+    #   refuse paths escaping the bundle root.
+
+    def _validator_error_set(
+        self, rel: str | None = None
+    ) -> set[tuple[str, str, str]] | None:
+        """``(code, file, message)`` of the bundle validator's ERRORS now.
+
+        *rel* filters to one bundle-relative file. Returns ``None`` when the
+        validator cannot run — callers fail closed (refuse the write).
+        Never raises.
+        """
+        try:
+            from okfsmith.validate import check
+
+            report = check(bundle=self.bundle)
+        except Exception:
+            return None
+        return {
+            (finding.code, finding.file, finding.message)
+            for finding in report.errors
+            if rel is None or finding.file == rel
+        }
+
+    def _reload_bundle(self) -> None:
+        """Re-read the bundle from disk so later tools see applied writes.
+
+        Never raises: a reload failure leaves the previous in-memory handle
+        in place (the write itself is already safely on disk).
+        """
+        try:
+            self.bundle = Bundle.load(self.bundle.root)
+            self._sindex = _temporal.SupersessionIndex.from_bundle(self.bundle)
+        except Exception:
+            pass
+
+    @staticmethod
+    def _rollback_write(
+        path: Path, creating: bool, previous_bytes: bytes | None
+    ) -> None:
+        """Undo a committed-then-rejected write; never raises.
+
+        Creates are unlinked; updates restore the previous file's raw
+        bytes (atomically, through the same temp+rename path) so the
+        rollback is byte-identical — e.g. CRLF line endings are preserved
+        instead of being reserialized to LF (QA L8).
+        """
+        try:
+            if creating:
+                path.unlink(missing_ok=True)
+            elif previous_bytes is not None:
+                _atomic_write_bytes(path, previous_bytes, overwrite=True)
+        except OSError:
+            pass
+
+    def _write_with_governance(
+        self,
+        path: Path,
+        rel: str,
+        text: str,
+        *,
+        creating: bool,
+        previous_bytes: bytes | None,
+        audit_actor: str,
+        audit_action: str,
+        audit_concept_id: str,
+        audit_summary: str,
+    ) -> str | None:
+        """Commit *text* to *path* under the governance contract.
+
+        Returns ``None`` on success, else an ``Error: ...`` string and
+        nothing (auditable) has changed: symlink-resolved bundle
+        containment → baseline validator errors → atomic temp+rename write
+        → re-validate (new errors for *rel* ⇒ roll back and refuse) →
+        append the audit entry (audit failure ⇒ roll back and refuse) →
+        reload the in-memory bundle.
+        Never raises.
+        """
+        if not _realpath_within(self.bundle.root, path):
+            return (
+                f"Error: refusing to write `{rel}` — the target resolves "
+                "outside the bundle root through a symlinked parent "
+                "directory (QA M1). Nothing was written."
+            )
+        before = self._validator_error_set()
+        if before is None:
+            return (
+                "Error: refusing to write — the bundle validator could not "
+                "run (fail closed). Nothing was written."
+            )
+        try:
+            _atomic_write_text(path, text, overwrite=not creating)
+        except FileExistsError:
+            return (
+                f"Error: refusing to write — `{rel}` already exists. "
+                "Write-back never overwrites."
+            )
+        except OSError as exc:
+            return f"Error: could not write `{rel}`: {exc}."
+        after = self._validator_error_set()
+        if after is None:
+            self._rollback_write(path, creating, previous_bytes)
+            return (
+                "Error: refusing to write — the bundle validator could not "
+                "run after the write (fail closed). The write was rolled back."
+            )
+        new_errors = {f for f in after if f[1] == rel} - {
+            f for f in before if f[1] == rel
+        }
+        if new_errors:
+            self._rollback_write(path, creating, previous_bytes)
+            codes = sorted({code for code, _, _ in new_errors})
+            return (
+                f"Error: refusing to write `{rel}` — the concept fails "
+                f"validation (new errors: {', '.join(codes)}). "
+                "The write was rolled back."
+            )
+        if not _append_audit(
+            self.bundle,
+            actor=audit_actor,
+            action=audit_action,
+            concept_id=audit_concept_id,
+            summary=audit_summary,
+        ):
+            self._rollback_write(path, creating, previous_bytes)
+            return (
+                "Error: refusing to write — the audit entry could not be "
+                "recorded (no unaudited writes). The write was rolled back."
+            )
+        self._reload_bundle()
+        return None
+
+    def _validate_candidate_text(
+        self, rel: str, text: str
+    ) -> tuple[list[Any], list[Any]]:
+        """``(errors, warnings)`` validator findings for *text* as if at *rel*.
+
+        Materializes *text* at a temp ``.md`` file next to *rel* (so
+        link-liveness resolves exactly as the real write would), runs the
+        full bundle validator, filters findings to the temp file, and
+        unlinks it in a ``finally`` — the bundle is byte-identical
+        afterwards, so this is safe inside the side-effect-free preview.
+        Parent directories are created for the validation and pruned again
+        afterwards when left empty, so a nested id validates against its
+        real location instead of silently passing (QA L4). The target must
+        resolve inside the bundle root (defense in depth for QA M1).
+        Returns ``([], [])`` when the validator cannot run. Never raises.
+        """
+        root = self.bundle.root
+        target = root.joinpath(*rel.split("/"))
+        if not _realpath_within(root, target):
+            return [], []
+        tmp = target.with_name(f".preview-{uuid.uuid4().hex[:8]}-{target.name}")
+        try:
+            tmp.parent.mkdir(parents=True, exist_ok=True)
+            tmp.write_text(text, encoding="utf-8")
+            from okfsmith.validate import check
+
+            report = check(bundle=self.bundle)
+        except Exception:
+            return [], []
+        finally:
+            try:
+                tmp.unlink(missing_ok=True)
+            except OSError:
+                pass
+            _prune_empty_parents(tmp.parent, root)
+        tmp_rel = tmp.relative_to(root).as_posix()
+        errors = [f for f in report.errors if f.file == tmp_rel]
+        warnings = [f for f in report.warnings if f.file == tmp_rel]
+        return errors, warnings
+
+    def _concept_id_taken(self, concept_id: str) -> bool:
+        """``True`` when *concept_id* collides with an existing concept.
+
+        The id comparison is case-insensitive (QA L7): on a
+        case-sensitive filesystem ``Hello.md`` and ``hello.md`` would
+        otherwise become near-duplicate concept ids. Fails closed —
+        ``True`` — when the bundle cannot be iterated. Never raises.
+        """
+        try:
+            wanted = concept_id.lower()
+            return any(
+                concept.id.lower() == wanted
+                for concept in self.bundle.iter_concepts()
+            )
+        except Exception:
+            return True
+
+    def _preview_document(
+        self, title: str, body: str, sources: Any, links: Any
+    ) -> tuple[str | None, dict[str, Any]]:
+        """Validate inputs and build the would-be document for a create.
+
+        Returns ``(error, plan)`` — *error* an ``Error: ...`` string when
+        the inputs are rejected (empty title/body, oversize input, reserved
+        name), else ``None`` and a *plan* dict with ``concept_id``, ``rel``,
+        ``frontmatter``, ``body`` and ``text`` (the exact serialized file).
+        Side-effect free. Never raises.
+        """
+        title_text = _coerce_nonempty_text(title)
+        if title_text is None:
+            return "Error: `title` is empty — a concept needs a title.", {}
+        body_text = _coerce_nonempty_text(body)
+        if body_text is None:
+            return "Error: `body` is empty — a concept needs body content.", {}
+        if len(title_text) > _WRITEBACK_MAX_TITLE_CHARS:
+            return (
+                f"Error: `title` is too long ({len(title_text)} chars, "
+                f"max {_WRITEBACK_MAX_TITLE_CHARS})."
+            ), {}
+        if len(body_text) > _WRITEBACK_MAX_BODY_CHARS:
+            return (
+                f"Error: `body` is too long ({len(body_text)} chars, "
+                f"max {_WRITEBACK_MAX_BODY_CHARS})."
+            ), {}
+        for name, value in (("sources", sources), ("links", links)):
+            count_error = _check_item_count(name, value)
+            if count_error is not None:
+                return count_error, {}
+        concept_id = _slug_id(title_text)
+        for segment in concept_id.split("/"):
+            if f"{segment}{_MD_SUFFIX}" in RESERVED_FILES:
+                return (
+                    f"Error: the title slug {segment!r} maps to the reserved "
+                    "bundle filename "
+                    f"{segment + _MD_SUFFIX!r} — reserved files (`index.md`, "
+                    "`log.md`) are never concepts. Pick a different title."
+                ), {}
+        path = concept_path_for(self.bundle.root, concept_id)
+        try:
+            rel = path.relative_to(self.bundle.root).as_posix()
+        except ValueError:
+            return (
+                "Error: the title slug escapes the bundle root — "
+                "pick a different title."
+            ), {}
+        if not _realpath_within(self.bundle.root, path):
+            return (
+                "Error: refusing to write — the title slug resolves "
+                "outside the bundle through a symlinked parent directory "
+                "(QA M1). Pick a different title."
+            ), {}
+        actor = f"{_WRITEBACK_ACTOR_PREFIX}write_concept"
+        ts = utc_now_iso()
+        frontmatter, full_body, text = _build_writeback_document(
+            title=title_text,
+            body=body_text,
+            sources=_coerce_item_list(sources),
+            links=_coerce_item_list(links),
+            actor=actor,
+            ts=ts,
+        )
+        return None, {
+            "concept_id": concept_id,
+            "rel": rel,
+            "frontmatter": frontmatter,
+            "body": full_body,
+            "text": text,
+        }
+
+    def preview_write_concept(
+        self,
+        title: str,
+        body: str,
+        sources: list | None = None,
+        links: list | None = None,
+    ) -> str:
+        """Dry-run of `write_concept`: show EXACTLY what would be written, writing nothing.
+
+        `title` becomes the concept id via the same slugification the CLI
+        ingest uses (`concept_path_for`); `body` is the markdown content;
+        `sources` is a list of source strings or `{id,title,resource,author}`
+        mappings echoed into frontmatter `sources` and the provenance entry;
+        `links` is a list of concept-id strings or `{text,target}` mappings,
+        rendered as an auto-generated `## Links` section at the end of the
+        body (marked with an `<!-- okfsmith:mcp:links -->` comment so later
+        updates can replace it instead of stacking sections).
+
+        Governance previewed, not applied: the output shows the concept id,
+        the bundle-relative file path, the full frontmatter (including the
+        `provenance` block that would be stamped — the `at` timestamp is
+        illustrative and regenerated at write time), the exact serialized
+        file content, the trust tier (`unverified` — write-back output is
+        never verified), whether the validator would accept the document,
+        and whether the id collides with an existing concept (a collision
+        means `write_concept` would refuse and suggest `update_concept`).
+
+        Side-effect free: the bundle directory is byte-identical afterwards
+        (no concept file, no audit entry). Input problems (empty title/body,
+        oversize input, reserved filename) return a clean error.
+        """
+        error, plan = self._preview_document(title, body, sources, links)
+        if error is not None:
+            return error
+        concept_id = plan["concept_id"]
+        rel = plan["rel"]
+        path = concept_path_for(self.bundle.root, concept_id)
+        collides = self._concept_id_taken(concept_id) or path.exists()
+        errors, warnings = self._validate_candidate_text(rel, plan["text"])
+        lines = [
+            "# Preview: write_concept (dry run — nothing was written)",
+            "",
+            f"- **Concept id:** `{concept_id}`",
+            f"- **Would-be file:** `{rel}`",
+            "- **Trust tier:** `unverified` (write-back output is never verified)",
+        ]
+        if errors:
+            codes = sorted({f.code for f in errors})
+            lines.append(
+                "- **Validation:** FAIL — `write_concept` would refuse this "
+                f"(errors: {', '.join(codes)})"
+            )
+            for finding in errors:
+                lines.append(f"  - `{finding.code}`: {finding.message}")
+        else:
+            lines.append(
+                "- **Validation:** PASS — `write_concept` would accept this"
+                + (
+                    f" ({len(warnings)} advisory warning(s), "
+                    "warnings never block a write)"
+                    if warnings
+                    else ""
+                )
+            )
+        if collides:
+            lines.append(
+                f"- **Collision:** `{concept_id}` already exists — "
+                "`write_concept` would refuse to overwrite it; call "
+                f"`update_concept(concept_id={concept_id!r}, ...)` to modify it."
+            )
+        else:
+            lines.append("- **Collision:** none")
+        lines.extend(
+            [
+                "",
+                "## File content that would be written",
+                "```markdown",
+                plan["text"].rstrip("\n"),
+                "```",
+            ]
+        )
+        return "\n".join(lines)
+
+    def write_concept(
+        self,
+        title: str,
+        body: str,
+        sources: list | None = None,
+        links: list | None = None,
+    ) -> str:
+        """Create a new concept in the bundle, under governance.
+
+        `title` (required, non-empty) becomes the concept id via the same
+        slugification the CLI ingest uses; `body` (required, non-empty) is
+        the markdown content; `sources` / `links` behave as in
+        `preview_write_concept` (use it first to see exactly what would be
+        written).
+
+        Governance, enforced in code:
+        - The concept id is derived from the title; when it already exists
+          the write is refused with a structured error suggesting
+          `update_concept` — write-back never overwrites.
+        - Frontmatter carries a `provenance` history entry (`action:
+          created`, actor `mcp:write_concept`, UTC ISO-8601 `at`, the input
+          `sources`) plus a `generated: {by, at}` block mirroring the CLI
+          ingest shape. No `verified` key is ever emitted — and any
+          `verified` markers smuggled into `sources`/`links` input are
+          stripped — so the trust tier is always `unverified` (only
+          `human:`-prefixed actors can grant verification, spec §5.3).
+        - The bundle validator runs before and after the write: a write
+          introducing new validation errors is refused and rolled back; a
+          validator failure fails closed (refused).
+        - The file is written atomically (temp file in the same directory +
+          rename); the temp file is removed on any failure.
+        - One JSON line is appended to the append-only
+          `<bundle>/.okfsmith/audit.jsonl`; an audit failure rolls the
+          concept write back — there are no unaudited writes.
+
+        Returns a short markdown confirmation (id, file, trust tier,
+        validation and audit status). Lookup/validation failures return a
+        clean `Error: ...` string, never a traceback.
+        """
+        error, plan = self._preview_document(title, body, sources, links)
+        if error is not None:
+            return error
+        concept_id = plan["concept_id"]
+        rel = plan["rel"]
+        path = concept_path_for(self.bundle.root, concept_id)
+        if self._concept_id_taken(concept_id) or path.exists():
+            return (
+                f"Error: concept id `{concept_id}` already exists (`{rel}`). "
+                "Write-back never overwrites an existing concept — call "
+                f"`update_concept(concept_id={concept_id!r}, ...)` to modify "
+                "it, or pick a different title."
+            )
+        actor = f"{_WRITEBACK_ACTOR_PREFIX}write_concept"
+        err = self._write_with_governance(
+            path,
+            rel,
+            plan["text"],
+            creating=True,
+            previous_bytes=None,
+            audit_actor=actor,
+            audit_action="create",
+            audit_concept_id=concept_id,
+            audit_summary=f"created concept {concept_id!r}",
+        )
+        if err is not None:
+            return err
+        return (
+            "# Concept written\n\n"
+            f"- **Concept id:** `{concept_id}`\n"
+            f"- **File:** `{rel}`\n"
+            "- **Trust tier:** `unverified`\n"
+            "- **Validation:** PASS (no new errors)\n"
+            "- **Provenance:** `created` entry stamped in frontmatter\n"
+            "- **Audit:** recorded in `.okfsmith/audit.jsonl`"
+        )
+
+    def update_concept(
+        self,
+        concept_id: str,
+        title: str | None = None,
+        body: str | None = None,
+        sources: list | None = None,
+        links: list | None = None,
+        downgrade_trust: bool = False,
+        dry_run: bool = False,
+    ) -> str:
+        """Patch an existing concept, under governance.
+
+        `concept_id` is the bundle concept id (slug-normalized for lookup:
+        `"My Note"` finds `my-note`). Patch fields are optional and replace
+        wholesale: `title` (non-empty), `body` (non-empty — a body-only
+        patch keeps the existing auto-generated `## Links` section in
+        place), `sources` (list of strings or mappings — replaces
+        frontmatter `sources`; an empty list removes the key), `links`
+        (list of id strings or `{text,target}` mappings — rebuilds the
+        auto-generated `## Links` section at the end of the body, replacing
+        the previous one instead of stacking). At least one patch field is
+        required.
+
+        Governance, enforced in code:
+        - Human-reviewed concepts (trust tier `human-reviewed`, i.e. a
+          `human:`-prefixed verifier) are refused unless
+          `downgrade_trust=true` is passed explicitly — agent callers must
+          never silently alter human-verified content. The downgrade
+          removes the `verified` marker (the altered content can no longer
+          claim human verification) and records the previous trust tier and
+          verifiers in the provenance entry.
+        - Updating the body, sources, or links of a machine-confirmed
+          concept removes the machine `verified` marker — stale
+          verification must not survive on replaced content — and records
+          the previous trust tier and verifiers in the provenance entry.
+        - Every update appends one entry to the frontmatter `provenance`
+          history list (`action: updated`, actor `mcp:update_concept`, UTC
+          `at`, changed field names, input `sources` when given) — history
+          is never rewritten. `verified` markers smuggled into patch input
+          are stripped; an update can never raise the trust tier.
+        - `dry_run=true` returns a unified diff of the would-be file
+          without writing anything (no audit entry either).
+        - Otherwise the validator-gated, atomic, audited commit of
+          `write_concept` applies (new validation errors ⇒ refused and
+          rolled back; audit failure ⇒ rolled back).
+        - `concept_id` values with `..` segments or absolute paths are
+          rejected; symlinked concept files are never updated; paths
+          escaping the bundle root are refused.
+
+        Returns a markdown confirmation (or the diff for `dry_run`); a
+        no-op patch (nothing actually changes) writes nothing and says so.
+        Failures return a clean `Error: ...` string, never a traceback.
+        """
+        if not isinstance(concept_id, str) or not concept_id.strip():
+            return "Error: `concept_id` is empty — pass a bundle concept id."
+        raw_id = concept_id.strip()
+        if raw_id.startswith("/") or ".." in raw_id.replace("\\", "/").split("/"):
+            return (
+                f"Error: `concept_id` must be a bundle-relative concept id "
+                f"(got {concept_id!r}) — absolute paths and `..` segments "
+                "are rejected."
+            )
+        lookup_id = _slug_id(raw_id)
+        concept = self.bundle.get(lookup_id)
+        if concept is None:
+            return (
+                f"Error: concept {raw_id!r} not found in this bundle. "
+                "Use `list` to see all concept ids or `search` to find one "
+                "by keyword."
+            )
+        try:
+            is_link = concept.path.is_symlink()
+        except OSError:
+            is_link = True
+        if is_link:
+            return (
+                f"Error: refusing to update `{concept.id}` — its file is a "
+                "symlink; write-back never follows symlinks."
+            )
+        try:
+            rel = concept.path.relative_to(self.bundle.root).as_posix()
+        except ValueError:
+            return (
+                f"Error: refusing to update `{concept.id}` — its file "
+                "escapes the bundle root."
+            )
+        if not _realpath_within(self.bundle.root, concept.path):
+            return (
+                f"Error: refusing to update `{concept.id}` — its file "
+                "resolves outside the bundle root through a symlinked "
+                "parent directory (QA M1)."
+            )
+
+        tier = _trust_tier_safe(concept.frontmatter)
+        downgrade = _coerce_bool(downgrade_trust)
+        verifiers = _verifier_names(concept.frontmatter)
+        if tier == HUMAN_REVIEWED and not downgrade:
+            who = (
+                f" (verified by {', '.join(verifiers)})" if verifiers else ""
+            )
+            return (
+                f"Error: refusing to update `{concept.id}` — it is "
+                f"human-reviewed{who}. Human-verified content is never "
+                "silently altered by an agent. Pass `downgrade_trust=true` "
+                "to update it anyway: the `verified` marker will be removed "
+                "and the downgrade recorded in provenance."
+            )
+
+        new_title = _coerce_nonempty_text(title) if title is not None else None
+        if title is not None and new_title is None:
+            return "Error: `title` is empty — pass a non-empty title or omit it."
+        new_body = _coerce_nonempty_text(body) if body is not None else None
+        if body is not None and new_body is None:
+            return "Error: `body` is empty — pass non-empty body or omit it."
+        if (
+            title is None
+            and body is None
+            and sources is None
+            and links is None
+        ):
+            return (
+                "Error: nothing to update — pass at least one of "
+                "`title`, `body`, `sources`, `links`."
+            )
+        for name, value in (("sources", sources), ("links", links)):
+            count_error = _check_item_count(name, value)
+            if count_error is not None:
+                return count_error
+
+        new_fm: dict[str, Any] = dict(concept.frontmatter)
+        changed: list[str] = []
+        base_body = concept.body
+        title_changed = new_title is not None and new_title != str(
+            concept.frontmatter.get("title", "")
+        ).strip()
+        if new_title is not None:
+            new_fm["title"] = new_title
+            if title_changed:
+                changed.append("title")
+        if new_body is not None:
+            base_body = new_body
+            changed.append("body")
+        if sources is not None:
+            clean_sources = _sanitize_yaml_value(
+                _strip_verified_markers(_coerce_item_list(sources))
+            )
+            if clean_sources:
+                new_fm["sources"] = clean_sources
+            else:
+                new_fm.pop("sources", None)
+            changed.append("sources")
+        if links is not None:
+            clean_links = _sanitize_yaml_value(
+                _strip_verified_markers(_coerce_item_list(links))
+            )
+            base_body = _with_links_section(base_body, clean_links)
+            changed.append("links")
+        elif body is not None:
+            # A body-only patch keeps the existing auto-generated links
+            # section in place (QA L2): the new body text replaces the
+            # prose, then the marked section carried over from the old
+            # body is re-attached verbatim.
+            old_section = _links_section(concept.body)
+            base = base_body.rstrip("\n")
+            base_body = f"{base}\n\n{old_section}\n" if old_section else base + "\n"
+        if title_changed:
+            # Description tracks the concept: refresh from the *new* body
+            # (QA L3 — computed after the body patch above, not before).
+            new_fm["description"] = _one_line(base_body)
+
+        content_changed = any(f in changed for f in ("body", "sources", "links"))
+        machine_downgraded = content_changed and tier == MACHINE_CONFIRMED
+        if machine_downgraded:
+            # The verified content is being replaced: a machine
+            # verification marker must not survive on new content (QA M3).
+            # (Human-reviewed content keeps its explicit downgrade_trust
+            # flow below.)
+            new_fm.pop("verified", None)
+        if tier == HUMAN_REVIEWED and downgrade:
+            # The altered content can no longer claim human verification.
+            new_fm.pop("verified", None)
+
+        old_text = _fm.serialize_frontmatter(concept.frontmatter, concept.body)
+        candidate_text = _fm.serialize_frontmatter(new_fm, base_body)
+        if candidate_text == old_text:
+            return (
+                f"No changes: the patch for `{concept.id}` is identical to "
+                "the current document — nothing was written, no audit entry."
+            )
+
+        actor = f"{_WRITEBACK_ACTOR_PREFIX}update_concept"
+        entry = _provenance_entry(
+            "updated",
+            actor,
+            sources=(
+                _sanitize_yaml_value(
+                    _strip_verified_markers(_coerce_item_list(sources))
+                )
+                or None
+                if sources is not None
+                else None
+            ),
+            fields=changed,
+        )
+        if tier == HUMAN_REVIEWED and downgrade:
+            entry["downgrade_trust"] = True
+            entry["previous_trust"] = HUMAN_REVIEWED
+            if verifiers:
+                entry["removed_verified_by"] = verifiers
+        if machine_downgraded:
+            # QA M3: the machine verification marker was removed because
+            # the verified content changed — record what was removed.
+            entry["previous_trust"] = MACHINE_CONFIRMED
+            if verifiers:
+                entry["removed_verified_by"] = verifiers
+        existing_prov = new_fm.get("provenance")
+        history = (
+            list(existing_prov)
+            if isinstance(existing_prov, list)
+            else ([existing_prov] if existing_prov is not None else [])
+        )
+        history.append(entry)
+        new_fm["provenance"] = history
+        new_text = _fm.serialize_frontmatter(new_fm, base_body)
+
+        if _coerce_bool(dry_run):
+            diff_lines = difflib.unified_diff(
+                old_text.splitlines(),
+                new_text.splitlines(),
+                fromfile=f"before: {concept.id}",
+                tofile=f"after: {concept.id}",
+                lineterm="",
+            )
+            diff_text = "\n".join(diff_lines) or "(no textual changes)"
+            trust_note = (
+                f"`{tier}` → `unverified` (downgrade recorded)"
+                if (tier == HUMAN_REVIEWED and downgrade) or machine_downgraded
+                else f"`{tier}` (unchanged)"
+            )
+            return (
+                "# Preview: update_concept "
+                "(dry run — nothing was written, no audit entry)\n\n"
+                f"- **Concept id:** `{concept.id}`\n"
+                f"- **File:** `{rel}`\n"
+                f"- **Fields:** {', '.join(changed)}\n"
+                f"- **Trust:** {trust_note}\n\n"
+                "```diff\n" + diff_text + "\n```"
+            )
+
+        try:
+            previous_bytes = concept.path.read_bytes()
+        except OSError:
+            previous_bytes = None
+        err = self._write_with_governance(
+            concept.path,
+            rel,
+            new_text,
+            creating=False,
+            previous_bytes=previous_bytes,
+            audit_actor=actor,
+            audit_action="update",
+            audit_concept_id=concept.id,
+            audit_summary=f"updated concept {concept.id!r}: "
+            f"{', '.join(changed)}",
+        )
+        if err is not None:
+            return err
+        lines = [
+            "# Concept updated",
+            "",
+            f"- **Concept id:** `{concept.id}`",
+            f"- **File:** `{rel}`",
+            f"- **Fields:** {', '.join(changed)}",
+            f"- **Trust tier:** `{_trust_tier_safe(new_fm)}`",
+            "- **Validation:** PASS (no new errors)",
+            "- **Provenance:** `updated` entry appended "
+            f"({len(history)} total)",
+            "- **Audit:** recorded in `.okfsmith/audit.jsonl`",
+        ]
+        if tier == HUMAN_REVIEWED and downgrade:
+            lines.append(
+                "- **Downgrade:** `verified` marker removed; previous trust "
+                f"`{HUMAN_REVIEWED}` recorded in provenance"
+            )
+        if machine_downgraded:
+            lines.append(
+                "- **Verification cleared:** the machine `verified` marker "
+                "was removed because the verified content changed; previous "
+                f"trust `{MACHINE_CONFIRMED}` recorded in provenance"
+            )
+        return "\n".join(lines)
+
+    def audit_log(self, limit: int = 20) -> str:
+        """Return recent write-back audit entries, newest first.
+
+        Reads the append-only `<bundle>/.okfsmith/audit.jsonl` written by
+        `write_concept` / `update_concept` (dry runs and previews are never
+        audited — only applied writes). Each entry carries its UTC
+        timestamp, the actor (`mcp:<tool-name>`), the action (`create` /
+        `update`), the concept id, and a one-line summary. `limit` caps the
+        entries returned (default 20; non-numeric input falls back to 20).
+        Corrupt lines are skipped; a missing or empty audit file reports
+        "no entries yet" instead of an error.
+        """
+        count = _coerce_limit(limit, 20)
+        entries = _read_audit(self.bundle, count)
+        if not entries:
+            return (
+                "# Audit log\n\n_No write-back operations recorded yet "
+                "(`.okfsmith/audit.jsonl` is missing or empty)._"
+            )
+        lines = [f"# Audit log ({len(entries)} most recent, newest first)"]
+        for entry in reversed(entries):
+            ts = entry.get("ts", "?")
+            actor = entry.get("actor", "?")
+            action = entry.get("action", "?")
+            cid = entry.get("concept_id", "?")
+            summary = _one_line(str(entry.get("summary", "")), 200)
+            lines.append(
+                f"- `{ts}` · `{actor}` · **{action}** · `{cid}`"
+                + (f" — {summary}" if summary else "")
+            )
+        return "\n".join(lines)
+
+
 def build_server(bundle_path: str | Path):
     """Build (but do not start) the MCP server for the bundle at *bundle_path*.
 
@@ -1537,9 +2843,11 @@ def build_server(bundle_path: str | Path):
     :class:`ValueError` if *bundle_path* is empty, and
     :class:`NotADirectoryError` if *bundle_path* is not a directory.
 
-    The returned server is a FastMCP instance with the eight read-only tools
-    registered: ``index``, ``list``, ``search``, ``get``, ``neighbors``,
-    ``traverse``, ``provenance``, ``diff``.
+    The returned server is a FastMCP instance with the twelve tools
+    registered: the eight read-only tools (``index``, ``list``, ``search``,
+    ``get``, ``neighbors``, ``traverse``, ``provenance``, ``diff``) plus the
+    four governed write-back tools (``preview_write_concept``,
+    ``write_concept``, ``update_concept``, ``audit_log``).
     """
     if str(bundle_path).strip() == "":
         raise ValueError("bundle_path must not be empty")
@@ -1548,6 +2856,11 @@ def build_server(bundle_path: str | Path):
         raise FileNotFoundError(f"Bundle not found: {root}")
     if not root.is_dir():
         raise NotADirectoryError(f"Bundle path is not a directory: {root}")
+    # Sweep before loading: an orphaned `.preview-*.md` temp file from a
+    # crashed session must never load as a phantom concept (QA L5).
+    # (BundleTools.__init__ also sweeps + evicts in-memory phantoms as
+    # defense-in-depth for bundles loaded by other callers.)
+    _sweep_stale_preview_files(root)
     bundle = Bundle.load(root)
     FastMCP = _require_fastmcp()
     server = FastMCP("okfsmith")
@@ -1560,6 +2873,10 @@ def build_server(bundle_path: str | Path):
     server.tool(tools.traverse)
     server.tool(tools.provenance)
     server.tool(tools.diff)
+    server.tool(tools.preview_write_concept)
+    server.tool(tools.write_concept)
+    server.tool(tools.update_concept)
+    server.tool(tools.audit_log)
     return server
 
 

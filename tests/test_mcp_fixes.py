@@ -18,6 +18,7 @@ from pathlib import Path
 import pytest
 
 from okfsmith.core import Bundle
+from okfsmith.core.spec import trust_tier
 from okfsmith.mcp_server.server import (
     BundleTools,
     _coerce_tags,
@@ -60,11 +61,13 @@ def test_scalar_verified_bool_no_crash(tmp_path: Path) -> None:
     assert "title: T" in tools.get("c")
 
 
-def test_scalar_verified_bool_tier_is_machine_confirmed(tmp_path: Path) -> None:
-    # `verified: yes` claims verification but names no human: actor, so per
-    # the §5.3 trust-tier rules it degrades to machine-confirmed.
+def test_scalar_verified_bool_tier_matches_spec(tmp_path: Path) -> None:
+    # QA L6: `_trust_tier_safe` delegates to the canonical
+    # `spec.trust_tier`, so MCP tools and the CLI agree. A scalar
+    # `verified: yes` names no actor, so there is no basis for a trust
+    # tier → `unverified`.
     bundle = _make_bundle(tmp_path, {"c.md": "---\ntitle: T\nverified: yes\n---\nbody\n"})
-    assert "*machine-confirmed*" in BundleTools(bundle).list()
+    assert "*unverified*" in BundleTools(bundle).list()
 
 
 def test_scalar_verified_int_and_str_degrade_safely(tmp_path: Path) -> None:
@@ -74,7 +77,7 @@ def test_scalar_verified_int_and_str_degrade_safely(tmp_path: Path) -> None:
         )
         tools = BundleTools(bundle)
         out = tools.list()
-        assert "*machine-confirmed*" in out
+        assert "*unverified*" in out
         assert "c" in tools.search("body")  # search also renders labels
 
 
@@ -96,15 +99,35 @@ def test_verified_mapping_still_human_reviewed(tmp_path: Path) -> None:
 
 
 def test_trust_tier_safe_direct_cases() -> None:
-    assert _trust_tier_safe({"verified": True}) == "machine-confirmed"
-    assert _trust_tier_safe({"verified": 5}) == "machine-confirmed"
-    assert _trust_tier_safe({"verified": "bob"}) == "machine-confirmed"
+    # QA L6: scalar `verified` now matches `spec.trust_tier` (unverified —
+    # no actor info means no basis for a trust tier).
+    assert _trust_tier_safe({"verified": True}) == "unverified"
+    assert _trust_tier_safe({"verified": 5}) == "unverified"
+    assert _trust_tier_safe({"verified": "bob"}) == "unverified"
     assert _trust_tier_safe({"verified": False}) == "unverified"
     assert _trust_tier_safe({"verified": None}) == "unverified"
     assert _trust_tier_safe({"verified": []}) == "unverified"
     assert _trust_tier_safe({}) == "unverified"
     assert _trust_tier_safe("not-a-dict") == "unverified"
     assert _trust_tier_safe({"verified": [{"by": "human:alice"}]}) == "human-reviewed"
+    assert _trust_tier_safe({"verified": [{"by": "process:nightly"}]}) == "machine-confirmed"
+
+
+def test_trust_tier_safe_agrees_with_spec() -> None:
+    # The canonical spec function is the authority; the MCP helper must
+    # never disagree with it on mapping frontmatter (QA L6).
+    cases = [
+        {},
+        {"verified": True},
+        {"verified": "yes"},
+        {"verified": None},
+        {"verified": []},
+        {"verified": [{"by": "human:alice"}]},
+        {"verified": [{"by": "process:nightly"}]},
+        {"verified": {"by": "human:bob"}},
+    ]
+    for fm in cases:
+        assert _trust_tier_safe(fm) == trust_tier(fm)
 
 
 # ---------------------------------------------------------------------------
@@ -151,10 +174,10 @@ def test_mixed_malformed_bundle_stays_usable(tmp_path: Path) -> None:
     listed = tools.list()
     for cid in ("a", "b", "sub/c"):
         assert cid in listed
-    # every tier shows up; nothing raised
-    assert "machine-confirmed" in listed
-    assert "unverified" in listed
-    assert "human-reviewed" in listed
+    # scalar `verified: yes` is unverified per the canonical spec rule
+    # (QA L6); nothing raised on the malformed input
+    assert "*unverified*" in listed
+    assert "*human-reviewed*" in listed
     searched = tools.search("widgets")
     assert "a" in searched and "sub/c" in searched
     assert "Incoming" in tools.neighbors("a")

@@ -130,6 +130,10 @@ def test_build_server_registers_tools() -> None:
         "traverse",
         "provenance",
         "diff",
+        "preview_write_concept",
+        "write_concept",
+        "update_concept",
+        "audit_log",
     }
     # docstrings are the agent's UI — every tool must carry one
     for tool in registered:

@@ -539,7 +539,7 @@ def test_search_output_unchanged_without_budgets() -> None:
     assert _continuation_token(out) is None
 
 
-def test_build_server_registers_eight_tools() -> None:
+def test_build_server_registers_all_tools() -> None:
     import asyncio
 
     server = build_server(FIXTURE_BUNDLE)
@@ -554,6 +554,10 @@ def test_build_server_registers_eight_tools() -> None:
         "traverse",
         "provenance",
         "diff",
+        "preview_write_concept",
+        "write_concept",
+        "update_concept",
+        "audit_log",
     }
     for tool in registered:
         assert tool.description and len(tool.description.split()) > 10, tool.name

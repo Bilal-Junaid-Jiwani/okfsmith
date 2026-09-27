@@ -28,7 +28,7 @@ def _two_concepts(bundle: Bundle) -> Bundle:
 
 
 def test_version():
-    assert __version__ == "0.3.0"
+    assert __version__ == "0.3.2"
 
 
 def test_write_and_load_round_trip(tmp_path):
