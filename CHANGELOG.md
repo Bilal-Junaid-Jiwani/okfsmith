@@ -95,6 +95,17 @@ QA bug report); criticals and highs listed, mediums/lows summarized.
 - Byte-identical ingest output (L12): `generated.at` timestamps are
   inherently time-dependent; a frozen-time mechanism is needed.
 
+## [0.3.2] — 2026-09-28
+
+### Fixed
+- PyPI project page was blank ("The author of this package has not provided
+  a project description") on every release: the upload script only sent
+  identity/digest fields, never the release metadata. It now sends the full
+  metadata form fields (summary, long description, classifiers, dependencies,
+  project URLs) parsed from the distribution's own PKG-INFO/METADATA,
+  twine-style. README links/images now use absolute GitHub URLs so they
+  render on PyPI.
+
 ## [0.3.0] — 2026-09-26
 
 ### Added

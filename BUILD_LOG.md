@@ -701,3 +701,10 @@ Post-build integration and QA pass, all verified in headless Firefox:
   MCP server and chat REPL `/search`. Guide: docs/searching.md.
 - Pushed via Git Data API as a true 2-parent merge commit; remote tree
   byte-identical to the reviewed local tree.
+
+## 2026-09-27 — Demo video (motion graphics, not screen recording)
+- Built a 64-second edited demo video for okfsmith v0.3.0: `~/workspace/your_files/okfsmith-demo-video.mp4` (1920x1080, 30fps, AAC voiceover).
+- Fully programmatic (Python/PIL + ffmpeg): animated intro/outro with logo, glow and forge-spark particles, cinematic terminal with realistic typing, scene captions + progress bar.
+- All terminal content is REAL captured CLI output (pip install, init, ingest 12 concepts, chat Q&A, validate) — no hallucinated text.
+- 7-scene English AI voiceover (Meta AI voice), one per scene, mixed on a timed timeline.
+- Build sources: `~/workspace/video-demo/` (build.py, render.py, assemble.sh, cap/, audio/).

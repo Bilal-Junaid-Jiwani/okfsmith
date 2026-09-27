@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/img/logo.svg" width="96" height="96" alt="okfsmith logo — a blacksmith's anvil with a forge spark">
+  <img src="https://raw.githubusercontent.com/Bilal-Junaid-Jiwani/okfsmith/master/docs/assets/img/logo.svg" width="96" height="96" alt="okfsmith logo — a blacksmith's anvil with a forge spark">
 </p>
 
 # okfsmith
@@ -88,7 +88,7 @@ knowledge usually lives, and that's what okfsmith ingests first:
 The bundle is always the first positional argument. Expected failures print
 `error [CODE]:` with a hint and never a traceback; usage errors exit 2.
 
-Full reference with examples: [docs/commands.md](docs/commands.md).
+Full reference with examples: [docs/commands.md](https://github.com/Bilal-Junaid-Jiwani/okfsmith/blob/master/docs/commands.md).
 
 ## Interactive chat
 
@@ -203,11 +203,11 @@ pipx install "okfsmith[office,mcp]"
 
 📚 **Live documentation website:** <https://bilal-junaid-jiwani.github.io/okfsmith/>
 
-[Documentation index](docs/index.md) · [Quickstart](docs/quickstart.md) ·
-[Pipeline](docs/pipeline.md) · [Searching](docs/searching.md) ·
-[Validation](docs/validation.md) ·
-[MCP](docs/mcp.md) · [Troubleshooting](docs/troubleshooting.md) ·
-[FAQ](docs/faq.md)
+[Documentation index](https://github.com/Bilal-Junaid-Jiwani/okfsmith/blob/master/docs/index.md) · [Quickstart](https://github.com/Bilal-Junaid-Jiwani/okfsmith/blob/master/docs/quickstart.md) ·
+[Pipeline](https://github.com/Bilal-Junaid-Jiwani/okfsmith/blob/master/docs/pipeline.md) · [Searching](https://github.com/Bilal-Junaid-Jiwani/okfsmith/blob/master/docs/searching.md) ·
+[Validation](https://github.com/Bilal-Junaid-Jiwani/okfsmith/blob/master/docs/validation.md) ·
+[MCP](https://github.com/Bilal-Junaid-Jiwani/okfsmith/blob/master/docs/mcp.md) · [Troubleshooting](https://github.com/Bilal-Junaid-Jiwani/okfsmith/blob/master/docs/troubleshooting.md) ·
+[FAQ](https://github.com/Bilal-Junaid-Jiwani/okfsmith/blob/master/docs/faq.md)
 
 ## License
 
