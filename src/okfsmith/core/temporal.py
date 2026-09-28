@@ -102,11 +102,6 @@ def _parse_window_end(value: object) -> datetime | None:
     return parsed
 
 
-#: Chain-walk depth cap: pathological supersession chains (thousands of
-#: hops, possibly cyclic) resolve in bounded time.
-_MAX_CHAIN_DEPTH = 64
-
-
 def utcnow() -> datetime:
     """Current time as an aware UTC datetime (the default ``as_of``)."""
     return datetime.now(timezone.utc)
@@ -211,8 +206,8 @@ class SupersessionIndex:
 
     Built once per retrieval/validation pass from the bundle's concepts.
     Edges to nonexistent concept ids are dropped (the validator warns W018);
-    chain walks are cycle-safe and depth-capped, so hostile frontmatter can
-    neither loop forever nor blow up.
+    chain walks are cycle-safe and memoized, so hostile frontmatter can
+    neither loop forever nor blow up exponentially.
     """
 
     def __init__(self, concepts) -> None:
@@ -247,6 +242,11 @@ class SupersessionIndex:
                 self._superseders.setdefault(target, []).append(source)
         for target in self._superseders:
             self._superseders[target] = sorted(self._superseders[target])
+        # Memoized chain-head resolutions: (concept_id, at) -> (depth, head)
+        # or None when nothing reachable is valid at *at*. Shared across
+        # resolve_head calls on this index, so a whole retrieval pass over
+        # a hostile graph costs O(V + E) total, not O(V * E).
+        self._head_memo: dict[tuple[str, datetime], tuple[int, str] | None] = {}
 
     @classmethod
     def from_bundle(cls, bundle: Bundle) -> SupersessionIndex:
@@ -277,33 +277,66 @@ class SupersessionIndex:
     def resolve_head(self, concept_id: str, at: datetime) -> str:
         """Resolve the head of *concept_id*'s supersession chain valid at *at*.
 
-        Walks ``supersedes`` edges (cycle-safe, depth-capped) and returns the
-        furthest reachable concept whose validity window covers *at*. Returns
-        *concept_id* itself when nothing further along the chain is valid at
-        *at* (including when *concept_id* is unknown to the index).
+        Follows ``supersedes`` edges toward the furthest reachable concept
+        whose validity window covers *at*, breaking depth ties toward the
+        lexicographically smallest id. Returns *concept_id* itself when
+        nothing further along the chain is valid at *at* (including when
+        *concept_id* is unknown to the index).
+
+        The walk is a memoized dynamic program over ``(concept, at)``:
+        each node is expanded once per distinct *at*, so resolution is
+        O(V + E) — hostile frontmatter can neither loop forever (cycle-safe)
+        nor trigger the exponential simple-path enumeration a naive DFS
+        suffers on branching DAGs (QA HIGH-2). On an acyclic graph the
+        result is exact; on a cyclic graph (a data error, flagged by the
+        validator as W019) the first-completed exploration wins, which is
+        deterministic but may differ from exhaustive path enumeration.
         """
         if concept_id not in self._ids:
             return concept_id
-        best = concept_id if self.window_valid(concept_id, at) else None
-        best_depth = 0 if best is not None else -1
-        # DFS over simple paths from the concept toward its superseders;
-        # first-visit order is deterministic because superseder lists are
-        # sorted.
-        stack: list[tuple[str, int, frozenset]] = [(concept_id, 0, frozenset({concept_id}))]
-        while stack:
-            node, depth, path = stack.pop()
-            if depth >= _MAX_CHAIN_DEPTH:
-                continue
-            for nxt in self._superseders.get(node, ()):
-                if nxt in path:
-                    continue  # cycle: do not loop
-                step = depth + 1
-                if self.window_valid(nxt, at) and (
-                    step > best_depth or (step == best_depth and best is not None and nxt < best)
-                ):
-                    best, best_depth = nxt, step
-                stack.append((nxt, step, path | {nxt}))
-        return best if best is not None else concept_id
+        memo = self._head_memo
+        start_key = (concept_id, at)
+        if start_key not in memo:
+            # Iterative post-order DFS with a cycle guard (nodes on the
+            # current stack are dead ends for that branch). Deterministic:
+            # superseder lists are sorted, so first-visit order is fixed.
+            in_progress = {start_key}
+            stack: list[tuple[str, bool]] = [(concept_id, False)]
+            while stack:
+                node, expanded = stack.pop()
+                key = (node, at)
+                if expanded:
+                    cand: tuple[int, str] | None = (
+                        (0, node) if self.window_valid(node, at) else None
+                    )
+                    for nxt in self._superseders.get(node, ()):
+                        res = memo.get((nxt, at))
+                        if res is not None:
+                            stepped = (res[0] + 1, res[1])
+                            if (
+                                cand is None
+                                or stepped[0] > cand[0]
+                                or (
+                                    stepped[0] == cand[0]
+                                    and stepped[1] < cand[1]
+                                )
+                            ):
+                                cand = stepped
+                    memo[key] = cand
+                    in_progress.discard(key)
+                    continue
+                if key in memo:  # resolved by an earlier query on this index
+                    in_progress.discard(key)
+                    continue
+                stack.append((node, True))
+                for nxt in self._superseders.get(node, ()):
+                    nxt_key = (nxt, at)
+                    if nxt_key in memo or nxt_key in in_progress:
+                        continue
+                    in_progress.add(nxt_key)
+                    stack.append((nxt, False))
+        res = memo[start_key]
+        return res[1] if res is not None else concept_id
 
     def superseded_by(self, concept_id: str, at: datetime) -> str | None:
         """The chain head valid at *at*, or ``None`` when *concept_id* is the head."""

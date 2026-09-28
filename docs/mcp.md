@@ -33,11 +33,15 @@ Anything else is a usage error (exit 2).
 ## Governed write-back
 
 Four tools let an agent add to the bundle under governance. Every write is
-atomic (temp file + rename), always lands at the `unverified` trust tier,
-stamps a `provenance` history entry in frontmatter (actor `mcp:<tool>`, UTC
-timestamp, input sources), is gated on the bundle validator (new errors ⇒
-refused and rolled back), never overwrites an existing concept, and is
-recorded in the append-only `<bundle>/.okfsmith/audit.jsonl`.
+atomic (temp file + same-filesystem claim — concurrent creates let exactly
+one writer win, the rest get an "already exists" error), always lands at
+the `unverified` trust tier, stamps a `provenance` history entry in
+frontmatter (actor `mcp:<tool>`, UTC timestamp, input sources), is gated on
+the bundle validator (new errors ⇒ refused and rolled back), never
+overwrites an existing concept, and is recorded in the append-only
+`<bundle>/.okfsmith/audit.jsonl`. Oversized, deeply nested, or cyclic
+`sources`/`links` input is refused with a clean error before anything is
+written.
 
 | Tool | What it does |
 |------|--------------|

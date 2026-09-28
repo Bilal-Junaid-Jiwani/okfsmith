@@ -104,3 +104,24 @@ relevancy (the heuristic's natural scale is lower); override all three with
 each question retrieves.
 
 **Next:** [CLI reference →](cli.html) — every flag of every command.
+
+## What `expected_answer` does (and does not) prove
+
+`expected_answer` is a *reference aid*, not a correctness oracle:
+
+- In **heuristic mode** its vocabulary helps `context_relevancy` recognize
+  relevant concepts; no metric compares the generated answer against it
+  semantically. A golden record with a fabricated `expected_answer` can
+  still pass — the gate measures **bundle** quality, not golden-set quality.
+- In **LLM-judge mode** it is shown to the judge as reference context, but
+  there is likewise no answer-correctness score against it.
+
+To keep sloppy golden sets from buying false confidence, every question
+gets a **golden-set sanity check**: when a non-empty `expected_answer`
+shares almost no vocabulary with the retrieved context, the question is
+flagged with a `!` warning (also in the JSON report's `warnings` field).
+The warning never fails the question or the gate — it asks a human to
+verify the golden record. Note the honest limit: a deliberately salted
+fabrication (real bundle terms woven into a false answer) can evade this
+keyless check; only a semantic comparison (LLM judge, or human review)
+catches those.

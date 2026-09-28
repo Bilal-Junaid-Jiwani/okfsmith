@@ -26,6 +26,7 @@ import importlib
 import json
 import os
 import threading
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -49,6 +50,11 @@ from okfsmith.core import Bundle, indexlog
 from okfsmith.core import sync as _state
 
 console = Console()
+
+#: Watch mode: seconds between forced full re-hash passes. The mtime+size
+#: fast path cannot see a same-size edit with a preserved mtime, so this
+#: bounds how long such a change (QA LOW-1) can go unnoticed.
+_WATCH_FULL_VERIFY_INTERVAL = 300.0
 
 #: Outcome labels in the order they are summarized.
 OUTCOME_ORDER = (
@@ -727,7 +733,14 @@ def _apply_updated(
         return ingested  # permanent failure: already recorded, keep going
     status, _count = ingested
     new_ids = _state.concepts_from_source(target, change.path)
-    if status == "skipped (already ingested)" and not new_ids:
+    if status == "skipped (already ingested)":
+        # Dedup-shared update: the file's new content is byte-identical to
+        # a donor's. Attribute the donor's concepts (shared ownership) and
+        # record the NEW digest below — never concepts_from_source here,
+        # which reflects the OLD content's concepts. Recording those would
+        # leave a stale sha + wrong ids that defeat the shared-ownership
+        # protection when the donor is later deleted, silently orphaning
+        # live content (QA HIGH-1).
         new_ids = _donor_concepts(target, wiring, state, change)
     else:
         # The updater's entry records only the concepts its own new content
@@ -920,7 +933,15 @@ def run_once(
         ) from None
 
     scan = _scan_files(sources, config.recursive, bundle_root=Path(target.root))
-    roots = sorted({str(source.resolve()) for source in sources})
+    # A refused source root (a symlink — _scan_files skips it outright) must
+    # not scope deletions: resolve() would follow the link to the real
+    # directory, scoped_sources would match that directory's state entries,
+    # and plan_sync would delete concepts for files the scan never saw
+    # (QA MEDIUM-1: "skipped: source is a symlink" must never empty the
+    # bundle). The same predicate as _scan_files keeps the two consistent.
+    roots = sorted(
+        {str(source.resolve()) for source in sources if not source.is_symlink()}
+    )
     # M19 parity with ingest: only sources the user named directly as files
     # escalate missing-extra parse failures; directory-discovered files
     # warn-and-skip.
@@ -1234,6 +1255,13 @@ def run_watch(
     Exits cleanly on Ctrl-C (exit 0 via the caller) or when *stop_event* is
     set. *max_cycles* bounds the loop for tests; ``None`` watches forever.
     A failing cycle is reported and the watch continues.
+
+    Change detection uses an mtime+size fast path (a changed signature is
+    confirmed with SHA-256, so a bare ``touch`` never syncs). A same-size
+    edit with a deliberately preserved mtime is invisible to that fast
+    path, so every ``_WATCH_FULL_VERIFY_INTERVAL`` seconds a full re-hash
+    pass runs anyway, bounding how long such a change can go unnoticed
+    (QA LOW-1).
     """
     wiring = _wiring(config.no_llm)
     target = Bundle(bundle_path)  # no I/O; only used for the state path
@@ -1280,12 +1308,23 @@ def run_watch(
     )
     stop = stop_event or threading.Event()
     cycles = 0
+    last_full_verify = time.monotonic()
     try:
         cycle()  # initial pass: bring the state up to date immediately
         while True:
             if stop.wait(interval):
                 break
-            if _poll_changed(
+            if (
+                time.monotonic() - last_full_verify
+                >= _WATCH_FULL_VERIFY_INTERVAL
+            ):
+                # Periodic full re-hash: the mtime+size fast path cannot see
+                # a same-size edit with a preserved mtime (QA LOW-1). A full
+                # pass re-hashes everything; with no real changes the plan
+                # is empty and the cycle is a cheap no-op.
+                cycle()
+                last_full_verify = time.monotonic()
+            elif _poll_changed(
                 sources, config.recursive, wiring, snapshot,
                 bundle_root=bundle_root,
             ):

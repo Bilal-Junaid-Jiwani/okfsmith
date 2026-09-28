@@ -975,3 +975,69 @@ class TestSyncPreservesTemporal:
             assert "supersedes" not in concept.frontmatter
         report = check(bdir)
         assert [f for f in report.warnings if f.code == "W018"] == []
+
+
+class TestResolveHeadHardening:
+    def test_branching_dag_resolves_in_linear_time(self):
+        # QA HIGH-2: a branching DAG (node i supersedes i-1 AND i-2) made
+        # the naive simple-path DFS exponential (32 nodes -> ~18s for
+        # `list`). The memoized walk must stay linear and exact.
+        import time as _time
+
+        n = 40
+        ids = [f"c{i:02d}/node" for i in range(n)]
+        pairs = []
+        for i, cid in enumerate(ids):
+            sup = [ids[i - 1]] if i >= 1 else []
+            if i >= 2:
+                sup.append(ids[i - 2])
+            pairs.append((cid, {"supersedes": sup}))
+        idx = T.SupersessionIndex(pairs)
+        at = _dt(2026, 1, 1)
+        started = _time.monotonic()
+        for cid in ids:  # a full retrieval pass, like `list`
+            assert idx.resolve_head(cid, at) == ids[-1]
+        assert _time.monotonic() - started < 5
+
+    def test_branching_dag_matches_exhaustive_search(self):
+        # The memoized result equals exhaustive simple-path enumeration on
+        # DAGs (depth tie-break: furthest, then smallest id).
+        ids = [f"n{i}" for i in range(8)]
+        pairs = [
+            (cid, {"supersedes": [ids[j] for j in range(i + 1, 8) if (i + j) % 3 == 0]})
+            for i, cid in enumerate(ids)
+        ]
+        idx = T.SupersessionIndex(pairs)
+        at = _dt(2026, 1, 1)
+
+        def exhaustive(start):
+            # Walk the same direction as the index: toward superseders
+            # (newer replacements), enumerating every simple path.
+            best = None
+            stack = [(start, 0, frozenset({start}))]
+            while stack:
+                node, depth, path = stack.pop()
+                if best is None or depth > best[0] or (
+                    depth == best[0] and node < best[1]
+                ):
+                    best = (depth, node)
+                for nxt in idx._superseders.get(node, ()):
+                    if nxt not in path:
+                        stack.append((nxt, depth + 1, path | {nxt}))
+            return best[1]
+
+        for cid in ids:
+            assert idx.resolve_head(cid, at) == exhaustive(cid)
+
+    def test_deep_chain_with_cycle_terminates(self):
+        pairs = [
+            (f"k{i}", {"supersedes": [f"k{i + 1}"]}) for i in range(500)
+        ]
+        pairs.append(("k500", {"supersedes": ["k0"]}))  # back edge: cycle
+        idx = T.SupersessionIndex(pairs)
+        import time as _time
+
+        started = _time.monotonic()
+        head = idx.resolve_head("k0", _dt(2026, 1, 1))
+        assert _time.monotonic() - started < 5
+        assert head in {f"k{i}" for i in range(501)}

@@ -26,12 +26,21 @@ follow SemVer.
   `--format json` emits the full machine-readable report. Sample golden set
   shipped at `examples/bundles/okf-primer/eval/golden.json`; new docs page
   `docs/eval.html`; CLI reference, README, SITEMAP, and man page updated.
+- **`okfsmith eval` golden-set sanity warnings:** every question now gets a
+  non-gating reference-support check — when a non-empty `expected_answer`
+  shares almost no vocabulary with the retrieved context, the question
+  carries a `warnings` entry (rendered as `!` lines in CLI output and in the
+  JSON report) asking a human to verify the golden record. The gate still
+  measures bundle quality only; a deliberately salted fabrication can evade
+  this keyless check (documented in `docs/eval.html`).
 - **MCP governed write-back:** four new tools on the MCP server —
   `preview_write_concept` (side-effect-free dry run showing the exact id,
   file path, frontmatter with provenance block, and serialized content),
   `write_concept` (create), `update_concept` (patch title/body/sources/links,
   with `dry_run` diff previews), and `audit_log` (reads the append-only
-  `<bundle>/.okfsmith/audit.jsonl`). Writes are atomic (temp file + rename),
+  `<bundle>/.okfsmith/audit.jsonl`). Writes are atomic (temp file +
+  same-filesystem claim — creates let exactly one concurrent writer win via
+  an atomic link, updates rename over the old file),
   always land at the `unverified` trust tier (any `verified` markers in
   input are stripped), stamp a `provenance` history entry in frontmatter
   (actor `mcp:<tool>`, UTC timestamp, input sources), are gated on the
@@ -127,6 +136,72 @@ follow SemVer.
   `okfsmith chat v0.3.0` banner.
 
 ### Fixed
+- **Adversarial QA, final pass — MCP concurrent-create race (HIGH):**
+  simultaneous `write_concept` calls for the same slug could all report
+  success — the check-then-write (`exists()` → `os.replace`) let N threads
+  pass the existence check before any rename, so losers silently clobbered
+  the winner while each appended an audit entry. Creates now claim the
+  destination atomically with `os.link` (same-directory temp file, so the
+  link is same-filesystem): exactly one writer wins, the rest get
+  `Error: … already exists` with an `update_concept` hint, and no audit
+  entry is written for refused duplicates. Updates (`overwrite=True`) still
+  use `os.replace` — last-writer-wins is correct there and fully audited.
+- **Adversarial QA, final pass — sync dedup-shared update (HIGH):** when an
+  updated file dedup-skipped against a donor's identical content, the state
+  entry kept the OLD digest and the old concepts' ids (the donor fallback
+  only applied when no stale ids were found). Deleting the donor then
+  orphaned live content: the bundle silently lost concepts the source file
+  still contained. A dedup-shared update now always records the new digest
+  and the donor's concept ids (shared ownership), so deleting the donor
+  keeps the shared concepts and the next sync is a clean no-op.
+- **Adversarial QA, final pass — temporal chain resolution (HIGH):**
+  `SupersessionIndex.resolve_head` enumerated all simple paths with no
+  memoization — exponential blowup on branching DAGs from frontmatter (32
+  concepts: `list` 18.7s, `search` 17.7s; 40 nodes ≈ minutes). It is now a
+  memoized dynamic program over `(concept, at)`: O(V+E) per retrieval pass,
+  exact on acyclic graphs (differential-tested against the old algorithm on
+  hundreds of random DAGs), deterministic and terminating on cyclic input
+  (the depth cap it replaces is gone; over-long chains now resolve to the
+  true head). The 32-node hostile bundle lists in ~0.2s.
+- **Adversarial QA, final pass — symlinked sync source (MEDIUM):** syncing
+  through a symlinked source root printed "skipped: source is a symlink"
+  and then deleted every concept synced from the real directory (the
+  resolved path still scoped the deletions). A refused source root is now
+  excluded from deletion scoping — the bundle is untouched; real-directory
+  syncs still detect deletions normally.
+- **Adversarial QA, final pass — watch-mode staleness (LOW):** the
+  mtime+size fast path is blind to a same-size edit with a preserved
+  mtime. Watch mode now runs a full re-hash pass every 5 minutes
+  (`_WATCH_FULL_VERIFY_INTERVAL`), bounding how long such a change can go
+  unnoticed; the limitation is documented in the `--watch` help text.
+- **Adversarial QA, final pass — eval threshold types (LOW):**
+  `run_eval()` with a wrongly-typed `metric_threshold` (`"0.9"`, `[0.9]`,
+  `{"context_relevancy": "high"}`, `True`) or `fail_under` (`"50"`, `nan`)
+  leaked a raw `TypeError`; all such inputs now raise
+  `EvalError("bad-threshold")` (the CLI already rejected them with exit 2).
+- **Adversarial QA, final pass — eval golden-set sanity (MEDIUM):** the
+  golden `expected_answer` was never compared against the bundle — a
+  fabricated reference answer passed the gate with full confidence. Every
+  question now gets a non-gating reference-support check: when a non-empty
+  `expected_answer` shares almost no vocabulary with the retrieved
+  context, the question carries a `warnings` entry (CLI `!` lines + JSON
+  report field) asking a human to verify the golden record. The limitation
+  (a deliberately salted fabrication can evade the keyless check) is
+  documented in `docs/eval.html`.
+- **Adversarial QA, final pass — MCP write-back (1 MEDIUM, 4 LOW):**
+  `_reload_bundle` now evicts in-memory phantom concepts backed by
+  `.preview-*.md` validation temps (a concurrent preview's temp file could
+  previously be served by `get`/`list`); `update_concept` no-op detection
+  is whitespace-normalized (a semantically identical body patch on the
+  conventional blank-line-after-frontmatter form no longer rewrites the
+  file or spams audit/provenance); `preview_write_concept` only prunes
+  directories it created itself (pre-existing empty dirs survive);
+  `sources`/`links` deeper than 32 levels, cyclic, over 10k nested items,
+  or over 1M chars are refused with a clean error (previously
+  `RecursionError` or multi-MB files + validator CPU burn); the recursive
+  sanitizers are depth-limited and cycle-safe as defense in depth; a
+  symlinked `.okfsmith/` directory now fails writes closed (rolled back,
+  nothing audited outside the bundle).
 - **MCP expansion (reviewer-1, 10 findings on the P6 MCP expansion):**
   continuation-token paging is now computed over result *items* only —
   notes and `##` section headers no longer consume the `max_chunks`

@@ -452,6 +452,41 @@ def heuristic_answer_relevancy(question: str, answer: str) -> tuple[float, str]:
     return covered / len(q_tokens), f"{covered}/{len(q_tokens)} covered"
 
 
+#: Below this fraction of expected-answer tokens supported by retrieved
+#: context, the golden record is flagged as suspicious (warning only).
+_REFERENCE_SUPPORT_WARN_BELOW = 0.2
+
+
+def heuristic_reference_support(
+    expected_answer: str, concepts: list[Any]
+) -> tuple[float, str]:
+    """Fraction of the golden ``expected_answer``'s content tokens that
+    appear anywhere in the retrieved concepts' text.
+
+    This is a *golden-set sanity signal*, not a quality metric: no scoring
+    mode compares the generated answer against ``expected_answer``
+    semantically, so a fabricated reference answer would otherwise pass the
+    gate with full confidence. Near-zero support means the reference answer
+    shares no vocabulary with what retrieval returned — the golden record
+    is likely fabricated or copy-pasted from elsewhere. Callers surface
+    this as a warning; it never fails a question or the gate, because the
+    gate measures *bundle* quality, not golden-set quality.
+    """
+    expected_tokens = _content_tokens(expected_answer)
+    if not expected_tokens:
+        return 1.0, "expected answer has no content tokens — nothing to check"
+    if not concepts:
+        return 0.0, "no concepts retrieved"
+    context_tokens: set[str] = set()
+    for concept in concepts:
+        context_tokens |= _content_tokens(_concept_text(concept))
+    supported = len(expected_tokens & context_tokens)
+    return (
+        supported / len(expected_tokens),
+        f"{supported}/{len(expected_tokens)} expected tokens in context",
+    )
+
+
 # ---------------------------------------------------------------------------
 # LLM judge
 # ---------------------------------------------------------------------------
@@ -675,6 +710,8 @@ class QuestionResult:
     diagnosis: str | None  # "retrieval" | "generation" | None
     diagnosis_reason: str = ""
     answer: str = ""
+    # Non-gating golden-set sanity notes (e.g. a suspicious expected_answer).
+    warnings: list[str] = field(default_factory=list)
 
     def mean(self) -> float:
         """Mean of the three metric scores (0.0 – 1.0)."""
@@ -702,6 +739,7 @@ class QuestionResult:
             },
             "mean": round(self.mean(), 4),
             "answer": self.answer,
+            "warnings": list(self.warnings),
         }
 
 
@@ -828,6 +866,11 @@ def _resolve_judge_backend(
         ) from None
 
 
+def _is_threshold_number(value: Any) -> bool:
+    """True for real ints/floats (bools excluded) usable as a threshold."""
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
 def _resolve_thresholds(
     metric_threshold: float | dict[str, float] | None,
 ) -> dict[str, float]:
@@ -846,19 +889,21 @@ def _resolve_thresholds(
                 raise EvalError(
                     "bad-threshold", f"unknown metric '{name}' in thresholds."
                 )
-            if not 0.0 <= value <= 1.0:
+            if not _is_threshold_number(value) or not 0.0 <= value <= 1.0:
                 raise EvalError(
                     "bad-threshold",
                     f"threshold for '{name}' must be between 0 and 1, got "
-                    f"{value}.",
+                    f"{value!r}.",
                 )
             thresholds[name] = value
         return thresholds
-    if not 0.0 <= metric_threshold <= 1.0:
+    if not _is_threshold_number(metric_threshold) or not (
+        0.0 <= metric_threshold <= 1.0
+    ):
         raise EvalError(
             "bad-threshold",
             f"--metric-threshold must be between 0 and 1, got "
-            f"{metric_threshold}.",
+            f"{metric_threshold!r}.",
         )
     return dict.fromkeys(METRICS, metric_threshold)
 
@@ -943,6 +988,17 @@ def score_question(
         diagnosis, reason = diagnose(
             question, retrieved_ids, relevant_retrieved, failing
         )
+    warnings: list[str] = []
+    if question.expected_answer.strip():
+        support, support_detail = heuristic_reference_support(
+            question.expected_answer, concepts
+        )
+        if support < _REFERENCE_SUPPORT_WARN_BELOW:
+            warnings.append(
+                "expected answer shares little vocabulary with retrieved "
+                f"context ({support_detail}) — verify this golden record; "
+                "the gate does not check expected_answer semantically"
+            )
     return QuestionResult(
         id=question.id,
         question=question.question,
@@ -954,6 +1010,7 @@ def score_question(
         diagnosis=diagnosis,
         diagnosis_reason=reason,
         answer=answer,
+        warnings=warnings,
     )
 
 
@@ -981,10 +1038,10 @@ def run_eval(
     if top_k < 1:
         raise EvalError("bad-top-k", f"--top-k must be >= 1, got {top_k}.")
     thresholds = _resolve_thresholds(metric_threshold)
-    if not 0.0 <= fail_under <= 100.0:
+    if not _is_threshold_number(fail_under) or not 0.0 <= fail_under <= 100.0:
         raise EvalError(
             "bad-threshold",
-            f"--fail-under must be between 0 and 100, got {fail_under}.",
+            f"--fail-under must be between 0 and 100, got {fail_under!r}.",
         )
     questions = load_golden_set(bundle_dir)
     backend = _resolve_judge_backend(

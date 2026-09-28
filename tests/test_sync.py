@@ -1393,3 +1393,170 @@ def test_donor_concepts_rejects_stale_donor_with_no_valid_sibling():
     change = core_sync.FileChange(path="/src/c.md", change="added", sha256=digest)
     assert sync_mod._donor_concepts(None, wiring, state, change) == []
     assert unrecorded == [digest]
+
+
+def test_sync_watch_full_verify_catches_mtime_preserved_edit(
+    tmp_path, monkeypatch
+):
+    # QA LOW-1: a same-size edit with a preserved mtime is invisible to the
+    # mtime+size fast path, but the periodic full re-hash must catch it.
+    bundle = tmp_path / "kb"
+    src = tmp_path / "src"
+    src.mkdir()
+    target = _doc(src / "a.md", "Alpha", "alpha")
+    runner.invoke(app, ["init", str(bundle)], env=WIDE)
+    config = sync_mod.SyncConfig(no_llm=True)
+
+    seen: list = []
+    original = sync_mod.run_once
+
+    def spy(bundle_path, sources, cfg, _wiring=None):
+        result = original(bundle_path, sources, cfg, _wiring=_wiring)
+        seen.append(result)
+        return result
+
+    monkeypatch.setattr(sync_mod, "run_once", spy)
+    # Force the periodic full re-hash on every poll.
+    monkeypatch.setattr(sync_mod, "_WATCH_FULL_VERIFY_INTERVAL", 0.0)
+    stop = threading.Event()
+    thread = threading.Thread(
+        target=sync_mod.run_watch,
+        kwargs={
+            "bundle_path": bundle,
+            "sources": [src],
+            "config": config,
+            "interval": 0.05,
+            "output_format": "text",
+            "quiet": True,
+            "stop_event": stop,
+            "max_cycles": 600,
+        },
+        daemon=True,
+    )
+    try:
+        thread.start()
+        deadline = time.time() + 10
+        while not seen and time.time() < deadline:
+            time.sleep(0.05)
+        assert seen, "initial watch pass never ran"
+
+        # Same-size edit, original mtime restored: fast path is blind.
+        stat = target.stat()
+        text = target.read_text(encoding="utf-8")
+        edited = text.replace("lorem", "LOREM", 1)
+        assert len(edited) == len(text)
+        target.write_text(edited, encoding="utf-8")
+        os.utime(target, ns=(stat.st_mtime_ns, stat.st_mtime_ns))
+        assert not sync_mod._poll_changed(
+            [src], False, sync_mod._wiring(True),
+            sync_mod._build_snapshot(
+                [src], False, sync_mod._wiring(True),
+                sync_mod._state.load_sync_state(sync_mod.Bundle(bundle)),
+                bundle_root=bundle,
+            ),
+            bundle_root=bundle,
+        ), "fast path should be blind to the mtime-preserved edit"
+
+        deadline = time.time() + 15
+        updated = False
+        while time.time() < deadline:
+            if any(r.summary()["updated"] for r in seen[1:]):
+                updated = True
+                break
+            time.sleep(0.05)
+        assert updated, (
+            "periodic full re-hash did not re-sync the mtime-preserved edit"
+        )
+    finally:
+        stop.set()
+        thread.join(timeout=15)
+        assert not thread.is_alive()
+
+
+# ---------------------------------------------------------------------------
+# Final adversarial pass (2026-09-28): HIGH-1, MEDIUM-1, LOW-1.
+# ---------------------------------------------------------------------------
+
+
+def test_sync_dedup_shared_update_records_new_digest_and_donor_ids(tmp_path):
+    # QA HIGH-1: A.md (content1) and B.md (content2) synced; C.md added with
+    # content1 (dedup-shares a/*); A.md edited to content2 (dedup-skips via
+    # donor B). A's state entry must record the NEW digest and B's concept
+    # ids — never the stale digest + old ids. Deleting B.md afterwards must
+    # keep the shared concepts (A.md still holds content2).
+    bundle = tmp_path / "kb"
+    src = tmp_path / "src"
+    src.mkdir()
+    _doc(src / "a.md", "Alpha", "alpha")
+    _doc(src / "b.md", "Beta", "beta")
+    runner.invoke(app, ["init", str(bundle)], env=WIDE)
+    assert _sync(bundle, src).exit_code == 0
+
+    _doc(src / "c.md", "Alpha", "alpha")  # identical bytes to a.md
+    result = _sync(bundle, src)
+    assert result.exit_code == 0, result.output
+    assert "skipped" in result.output
+
+    (src / "a.md").write_text(
+        (src / "b.md").read_text(encoding="utf-8"), encoding="utf-8"
+    )
+    result = _sync(bundle, src)
+    assert result.exit_code == 0, result.output
+    state = _state(bundle)
+    a_key = str(src / "a.md")
+    b_key = str(src / "b.md")
+    assert state["sources"][a_key]["sha256"] == state["sources"][b_key]["sha256"]
+    assert state["sources"][a_key]["concepts"] == state["sources"][b_key]["concepts"]
+
+    (src / "b.md").unlink()
+    result = _sync(bundle, src)
+    assert result.exit_code == 0, result.output
+    # The donor's concepts survive via shared ownership with A.md, while
+    # C.md's content1 concepts are untouched.
+    ids = _concept_ids(bundle)
+    assert state["sources"][a_key]["concepts"] == ["b/beta"]
+    assert set(ids) == {"a/alpha", "b/beta"}
+    bundle_text = (bundle / "b" / "beta.md").read_text(encoding="utf-8")
+    assert "beta paragraph 0" in bundle_text
+
+    # Steady state: the next sync is a clean no-op (no id churn, no re-ingest).
+    result = _sync(bundle, src)
+    assert result.exit_code == 0, result.output
+    assert "0 added, 0 updated, 0 renamed, 0 removed" in result.output
+
+
+def test_sync_symlinked_source_root_never_scopes_deletions(tmp_path):
+    # QA MEDIUM-1: syncing through a symlinked source root reports the
+    # refusal AND must not delete the concepts synced from the real dir.
+    bundle = tmp_path / "kb"
+    src = tmp_path / "src"
+    src.mkdir()
+    _doc(src / "a.md", "Alpha", "alpha")
+    _doc(src / "b.md", "Beta", "beta")
+    runner.invoke(app, ["init", str(bundle)], env=WIDE)
+    assert _sync(bundle, src).exit_code == 0
+    before = _concept_ids(bundle)
+    assert len(before) == 2
+
+    link = tmp_path / "linkdir"
+    link.symlink_to(src, target_is_directory=True)
+    result = _sync(bundle, link)
+    assert result.exit_code == 0, result.output
+    assert "source is a symlink" in result.output
+    assert "0 removed" in result.output
+    assert _concept_ids(bundle) == before
+
+    # Same for a symlinked FILE source.
+    file_link = tmp_path / "a-link.md"
+    file_link.symlink_to(src / "a.md")
+    result = _sync(bundle, file_link)
+    assert result.exit_code == 0, result.output
+    assert "source is a symlink" in result.output
+    assert "0 removed" in result.output
+    assert _concept_ids(bundle) == before
+
+    # Sanity: the real directory still scopes deletions normally.
+    (src / "b.md").unlink()
+    result = _sync(bundle, src)
+    assert result.exit_code == 0, result.output
+    assert "1 removed" in result.output

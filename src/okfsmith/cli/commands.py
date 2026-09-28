@@ -1004,7 +1004,8 @@ def sync(
         False,
         "--watch",
         help="Keep watching: re-run the sync whenever sources change "
-        "(polling). Ctrl-C stops cleanly.",
+        "(polling). Change detection uses an mtime+size fast path plus a "
+        "full re-hash every 5 minutes; Ctrl-C stops cleanly.",
     ),
     interval: float = typer.Option(
         5.0,
@@ -2205,6 +2206,13 @@ def _print_eval_text(report: Any) -> None:
                     "    missing must_cite: "
                     + ", ".join(question.missing_must_cite)
                 )
+    # Golden-set sanity notes: non-gating, but worth a human look.
+    warned = [q for q in report.questions if q.warnings]
+    if warned:
+        typer.echo("\nGolden-set warnings (do not affect the gate):")
+        for question in warned:
+            for warning in question.warnings:
+                typer.echo(f"  ! {question.id}: {warning}")
     means = report.metric_means()
     passed = sum(1 for q in report.questions if q.passed)
     typer.echo(

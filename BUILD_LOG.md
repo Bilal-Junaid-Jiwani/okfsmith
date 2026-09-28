@@ -934,3 +934,97 @@ page `docs/temporality.html` (wired into nav/sidebar/next-chain/sitemap/
 search index); validation, CLI, syncing, searching, commands, README,
 SITEMAP, and man page updated; `python3 docs/build.py` rebuilds clean
 (the one anchor warning is pre-existing).
+
+## 2026-09-28 — Final adversarial QA: all five features (zero-bug pass)
+
+**Scope:** P1 incremental sync (`45cf4e7`, `8526552`, `702fffc`), P2 temporal
+model (`869f571`), P6 MCP expansion (`21eb46b`, `2f9b34e`, `26236be`), P4 eval
+harness (`78c731f`, `869aca2`), D1 governed MCP write-back (`832880c`).
+Three fresh attacker workers (P1+P2, P4+P6, D1) ran real attacks against the
+tree; every finding below was independently reproduced before fixing.
+
+**Baseline before fixes:** 928 passed, 21 skipped; ruff clean.
+
+### Verified findings and fixes (11)
+
+1. **HIGH — concurrent MCP create race** (`mcp_server/server.py`): N
+   barrier-synchronized `write_concept` calls for one slug all reported
+   success (7/15 rounds showed 2–5 successes/audit entries, one surviving
+   file). `path.exists()` → `os.replace()` was not atomic. Fix: create path
+   claims the destination with `os.link(tmp, path)`; losers get a clean
+   "already exists" error. Update path still uses `os.replace`. Regression
+   test: 15/15 clean rounds post-fix.
+2. **HIGH — sync dedup-shared update left stale state (silent concept
+   deletion)** (`cli/sync.py::_apply_updated`): A.md(content1)+B.md(content2)
+   synced; C.md added with content1 (shares `a/*`); A.md edited to content2
+   (dedup-skips via donor B) — A's entry kept the OLD sha + old ids because
+   the donor fallback only applied when `concepts_from_source` was empty.
+   Deleting B.md then deleted `b/*` while A.md still held content2: bundle
+   silently corrupt until the next sync. Fix: a dedup-shared update always
+   records the new digest + the donor's concept ids (shared ownership).
+   Verified: post-fix the 4-step repro keeps `b/beta` via A, and the next
+   sync is a clean no-op.
+3. **HIGH — exponential `SupersessionIndex.resolve_head`** (`core/temporal.py`):
+   the DFS enumerated all simple paths with no memoization — a 32-node
+   branching DAG from frontmatter made `list` take 18.7s / `search` 17.7s
+   (≈14× per 5 nodes), contradicting the module's "depth-capped" security
+   claim. Fix: memoized DP over `(concept, at)`, O(V+E) per retrieval pass;
+   exact on DAGs (differential-tested vs the old algorithm on 300 random
+   DAGs, 0 mismatches); deterministic + terminating on cycles (W019 data
+   error). The 64-step cap is gone — long chains resolve to the true head.
+   Hostile 32-node bundle now lists in ~0.2s.
+4. **MEDIUM — symlinked sync source emptied the bundle** (`cli/sync.py`):
+   `sync kb <symlink-to-dir>` printed "skipped: source is a symlink" and
+   then removed all concepts synced from the real dir (`source.resolve()`
+   scoped the deletions). Fix: refused source roots are excluded from
+   deletion scoping. Bundle untouched; real-dir syncs still detect deletions.
+5. **MEDIUM — fabricated eval `expected_answer` not checked** (`eval/`):
+   a fabricated golden answer passed the gate with full confidence (metrics
+   judge generated answers/context, never answer↔reference). Fix (deliberate
+   non-gating design): `heuristic_reference_support()` adds a human-review
+   `warnings` entry per question + CLI/JSON reporting when a non-empty
+   expected answer shares almost no vocabulary with retrieved context;
+   documented in `docs/src/eval.md` that salted fabrications can still evade
+   the keyless check — semantic review remains necessary.
+6. **LOW — eval threshold types leaked `TypeError`** (`eval/`): wrongly-typed
+   `metric_threshold`/`fail_under` (`"0.9"`, `[0.9]`, `True`, `"50"`, NaN)
+   raised raw `TypeError`; now `EvalError("bad-threshold")`.
+7. **LOW — preview phantom concepts** (`mcp_server/server.py`): a
+   `.preview-*.md` validation temp present during `_reload_bundle()` entered
+   the serving index and was served by `get`/`list` after deletion. Fix:
+   `_evict_preview_phantoms()` runs on init and reload (after sweeping stale
+   previews), then rebuilds the supersession index.
+8. **LOW — no-op body update spammed audit/provenance**: semantically
+   identical body patch (blank line after frontmatter vs stripped input)
+   rewrote the file + audit entry. Fix: whitespace-normalized no-op
+   comparison; file byte-unchanged on no-op.
+9. **LOW — preview deleted pre-existing empty dirs**: `_validate_candidate_text`
+   now prunes only directories it created (deepest first); pre-existing
+   empty dirs survive.
+10. **LOW — deep/cyclic sources/links → `RecursionError` / multi-MB files**:
+    iterative `_check_structure_size()` (depth ≤ 32, nodes ≤ 10k, chars ≤
+    1M incl. mapping keys and stringified values) refuses with clean errors;
+    `_strip_verified_markers`/`_sanitize_yaml_value` depth-limited +
+    cycle-safe with `_safe_str()` for hostile `__str__`.
+11. **LOW — watch mode missed mtime-preserved edits** (`cli/sync.py`): the
+    mtime+size fast path is blind to same-size edits with restored mtimes.
+    Watch now runs a full re-hash every 5 min (`_WATCH_FULL_VERIFY_INTERVAL`);
+    limitation documented in `--watch` help.
+
+**Deliberately not changed:** title-only `update_concept` keeps the
+machine-confirmed badge — pinned by
+`test_m3_machine_verified_marker_kept_on_title_only_update` (verified content
+unchanged, only the label moved); now stated explicitly in the docstring.
+The D1 attacker also confirmed: dotfile/absolute-path ids refused,
+`.okfsmith/audit` slug-collision safe, no `.preview-` traversal, audit
+symlink refused (plus new hardening: a symlinked `.okfsmith/` *directory*
+fails writes closed — rolled back, nothing leaves the bundle).
+
+**Regression tests added:** 8 write-back (`test_final_*`), 3 sync
+(HIGH-1/MEDIUM-1/LOW-1), 3 temporal (HIGH-2: linear-time, exhaustive-match,
+deep-cycle), 2 eval (threshold types, golden warnings).
+
+**Final verification:** full suite **951 passed, 21 skipped** (1 pre-existing
+deliberate duplicate-entry zipfile warning); `ruff check src/ tests/` clean;
+`git diff --check` clean. Committed locally as one fix commit (no push, no
+version bump, no PyPI — per standing rules).

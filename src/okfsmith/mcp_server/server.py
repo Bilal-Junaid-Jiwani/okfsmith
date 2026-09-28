@@ -663,6 +663,82 @@ def _check_item_count(name: str, value: Any) -> str | None:
     return None
 
 
+#: Maximum nesting depth accepted in ``sources``/``links`` input
+#: (QA final-pass L5). Genuine sources are flat lists of strings or small
+#: dicts; anything deeper is hostile or broken.
+_STRUCTURE_MAX_DEPTH = 32
+
+#: Maximum total nested containers/items traversed when validating
+#: ``sources``/``links`` structure (QA final-pass L5).
+_STRUCTURE_MAX_NODES = 10_000
+
+
+#: Maximum total character size of ``sources``/``links`` scalar content
+#: (QA final-pass L6): one 5MB string item would otherwise sail past the
+#: item-count cap and land a 10MB file while burning validator CPU.
+_STRUCTURE_MAX_CHARS = 1_000_000
+
+
+def _check_structure_size(name: str, value: Any) -> str | None:
+    """Return an ``Error: ...`` string when a ``sources``/``links`` input
+    is nested too deeply, holds too many nested items, is cyclic, or
+    carries too many characters of scalar content.
+
+    Complements :func:`_check_item_count`, which only sees the top level:
+    a 3000-deep (or cyclic) nested list would otherwise sail through and
+    exhaust the Python stack inside the recursive sanitizers, and a single
+    multi-megabyte string item would bypass the item cap entirely.
+    Iterative (explicit stack) so hostile input can never crash the
+    checker itself. Never raises.
+    """
+    if not isinstance(value, (list, tuple, Mapping)):
+        if isinstance(value, (str, bytes)) and len(value) > _STRUCTURE_MAX_CHARS:
+            return (
+                f"Error: `{name}` input is too large ({len(value)} chars, "
+                f"max {_STRUCTURE_MAX_CHARS}) — split it into smaller calls."
+            )
+        return None
+    try:
+        # No visited-set needed: the depth and node caps both terminate on
+        # cyclic input (each cycle round trips a deeper level / more nodes).
+        stack: list[tuple[Any, int]] = [(value, 0)]
+        nodes = 1  # the top-level container itself
+        chars = 0
+        while stack:
+            node, depth = stack.pop()
+            if depth > _STRUCTURE_MAX_DEPTH:
+                return (
+                    f"Error: `{name}` is nested too deeply "
+                    f"(max {_STRUCTURE_MAX_DEPTH} levels) — flatten it."
+                )
+            if not isinstance(node, (list, tuple, Mapping)):
+                if isinstance(node, (str, bytes)):
+                    chars += len(node)
+                    if chars > _STRUCTURE_MAX_CHARS:
+                        return (
+                            f"Error: `{name}` input is too large "
+                            f"(over {_STRUCTURE_MAX_CHARS} chars) — split "
+                            "it into smaller calls."
+                        )
+                continue
+            try:
+                children = node.values() if isinstance(node, Mapping) else node
+                iterator = iter(children)
+            except Exception:
+                return f"Error: `{name}` contains an unreadable container."
+            for child in iterator:
+                nodes += 1
+                if nodes > _STRUCTURE_MAX_NODES:
+                    return (
+                        f"Error: `{name}` has too many nested items "
+                        f"(max {_STRUCTURE_MAX_NODES})."
+                    )
+                stack.append((child, depth + 1))
+    except Exception:
+        return f"Error: `{name}` could not be inspected — refusing it."
+    return None
+
+
 def _realpath_within(root: Path, path: Path) -> bool:
     """``True`` when *path* resolves inside *root* after symlinks.
 
@@ -684,24 +760,22 @@ def _realpath_within(root: Path, path: Path) -> bool:
     return True
 
 
-def _prune_empty_parents(start: Path, stop: Path) -> None:
-    """Remove empty directories from *start* up to (not incl.) *stop*.
 
-    Undoes the parent-directory creation that preview validation performs
-    for nested ids (QA L4): a directory that still holds files — pre-
-    existing or written concurrently — is not empty, so the walk stops
-    there. Never raises.
+def _evict_preview_phantoms(bundle: Bundle) -> None:
+    """Drop in-memory concepts backed by ``.preview-*.md`` temp files.
+
+    Those files are never real concepts (side-effect-free validation
+    temps), so removing them from the serving index is always safe — the
+    on-disk temp file itself is untouched, and a live preview keeps working
+    because validation reads the file directly, not the index.
     """
-    try:
-        current = start
-        while current != stop and current.is_dir():
-            try:
-                current.rmdir()
-            except OSError:
-                break
-            current = current.parent
-    except OSError:
-        pass
+    for concept in list(bundle.iter_concepts()):
+        try:
+            name = concept.path.name
+        except OSError:
+            continue
+        if name.startswith(".preview-") and name.endswith(".md"):
+            bundle._concepts.pop(concept.id, None)
 
 
 def _sweep_stale_preview_files(root: Path) -> None:
@@ -727,44 +801,103 @@ def _sweep_stale_preview_files(root: Path) -> None:
         pass
 
 
-def _strip_verified_markers(node: Any) -> Any:
+#: Depth at which the recursive write-back sanitizers stop descending and
+#: collapse the subtree to an inert placeholder (QA final-pass L5). The
+#: tools refuse deeply-nested input up front via `_check_structure_size`;
+#: this guard keeps the helpers' "Never raises" contract absolute for any
+#: direct caller.
+_SANITIZE_MAX_DEPTH = 100
+
+
+def _strip_verified_markers(
+    node: Any, _depth: int = 0, _seen: set[int] | None = None
+) -> Any:
     """Deep-copy *node* with every ``verified`` mapping key removed.
 
     Write-back output must always be ``unverified`` (spec §5.3: only
     ``human:``-prefixed actors grant verification), so any ``verified``
     markers smuggled into caller-supplied ``sources``/``links`` structures
-    are stripped before they can reach frontmatter. Never raises.
+    are stripped before they can reach frontmatter. Depth-limited and
+    cycle-safe: subtrees past the depth cap (or cyclic references)
+    collapse to inert placeholder strings, so hostile nesting can never
+    exhaust the stack. Never raises.
     """
+    if _depth > _SANITIZE_MAX_DEPTH:
+        return "<nested too deep>"
     if isinstance(node, Mapping):
-        return {
-            key: _strip_verified_markers(val)
-            for key, val in node.items()
-            if key != "verified"
-        }
+        if _seen is None:
+            _seen = set()
+        if id(node) in _seen:
+            return "<cyclic reference>"
+        _seen.add(id(node))
+        try:
+            return {
+                key: _strip_verified_markers(val, _depth + 1, _seen)
+                for key, val in node.items()
+                if key != "verified"
+            }
+        finally:
+            _seen.discard(id(node))
     if isinstance(node, (list, tuple)):
-        return [_strip_verified_markers(val) for val in node]
+        if _seen is None:
+            _seen = set()
+        if id(node) in _seen:
+            return "<cyclic reference>"
+        _seen.add(id(node))
+        try:
+            return [
+                _strip_verified_markers(val, _depth + 1, _seen) for val in node
+            ]
+        finally:
+            _seen.discard(id(node))
     return node
 
 
-def _sanitize_yaml_value(value: Any) -> Any:
+def _sanitize_yaml_value(value: Any, _depth: int = 0, _seen: set[int] | None = None) -> Any:
     """Deep-convert *value* to YAML-safe plain types.
 
     ``yaml.safe_dump`` raises on exotic objects (sets, arbitrary class
     instances) that can arrive through direct Python calls; this converts
     anything that is not ``None``/``bool``/``int``/``float``/``str``/list/
     dict via ``str()`` (mapping keys via ``str()`` too), so serialization
-    of caller input can never crash. Never raises.
+    of caller input can never crash. Depth-limited and cycle-safe like
+    :func:`_strip_verified_markers`: hostile nesting collapses to inert
+    placeholder strings instead of exhausting the stack. Never raises.
     """
     if value is None or isinstance(value, (bool, int, float, str)):
         return value
+    if _depth > _SANITIZE_MAX_DEPTH:
+        return "<nested too deep>"
+    if _seen is None:
+        _seen = set()
+    if isinstance(value, (Mapping, list, tuple)) and id(value) in _seen:
+        return "<cyclic reference>"
     if isinstance(value, Mapping):
         try:
             items = list(value.items())
         except Exception:
-            return str(value)
-        return {str(k): _sanitize_yaml_value(v) for k, v in items}
+            return _safe_str(value)
+        _seen.add(id(value))
+        try:
+            return {
+                _safe_str(k): _sanitize_yaml_value(v, _depth + 1, _seen)
+                for k, v in items
+            }
+        finally:
+            _seen.discard(id(value))
     if isinstance(value, (list, tuple)):
-        return [_sanitize_yaml_value(v) for v in value]
+        _seen.add(id(value))
+        try:
+            return [
+                _sanitize_yaml_value(v, _depth + 1, _seen) for v in value
+            ]
+        finally:
+            _seen.discard(id(value))
+    return _safe_str(value)
+
+
+def _safe_str(value: Any) -> str:
+    """``str(value)``, or ``""`` when even stringifying raises. Never raises."""
     try:
         return str(value)
     except Exception:
@@ -922,11 +1055,15 @@ def _atomic_write_bytes(
 
     The temp file lives in the same directory (so the rename never crosses
     filesystems) and is removed on any failure — a crash can never leave a
-    half-written concept file behind. With ``overwrite=False`` (creates) an
-    already-existing *path* raises :class:`FileExistsError` instead of
-    clobbering it; symlinks are always refused, never followed. The rename
-    goes through the module-level :data:`_os_replace` alias so tests can
-    simulate rename failure without touching the global ``os`` module.
+    half-written concept file behind. With ``overwrite=False`` (creates)
+    the destination is claimed with :func:`os.link`, which fails atomically
+    when *path* already exists: this closes the check-then-write race where
+    two concurrent creates of the same concept id could both "succeed"
+    (the loser's ``os.replace`` would otherwise silently clobber the
+    winner). Symlinks are always refused, never followed. The link goes
+    through the module-level :data:`_os_link` alias so tests can simulate
+    claim failure without touching the global ``os`` module; the rename
+    goes through :data:`_os_replace` for the same reason.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.is_symlink():
@@ -936,13 +1073,20 @@ def _atomic_write_bytes(
     tmp = path.with_name(f".{path.name}.tmp-{uuid.uuid4().hex[:8]}")
     try:
         tmp.write_bytes(data)
-        _os_replace(tmp, path)
-    except BaseException:
+        if overwrite:
+            _os_replace(tmp, path)
+        else:
+            try:
+                _os_link(tmp, path)
+            except FileExistsError:
+                raise FileExistsError(
+                    f"refusing to overwrite existing path: {path}"
+                ) from None
+    finally:
         try:
             tmp.unlink(missing_ok=True)
         except OSError:
             pass
-        raise
 
 
 def _atomic_write_text(
@@ -956,6 +1100,11 @@ def _atomic_write_text(
 #: Alias of :func:`os.replace` used by :func:`_atomic_write_bytes`; a
 #: module-level seam so tests can simulate rename failure.
 _os_replace = os.replace
+
+#: Alias of :func:`os.link` used by :func:`_atomic_write_bytes` for the
+#: atomic create-claim (``overwrite=False``); a module-level seam so tests
+#: can simulate claim failure without touching the global ``os`` module.
+_os_link = os.link
 
 
 def _audit_path(bundle: Bundle) -> Path:
@@ -988,6 +1137,12 @@ def _append_audit(
     try:
         path = _audit_path(bundle)
         if path.is_symlink():
+            return False
+        # Defense in depth (QA final-pass hardening): a symlinked
+        # ``.okfsmith/`` *directory* planted out-of-band would sail past the
+        # file check above and divert the audit trail outside the bundle.
+        # Fail closed unless the resolved location stays inside the root.
+        if not _realpath_within(bundle.root, path):
             return False
         path.parent.mkdir(parents=True, exist_ok=True)
         entry = {
@@ -1088,13 +1243,7 @@ class BundleTools:
         # in-memory concept backed by a `.preview-*.md` temp file — those
         # are never real concepts, so dropping them from the index is
         # always safe (the on-disk temp file itself is untouched).
-        for concept in list(bundle.iter_concepts()):
-            try:
-                name = concept.path.name
-            except OSError:
-                continue
-            if name.startswith(".preview-") and name.endswith(".md"):
-                bundle._concepts.pop(concept.id, None)
+        _evict_preview_phantoms(bundle)
         # Built once: the bundle is loaded once at server startup, so the
         # supersession graph is stable for the server's lifetime.
         self._sindex = _temporal.SupersessionIndex.from_bundle(bundle)
@@ -2115,11 +2264,18 @@ class BundleTools:
     def _reload_bundle(self) -> None:
         """Re-read the bundle from disk so later tools see applied writes.
 
-        Never raises: a reload failure leaves the previous in-memory handle
-        in place (the write itself is already safely on disk).
+        Sweeps orphaned preview temps and evicts any in-memory phantom
+        concepts backed by ``.preview-*.md`` validation temp files, so a
+        concurrent (or crashed) preview can never enter the serving index
+        (QA final-pass M2). Never raises: a reload failure leaves the
+        previous in-memory handle in place (the write itself is already
+        safely on disk).
         """
         try:
-            self.bundle = Bundle.load(self.bundle.root)
+            root = self.bundle.root
+            _sweep_stale_preview_files(root)
+            self.bundle = Bundle.load(root)
+            _evict_preview_phantoms(self.bundle)
             self._sindex = _temporal.SupersessionIndex.from_bundle(self.bundle)
         except Exception:
             pass
@@ -2241,6 +2397,15 @@ class BundleTools:
         if not _realpath_within(root, target):
             return [], []
         tmp = target.with_name(f".preview-{uuid.uuid4().hex[:8]}-{target.name}")
+        # Record which parents are missing *before* creating them, so the
+        # finally-block prunes only directories the preview itself created.
+        # Pre-existing empty directories must survive untouched — the
+        # preview is documented as side-effect free (QA final-pass L4).
+        created_parents: list[Path] = []
+        probe = tmp.parent
+        while probe != root and not probe.exists():
+            created_parents.append(probe)
+            probe = probe.parent
         try:
             tmp.parent.mkdir(parents=True, exist_ok=True)
             tmp.write_text(text, encoding="utf-8")
@@ -2254,7 +2419,13 @@ class BundleTools:
                 tmp.unlink(missing_ok=True)
             except OSError:
                 pass
-            _prune_empty_parents(tmp.parent, root)
+            # Deepest first; rmdir only succeeds on empty dirs, so a
+            # concurrently written file aborts that branch safely.
+            for parent in created_parents:
+                try:
+                    parent.rmdir()
+                except OSError:
+                    pass
         tmp_rel = tmp.relative_to(root).as_posix()
         errors = [f for f in report.errors if f.file == tmp_rel]
         warnings = [f for f in report.warnings if f.file == tmp_rel]
@@ -2308,6 +2479,9 @@ class BundleTools:
             count_error = _check_item_count(name, value)
             if count_error is not None:
                 return count_error, {}
+            shape_error = _check_structure_size(name, value)
+            if shape_error is not None:
+                return shape_error, {}
         concept_id = _slug_id(title_text)
         for segment in concept_id.split("/"):
             if f"{segment}{_MD_SUFFIX}" in RESERVED_FILES:
@@ -2543,6 +2717,8 @@ class BundleTools:
           concept removes the machine `verified` marker — stale
           verification must not survive on replaced content — and records
           the previous trust tier and verifiers in the provenance entry.
+          A title-only patch keeps the marker: the verified content is
+          unchanged (only the label moved).
         - Every update appends one entry to the frontmatter `provenance`
           history list (`action: updated`, actor `mcp:update_concept`, UTC
           `at`, changed field names, input `sources` when given) — history
@@ -2636,6 +2812,9 @@ class BundleTools:
             count_error = _check_item_count(name, value)
             if count_error is not None:
                 return count_error
+            shape_error = _check_structure_size(name, value)
+            if shape_error is not None:
+                return shape_error
 
         new_fm: dict[str, Any] = dict(concept.frontmatter)
         changed: list[str] = []
@@ -2690,8 +2869,17 @@ class BundleTools:
             # The altered content can no longer claim human verification.
             new_fm.pop("verified", None)
 
-        old_text = _fm.serialize_frontmatter(concept.frontmatter, concept.body)
-        candidate_text = _fm.serialize_frontmatter(new_fm, base_body)
+        # Body-level whitespace-normalized comparison: the parser keeps a
+        # conventional blank line after frontmatter (so `concept.body` may
+        # start with "\n") while the update path strips the new body via
+        # `_coerce_nonempty_text` — a raw text comparison would report a
+        # phantom change (and spam audit/provenance) for a semantically
+        # identical patch (QA final-pass L3). Both bodies are stripped the
+        # same way the new body is coerced before writing.
+        old_text = _fm.serialize_frontmatter(
+            concept.frontmatter, concept.body.strip()
+        )
+        candidate_text = _fm.serialize_frontmatter(new_fm, base_body.strip())
         if candidate_text == old_text:
             return (
                 f"No changes: the patch for `{concept.id}` is identical to "

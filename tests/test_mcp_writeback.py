@@ -11,6 +11,7 @@ skipped with a clear reason.
 from __future__ import annotations
 
 import json
+import uuid
 from pathlib import Path
 
 import pytest
@@ -438,14 +439,54 @@ def test_atomic_write_no_half_written_file_on_rename_failure(
     tools = BundleTools(Bundle.load(root))
 
     def boom(src: Path, dst: Path) -> None:
-        raise OSError("simulated rename failure")
+        raise OSError("simulated claim failure")
 
-    monkeypatch.setattr(srv, "_os_replace", boom)
+    # write_concept is a create (overwrite=False): its commit mechanism is
+    # the atomic os.link claim, seam-patched here to fail.
+    monkeypatch.setattr(srv, "_os_link", boom)
     out = tools.write_concept("Alpha", "Body.")
     assert out.startswith("Error:")
     assert not (root / "alpha.md").exists()
     assert list(root.rglob("*.tmp*")) == []
     assert _audit_entries(root) == []
+
+
+def test_concurrent_creates_same_slug_exactly_one_wins(
+    tmp_path: Path,
+) -> None:
+    """Concurrent write_concept calls for one slug: exactly one wins.
+
+    Regression test for the check-then-write race: the pre-fix code let N
+    threads all report success (each ``os.replace`` silently clobbering the
+    previous winner). The atomic ``os.link`` claim makes the losers fail
+    with "already exists" instead.
+    """
+    import threading
+
+    for _ in range(5):
+        root = tmp_path / f"kb-{uuid.uuid4().hex[:6]}"
+        tools = BundleTools(Bundle.load(root))
+        barrier = threading.Barrier(6)
+        results: list[str] = []
+
+        def attempt(i: int, _tools=tools, _barrier=barrier, _out=results) -> None:
+            _barrier.wait()
+            _out.append(_tools.write_concept("Race", f"body {i} " * 40))
+
+        threads = [threading.Thread(target=attempt, args=(i,)) for i in range(6)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        wins = [r for r in results if r.startswith("# Concept written")]
+        refusals = [r for r in results if r.startswith("Error:")]
+        assert len(wins) == 1, f"expected exactly 1 winner, got {len(wins)}"
+        assert len(refusals) == 5
+        assert all("already exists" in r for r in refusals)
+        assert len(list(root.glob("race*.md"))) == 1
+        # One audited write, no phantom successes.
+        assert len(_audit_entries(root)) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -698,3 +739,138 @@ def test_l8_rollback_restores_original_bytes(
     assert "rolled back" in out
     # byte-identical restore: CRLF endings survive the rollback
     assert (root / "alpha.md").read_bytes() == original
+
+
+# ---------------------------------------------------------------------------
+# Final adversarial pass (2026-09-28): findings 1-6 + audit-dir hardening.
+# ---------------------------------------------------------------------------
+
+
+def _deep_list(n: int) -> list:
+    nested: list = ["leaf"]
+    for _ in range(n):
+        nested = [nested]
+    return nested
+
+
+def test_final_l2_reload_evicts_preview_phantoms(tmp_path: Path) -> None:
+    # A concurrent preview's temp file present during _reload_bundle must
+    # never enter the serving index — not via get/list, and not lingering
+    # in memory after the temp file is gone.
+    root = tmp_path / "kb"
+    tools = BundleTools(
+        _write_bundle(root, {"real.md": _concept_doc("Real", "Real body.")})
+    )
+    phantom = root / ".preview-abc12345-phantom.md"
+    phantom.write_text(
+        "---\ntitle: Phantom\n---\n\nAttacker body never written.\n",
+        encoding="utf-8",
+    )
+    tools._reload_bundle()
+    assert "not found" in tools.get(".preview-abc12345-phantom")
+    assert ".preview-" not in tools.list("")
+    assert "Real body" in tools.get("real")
+    phantom.unlink()  # preview finished; phantom must not linger in memory
+    assert "not found" in tools.get(".preview-abc12345-phantom")
+
+
+def test_final_l3_noop_body_update_with_blank_line(tmp_path: Path) -> None:
+    # The conventional `---\n---\n\nBody.` form parses to a body with a
+    # leading blank line while the update path strips the new body: a
+    # semantically identical patch must report no-op, not spam the audit
+    # log and provenance with a phantom "update".
+    root = tmp_path / "kb"
+    tools = BundleTools(
+        _write_bundle(
+            root, {"a.md": "---\ntitle: A\ntype: Note\n---\n\nBody.\n"}
+        )
+    )
+    before = _snapshot(root)
+    out = tools.update_concept("a", body="Body.")
+    assert out.startswith("No changes:")
+    assert _snapshot(root) == before
+    assert _audit_entries(root) == []
+    # A real change still applies.
+    out = tools.update_concept("a", body="New body.")
+    assert "Concept updated" in out
+    assert len(_audit_entries(root)) == 1
+
+
+def test_final_l4_preview_keeps_preexisting_empty_dirs(tmp_path: Path) -> None:
+    root = tmp_path / "kb"
+    (root / "emptydir" / "sub").mkdir(parents=True)
+    tools = BundleTools(Bundle.load(root))
+    before = _snapshot(root)
+    out = tools.preview_write_concept("emptydir/sub/note", "Body " * 20 + ".")
+    assert "Preview: write_concept" in out
+    assert (root / "emptydir" / "sub").is_dir()
+    assert _snapshot(root) == before
+    # ...while directories the preview itself created are still pruned.
+    tools.preview_write_concept("brand/new/note", "Body " * 20 + ".")
+    assert not (root / "brand").exists()
+    assert _snapshot(root) == before
+
+
+def test_final_l5_deep_nesting_rejected_not_crash(tmp_path: Path) -> None:
+    root = tmp_path / "kb"
+    tools = BundleTools(Bundle.load(root))
+    out = tools.write_concept("Deep", "Body " * 20 + ".", sources=_deep_list(3000))
+    assert out.startswith("Error:")
+    assert "nested too deeply" in out
+    assert not (root / "deep.md").exists()
+    assert _audit_entries(root) == []
+
+
+def test_final_l5_cyclic_sources_rejected_not_crash(tmp_path: Path) -> None:
+    root = tmp_path / "kb"
+    tools = BundleTools(Bundle.load(root))
+    cyclic: list = ["a"]
+    cyclic.append(cyclic)
+    out = tools.write_concept("Cyc", "Body " * 20 + ".", sources=cyclic)
+    assert out.startswith("Error:")
+    assert not (root / "cyc.md").exists()
+    out = tools.preview_write_concept(
+        "CycP", "Body " * 20 + ".", links=_deep_list(500)
+    )
+    assert out.startswith("Error:")
+    assert "nested too deeply" in out
+
+
+def test_final_l5_sanitizers_depth_limited_directly() -> None:
+    # Defense in depth: direct calls can never raise, even past the tool
+    # up-front refusal.
+    assert srv._strip_verified_markers(_deep_list(5000)) is not None
+    cyclic: dict = {}
+    cyclic["self"] = cyclic
+    assert srv._sanitize_yaml_value(cyclic) == {"self": "<cyclic reference>"}
+    assert srv._strip_verified_markers({"verified": True, "x": 1}) == {"x": 1}
+
+
+def test_final_l6_oversized_source_item_rejected_fast(tmp_path: Path) -> None:
+    import time as _time
+
+    root = tmp_path / "kb"
+    tools = BundleTools(Bundle.load(root))
+    started = _time.monotonic()
+    out = tools.write_concept("Big", "Body " * 20 + ".", sources=["y" * 5_000_000])
+    elapsed = _time.monotonic() - started
+    assert out.startswith("Error:")
+    assert "too large" in out
+    assert elapsed < 10  # fail-fast: no 10MB file, no validator burn
+    assert not (root / "big.md").exists()
+    assert _audit_entries(root) == []
+
+
+def test_final_audit_symlinked_manifest_dir_fails_closed(tmp_path: Path) -> None:
+    root = tmp_path / "kb"
+    root.mkdir()
+    (root / "index.md").write_text("# KB\n", encoding="utf-8")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (root / ".okfsmith").symlink_to(outside, target_is_directory=True)
+    tools = BundleTools(Bundle.load(root))
+    out = tools.write_concept("B", "Body " * 20 + ".")
+    assert out.startswith("Error:")
+    assert "audit" in out
+    assert not (root / "b.md").exists()  # rolled back: no unaudited writes
+    assert list(outside.iterdir()) == []  # nothing leaked outside

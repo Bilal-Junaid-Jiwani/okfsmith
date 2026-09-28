@@ -753,3 +753,91 @@ class TestTemporalInterplay:
         assert "policy" not in hidden_q["retrieved"]
         assert "policy" in shown_q["retrieved"]
         assert shown_q["diagnosis"] is None
+
+
+# ---------------------------------------------------------------------------
+# Threshold type validation (F1): hostile-typed thresholds must raise
+# EvalError("bad-threshold"), never a raw TypeError.
+# ---------------------------------------------------------------------------
+
+
+class TestThresholdValidation:
+    def _run(self, tmp_path: Path, **kwargs):
+        bdir = _good_bundle(tmp_path)
+        bundle = Bundle.load(bdir)
+        return E.run_eval(bundle, bdir, no_llm=True, **kwargs)
+
+    @pytest.mark.parametrize(
+        "bad",
+        ["0.9", [0.9], {"context_relevancy": "high"}, True, None.__class__],
+    )
+    def test_metric_threshold_wrong_type_is_eval_error(self, tmp_path, bad):
+        with pytest.raises(E.EvalError) as excinfo:
+            self._run(tmp_path, metric_threshold=bad)
+        assert excinfo.value.code == "bad-threshold"
+
+    def test_metric_threshold_out_of_range_still_eval_error(self, tmp_path):
+        with pytest.raises(E.EvalError) as excinfo:
+            self._run(tmp_path, metric_threshold=1.5)
+        assert excinfo.value.code == "bad-threshold"
+
+    @pytest.mark.parametrize("bad", ["50", [50], float("nan"), True])
+    def test_fail_under_wrong_type_is_eval_error(self, tmp_path, bad):
+        with pytest.raises(E.EvalError) as excinfo:
+            self._run(tmp_path, fail_under=bad)
+        assert excinfo.value.code == "bad-threshold"
+
+    def test_valid_thresholds_still_work(self, tmp_path):
+        report = self._run(
+            tmp_path,
+            metric_threshold={"context_relevancy": 0.5},
+            fail_under=0,
+        )
+        assert report.metric_thresholds["context_relevancy"] == 0.5
+
+
+# ---------------------------------------------------------------------------
+# Golden-set sanity: fabricated expected_answer (F2)
+# ---------------------------------------------------------------------------
+
+
+class TestReferenceSupport:
+    def _run(self, tmp_path: Path, expected: str):
+        bdir = _good_bundle(tmp_path)
+        _write_golden(
+            bdir,
+            [
+                {
+                    "id": "q1",
+                    "question": "What is the refund policy?",
+                    "expected_answer": expected,
+                    "must_cite": ["policies/refunds"],
+                }
+            ],
+        )
+        return E.run_eval(Bundle.load(bdir), bdir, no_llm=True)
+
+    def test_fabricated_expected_answer_warns(self, tmp_path):
+        # A fabricated expected_answer shares no vocabulary with the bundle.
+        # The gate measures bundle quality, so the warning — not a new
+        # failure mode — is the pinned behavior; it must be visible in the
+        # result and in the JSON report shape.
+        report = self._run(
+            tmp_path,
+            "The moon is made of cheese and penguins fly south for winter.",
+        )
+        question = report.questions[0]
+        assert len(question.warnings) == 1
+        assert "golden record" in question.warnings[0]
+        assert question.as_dict()["warnings"] == question.warnings
+
+    def test_legit_expected_answer_no_warning(self, tmp_path):
+        report = self._run(
+            tmp_path,
+            "Customers get a full refund within 30 days of purchase.",
+        )
+        assert report.questions[0].warnings == []
+
+    def test_empty_expected_answer_no_warning(self, tmp_path):
+        report = self._run(tmp_path, "")
+        assert report.questions[0].warnings == []
