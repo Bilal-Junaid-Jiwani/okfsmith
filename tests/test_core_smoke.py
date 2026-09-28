@@ -28,7 +28,15 @@ def _two_concepts(bundle: Bundle) -> Bundle:
 
 
 def test_version():
-    assert __version__ == "0.3.2"
+    # The package __version__ must match pyproject.toml. (Previously this
+    # hardcoded "0.3.2" and rotted; compare against the source of truth.)
+    import re
+    from pathlib import Path
+
+    pyproject = Path(__file__).resolve().parents[1] / "pyproject.toml"
+    m = re.search(r'^version\s*=\s*"([^"]+)"', pyproject.read_text(encoding="utf-8"), re.M)
+    assert m, "version not found in pyproject.toml"
+    assert __version__ == m.group(1)
 
 
 def test_write_and_load_round_trip(tmp_path):

@@ -55,6 +55,5 @@ def test_all_runtime_data_dirs_are_packaged():
             f'[tool.setuptools.package-data] has no entry for "{package}"'
         )
         assert f"{leaf}/*" in section, (
-            f'[tool.setuptools.package-data] entry for "{package}" does not '
-            f'cover "{leaf}/*"'
+            f'[tool.setuptools.package-data] entry for "{package}" does not cover "{leaf}/*"'
         )
