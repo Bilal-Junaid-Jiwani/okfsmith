@@ -5,6 +5,19 @@ follow SemVer.
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-09-28
+
+### Fixed
+- **Knowledge-graph edge resolution for section concepts:** when a document
+  is split into per-section concepts (id `doc/section`), markdown links in
+  those concepts are relative to the source *document*, but the resolver
+  treated the id as a file path — so `guide/related` linking `other.md`
+  produced a dead `guide/other` edge (hidden entirely by the dashboard
+  API) instead of linking the `other` document's primary concept. Links
+  now resolve to the target document's primary section concept; genuinely
+  broken links are still marked dead, and closer-scope nested ids still
+  win. Found during demo testing of the v0.5.0 dashboard.
+
 ## [0.5.0] - 2026-09-28
 
 ### Added

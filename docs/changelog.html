@@ -93,6 +93,11 @@
       <details class="toc-mobile">
         <summary>On this page</summary>
         <ul class="toc-list">
+<li><a href="#v0-5-1">[0.5.1] — 2026-09-28</a>
+<ul class="toc-sub">
+<li><a href="#v0-5-1-fixed">Fixed</a></li>
+</ul>
+</li>
 <li><a href="#v0-5-0">[0.5.0] — 2026-09-28</a>
 <ul class="toc-sub">
 <li><a href="#v0-5-0-added">Added</a></li>
@@ -129,7 +134,13 @@
         </button>
       </div>
       <div class="prose">
-        <h2 id="v0-5-0">[0.5.0] — 2026-09-28</h2>
+        <h2 id="v0-5-1">[0.5.1] — 2026-09-28</h2>
+<h3 id="v0-5-1-fixed">Fixed</h3>
+<ul>
+<li><strong>Knowledge-graph edge resolution for section concepts</strong> — when a document is split into per-section concepts (id <code>doc/section</code>), markdown links in those concepts are relative to the source <em>document</em>, but the resolver treated the id as a file path, so the Explore graph silently dropped edges for interlinked documents. Links now resolve to the target document's primary section concept; genuinely broken links are still marked dead.
+</li>
+</ul>
+<h2 id="v0-5-0">[0.5.0] — 2026-09-28</h2>
 <h3 id="v0-5-0-added">Added</h3>
 <ul>
 <li><strong>Web dashboard (<code>okfsmith dashboard</code>)</strong> — a local-first web UI covering all ten product areas: Overview, Ingest (drag-and-drop with live parse → chunk → embed → validate → index progress), Explore (interactive knowledge graph), Temporal, Chat (grounded, with clickable citations), Validate, MCP, Eval, Doctor, and Settings. Binds only to <code>127.0.0.1</code>, per-launch token auth, default port 8931 with free-port fallback, fully offline packaged assets (no CDN). The knowledge graph renders ECharts-style: solid cluster-colored circles with labels inside, degree-scaled hubs, edge-to-edge arrows, and a cluster legend. See <a href="dashboard.html">Web dashboard</a>.
@@ -212,6 +223,11 @@
     <aside class="toc" aria-label="On this page">
       <p class="toc-title">On this page</p>
       <ul class="toc-list">
+<li><a href="#v0-5-1">[0.5.1] — 2026-09-28</a>
+<ul class="toc-sub">
+<li><a href="#v0-5-1-fixed">Fixed</a></li>
+</ul>
+</li>
 <li><a href="#v0-5-0">[0.5.0] — 2026-09-28</a>
 <ul class="toc-sub">
 <li><a href="#v0-5-0-added">Added</a></li>

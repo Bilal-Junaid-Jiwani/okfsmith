@@ -4,6 +4,18 @@ eyebrow: Troubleshooting
 description: Release history for okfsmith — what changed in each version, what's coming next, and upgrade notes. Follows Keep a Changelog and Semantic Versioning.
 ---
 
+## [0.5.1] — 2026-09-28 {#v0-5-1}
+
+### Fixed {#v0-5-1-fixed}
+
+- **Knowledge-graph edge resolution for section concepts** — when a
+  document is split into per-section concepts (id `doc/section`),
+  markdown links in those concepts are relative to the source
+  *document*, but the resolver treated the id as a file path, so the
+  Explore graph silently dropped edges for interlinked documents. Links
+  now resolve to the target document's primary section concept;
+  genuinely broken links are still marked dead.
+
 ## [0.5.0] — 2026-09-28 {#v0-5-0}
 
 ### Added {#v0-5-0-added}
