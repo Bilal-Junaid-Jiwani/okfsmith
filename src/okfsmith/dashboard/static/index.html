@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>okfsmith · Dashboard</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="expired-banner" class="expired-banner" hidden>
+  <span class="dot dot-red"></span>
+  <span>Session expired — relaunch the dashboard with <code>okfsmith dashboard</code> to get a fresh token.</span>
+</div>
+
+<div id="app">
+  <aside id="sidebar" aria-label="Primary">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">OKF</span>
+      <span class="brand-text">
+        <span class="brand-name">okfsmith</span>
+        <span class="brand-sub">dashboard</span>
+      </span>
+    </div>
+    <nav class="nav">
+      <a class="nav-item" href="#/overview" data-route="overview">
+        <span class="nav-icon" data-icon="overview"></span><span class="nav-label">Overview</span>
+      </a>
+      <a class="nav-item" href="#/ingest" data-route="ingest">
+        <span class="nav-icon" data-icon="ingest"></span><span class="nav-label">Ingest</span>
+      </a>
+      <a class="nav-item" href="#/explore" data-route="explore">
+        <span class="nav-icon" data-icon="explore"></span><span class="nav-label">Explore</span>
+      </a>
+      <a class="nav-item" href="#/temporal" data-route="temporal">
+        <span class="nav-icon" data-icon="temporal"></span><span class="nav-label">Temporal</span>
+      </a>
+      <a class="nav-item" href="#/chat" data-route="chat">
+        <span class="nav-icon" data-icon="chat"></span><span class="nav-label">Chat</span>
+      </a>
+      <a class="nav-item" href="#/validate" data-route="validate">
+        <span class="nav-icon" data-icon="validate"></span><span class="nav-label">Validate</span>
+      </a>
+      <a class="nav-item" href="#/mcp" data-route="mcp">
+        <span class="nav-icon" data-icon="mcp"></span><span class="nav-label">MCP</span>
+      </a>
+      <a class="nav-item" href="#/eval" data-route="eval">
+        <span class="nav-icon" data-icon="eval"></span><span class="nav-label">Eval</span>
+      </a>
+      <a class="nav-item" href="#/doctor" data-route="doctor">
+        <span class="nav-icon" data-icon="doctor"></span><span class="nav-label">Doctor</span>
+      </a>
+      <a class="nav-item" href="#/settings" data-route="settings">
+        <span class="nav-icon" data-icon="settings"></span><span class="nav-label">Settings</span>
+      </a>
+    </nav>
+    <div class="sidebar-foot">
+      <span class="foot-note">Local-first · offline</span>
+    </div>
+  </aside>
+
+  <div class="main-col">
+    <header id="topbar">
+      <div class="topbar-left">
+        <label class="bundle-label" for="bundle-select">Bundle</label>
+        <select id="bundle-select" class="bundle-select" aria-label="Select bundle">
+          <option value="">Loading…</option>
+        </select>
+      </div>
+      <div class="topbar-right">
+        <span id="status-wrap" class="status-wrap" title="Server status">
+          <span id="status-dot" class="dot dot-amber"></span>
+          <span id="status-text" class="status-text">connecting…</span>
+        </span>
+        <span id="version-badge" class="version-badge" title="okfsmith version">–</span>
+      </div>
+    </header>
+    <main id="view" tabindex="-1"></main>
+  </div>
+</div>
+
+<div id="toasts" aria-live="polite"></div>
+<div id="modal-root"></div>
+
+<script src="app.js"></script>
+</body>
+</html>

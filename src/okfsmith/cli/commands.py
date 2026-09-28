@@ -1743,13 +1743,12 @@ def mcp(
 # ---------------------------------------------------------------------------
 
 
-@app.command(rich_help_panel=PANEL_BUNDLE)
-@_cli
-def doctor() -> None:
-    """Check the environment: dependencies, extras, Ollama, writability.
+def doctor_checks() -> list[tuple[str, str, str]]:
+    """Run every ``okfsmith doctor`` check; return ``(name, status, detail)`` rows.
 
-    Reports OK / MISSING / WARN per check so a broken setup is diagnosable
-    in one command.
+    Status is one of ``OK`` / ``MISSING`` / ``WARN`` / ``FAIL``. Extracted from
+    :func:`doctor` so non-CLI callers (e.g. the web dashboard) can wrap the
+    exact same checks instead of reimplementing them.
     """
     import okfsmith
 
@@ -1833,6 +1832,18 @@ def doctor() -> None:
     except OSError as exc:
         rows.append(("tmp writable", "FAIL", str(exc)))
 
+    return rows
+
+
+@app.command(rich_help_panel=PANEL_BUNDLE)
+@_cli
+def doctor() -> None:
+    """Check the environment: dependencies, extras, Ollama, writability.
+
+    Reports OK / MISSING / WARN per check so a broken setup is diagnosable
+    in one command.
+    """
+    rows = doctor_checks()
     table = Table(title="okfsmith doctor")
     table.add_column("Check")
     table.add_column("Status")
