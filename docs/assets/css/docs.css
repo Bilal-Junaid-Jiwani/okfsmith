@@ -1797,3 +1797,16 @@ footer.site-footer {
     scroll-behavior: auto !important;
   }
 }
+
+/* --------------------------------------------------------------------------
+   18. Guide screenshots — dashboard.md and future image-bearing pages
+   -------------------------------------------------------------------------- */
+.content img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 1.5rem auto;
+  border: 1px solid var(--border, #2a2a2a);
+  border-radius: 10px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
+}

@@ -42,7 +42,7 @@ SEARCH_INDEX_FILE = HERE / "assets" / "js" / "search-index.json"
 # ---------------------------------------------------------------------------
 
 SLUG_ORDER = [
-    "install", "quickstart", "chat",
+    "install", "quickstart", "dashboard", "chat",
     "ingesting", "validation", "temporality", "syncing", "eval", "graph", "skill", "faq",
     "cli", "providers", "mcp", "troubleshooting", "changelog",
 ]
@@ -150,7 +150,7 @@ def write_llms(pages):
 
 # (tab label, landing slug, page slugs in order)
 TABS = [
-    ("Getting started", "install", ["install", "quickstart", "chat"]),
+    ("Getting started", "install", ["install", "quickstart", "dashboard", "chat"]),
     ("User guide", "ingesting", ["ingesting", "validation", "temporality", "syncing", "eval", "graph", "skill", "faq"]),
     ("CLI reference", "cli", ["cli"]),
     ("Providers", "providers", ["providers"]),
@@ -159,7 +159,7 @@ TABS = [
 ]
 
 SIDEBAR_GROUPS = {
-    "Getting started": [("Start here", ["install", "quickstart", "chat"])],
+    "Getting started": [("Start here", ["install", "quickstart", "dashboard", "chat"])],
     "User guide": [
         ("Building bundles", ["ingesting", "validation", "temporality", "syncing", "eval", "graph"]),
         ("More", ["skill", "faq"]),
@@ -175,7 +175,8 @@ SIDEBAR_GROUPS = {
 # ingesting -> validation so the happy path never stalls.
 NEXT = {
     "install": "quickstart",
-    "quickstart": "chat",
+    "quickstart": "dashboard",
+    "dashboard": "chat",
     "chat": "ingesting",
     "ingesting": "providers",
     "providers": "cli",
@@ -197,6 +198,7 @@ PREV["validation"] = "ingesting"  # only asymmetric edge of the chain
 # ---------------------------------------------------------------------------
 
 _CODE_RE = re.compile(r"`([^`\n]+?)`")
+_IMG_RE = re.compile(r"!\[([^\]]*)\]\(([^)\s]+)\)")
 _LINK_RE = re.compile(r"\[([^\]]+)\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
 _BOLD_RE = re.compile(r"\*\*([^*]+?)\*\*")
 _ITALIC_RE = re.compile(r"(?<![*\w])\*([^*\n]+?)\*(?![*\w])")
@@ -250,6 +252,11 @@ def inline(text):
         return "\x00%d\x00" % (len(parts) - 1)
 
     s = _CODE_RE.sub(stash_code, esc(text))
+    s = _IMG_RE.sub(
+        lambda m: '<img src="%s" alt="%s" loading="lazy">'
+        % (htmlmod.escape(m.group(2), quote=True), htmlmod.escape(m.group(1), quote=True)),
+        s,
+    )
     s = _LINK_RE.sub(
         lambda m: '<a href="%s">%s</a>'
         % (htmlmod.escape(m.group(2), quote=True), m.group(1)),

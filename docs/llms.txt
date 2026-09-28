@@ -12,6 +12,7 @@ Source: https://github.com/Bilal-Junaid-Jiwani/okfsmith
 
 - [Installation](https://bilal-junaid-jiwani.github.io/okfsmith/docs/install.html): Install okfsmith from PyPI, add optional extras for Office docs, MCP, and OCR, set up shell completion, and verify everything with okfsmith doctor.
 - [Quickstart](https://bilal-junaid-jiwani.github.io/okfsmith/docs/quickstart.html): Five minutes from zero to a validated knowledge bundle: init, ingest with --no-llm, validate, and graph — every command copy-paste ready.
+- [Web dashboard](https://bilal-junaid-jiwani.github.io/okfsmith/docs/dashboard.html): The okfsmith web dashboard — launch it, ingest documents, explore the knowledge graph, and chat with your bundles, all in the browser. Local-first, offline, token-secured.
 - [Interactive chat](https://bilal-junaid-jiwani.github.io/okfsmith/docs/chat.html): Ask questions over your knowledge bundle in the Claude-Code-style REPL — with citations, slash commands, and an extractive mode that needs no API key.
 - [Ingesting documents](https://bilal-junaid-jiwani.github.io/okfsmith/docs/ingesting.html): How okfsmith ingest turns PDFs, Markdown, Office files and more into draft concepts — the free --no-llm path first, then LLM extraction when you need it.
 - [Validation & error codes](https://bilal-junaid-jiwani.github.io/okfsmith/docs/validation.html): Check your bundle against OKF v0.2 conformance — errors E001–E004, warnings W001–W020 (incl. the temporal-model advisories), trust tiers, and how to fix the common findings.

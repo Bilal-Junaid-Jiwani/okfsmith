@@ -113,6 +113,8 @@
 </li>
 <li><a href="#ci-gating">CI gating</a>
 </li>
+<li><a href="#what-expectedanswer-does-and-does-not-prove">What expected_answer does (and does not) prove</a>
+</li>
 </ul>
       </details>
       <p class="eyebrow">User guide</p>
@@ -139,6 +141,7 @@ okfsmith eval ./kb                 # score it (heuristic mode, no LLM needed)
 okfsmith eval ./kb --format json   # machine-readable full report
 okfsmith eval ./kb --fail-under 70 # CI gate: exit 1 when the score is below 70
 </code></pre>
+<p>The starter set is self-consistent by construction: each generated question uses only its concept's own vocabulary, so <code>eval --no-llm</code> passes it on a healthy bundle — edit the questions into curated ones from there.</p>
 <h2 id="golden-sets">Golden sets</h2>
 <p>Golden sets live at <code>&lt;bundle&gt;/eval/golden.json</code> — a JSON list of question records:</p>
 <pre class="codeblock" data-lang="json"><code>[
@@ -162,11 +165,11 @@ okfsmith eval ./kb --fail-under 70 # CI gate: exit 1 when the score is below 70
 <li><strong>🤖 llm-judge</strong> — when an LLM backend is configured (same <code>--provider</code> / <code>--model</code> / <code>--api-base</code> / <code>--api-key</code> plumbing as <code>chat</code>), the judge LLM scores relevance and faithfulness directly, and answers are generated instead of extracted.
 </li>
 </ul>
-<p>If a judge call fails, that metric degrades to the heuristic — the method label always tells the truth, never the reverse. The run header states the overall mode (<code>heuristic</code>, <code>llm-judge</code>, or <code>mixed</code>).</p>
+<p>If a judge call fails, that metric degrades to the heuristic — the method label always tells the truth, never the reverse. The run header states the overall mode: <code>heuristic</code> when no metric was LLM-judged (including a configured judge whose every call failed), <code>llm-judge</code> when every metric was, and <code>mixed</code> only when some metrics were judged and others fell back.</p>
 <h2 id="retrieval-vs-generation-the-actionable-output">Retrieval vs generation: the actionable output</h2>
 <p>Averages hide the fix. <code>eval</code> reports <strong>per question</strong>, and every failing question gets a diagnosis:</p>
 <ul>
-<li><strong>retrieval</strong> — a golden <code>must_cite</code> concept was not retrieved, or nothing retrieved is relevant. Fix: improve ingest coverage, titles, or wording.
+<li><strong>retrieval</strong> — a golden <code>must_cite</code> concept was not retrieved, or nothing retrieved is relevant. Fix: improve ingest coverage, titles, or wording. An unretrieved <code>must_cite</code> concept fails its question even when every metric score passes its threshold.
 </li>
 <li><strong>generation</strong> — the right concepts <em>were</em> retrieved but the answer failed. Fix: the answer construction / prompting, not the content.
 </li>
@@ -177,6 +180,15 @@ okfsmith eval ./kb --fail-under 70 # CI gate: exit 1 when the score is below 70
 </code></pre>
 <p>Exit <code>0</code> when the overall score (0–100, the mean of per-question means) clears the threshold, exit <code>1</code> when it doesn't. Per-metric pass thresholds default to <code>0.6</code> for context relevancy and faithfulness and <code>0.4</code> for answer relevancy (the heuristic's natural scale is lower); override all three with <code>--metric-threshold &lt;0-1&gt;</code>. Use <code>--top-k</code> / <code>-n</code> to change how many concepts each question retrieves.</p>
 <p><strong>Next:</strong> <a href="cli.html">CLI reference →</a> — every flag of every command.</p>
+<h2 id="what-expectedanswer-does-and-does-not-prove">What <code>expected_answer</code> does (and does not) prove</h2>
+<p><code>expected_answer</code> is a <em>reference aid</em>, not a correctness oracle:</p>
+<ul>
+<li>In <strong>heuristic mode</strong> its vocabulary helps <code>context_relevancy</code> recognize relevant concepts; no metric compares the generated answer against it semantically. A golden record with a fabricated <code>expected_answer</code> can still pass — the gate measures <strong>bundle</strong> quality, not golden-set quality.
+</li>
+<li>In <strong>LLM-judge mode</strong> it is shown to the judge as reference context, but there is likewise no answer-correctness score against it.
+</li>
+</ul>
+<p>To keep sloppy golden sets from buying false confidence, every question gets a <strong>golden-set sanity check</strong>: when a non-empty <code>expected_answer</code> shares almost no vocabulary with the retrieved context, the question is flagged with a <code>!</code> warning (also in the JSON report's <code>warnings</code> field). The warning never fails the question or the gate — it asks a human to verify the golden record. Note the honest limit: a deliberately salted fabrication (real bundle terms woven into a false answer) can evade this keyless check; only a semantic comparison (LLM judge, or human review) catches those.</p>
       </div>
       <nav class="prev-next" aria-label="Previous and next page">
         <a class="page-prev" href="syncing.html"><span class="prev-next-label">Previous</span><span class="prev-next-title">&larr; Syncing sources</span></a>
@@ -196,6 +208,8 @@ okfsmith eval ./kb --fail-under 70 # CI gate: exit 1 when the score is below 70
 <li><a href="#retrieval-vs-generation-the-actionable-output">Retrieval vs generation: the actionable output</a>
 </li>
 <li><a href="#ci-gating">CI gating</a>
+</li>
+<li><a href="#what-expectedanswer-does-and-does-not-prove">What expected_answer does (and does not) prove</a>
 </li>
 </ul>
     </aside>

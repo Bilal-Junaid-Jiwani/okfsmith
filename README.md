@@ -139,6 +139,28 @@ Slash commands: `/help` `/ingest` `/list` `/read` `/search` `/validate`
 `~/.okfsmith/history`; Ctrl-C cancels input, Ctrl-D quits. Flags:
 `--model` to pick the model, `--no-llm` to force extractive mode.
 
+## Web dashboard
+
+Prefer a UI? `okfsmith dashboard` launches a local web app — the full
+product in the browser: drag-and-drop ingest with live pipeline
+progress, an interactive knowledge graph, grounded chat with clickable
+citations, validation, temporal queries, MCP tools, eval, and settings.
+
+```bash
+okfsmith dashboard
+```
+
+It binds only to `127.0.0.1` (never exposed to the network), generates
+a fresh login token on every launch, and loads zero third-party
+resources — the entire UI is packaged with okfsmith and works fully
+offline. Same bundles, same CLI underneath.
+
+![okfsmith dashboard overview](https://raw.githubusercontent.com/Bilal-Junaid-Jiwani/okfsmith/master/docs/assets/img/dashboard-overview.png)
+![okfsmith dashboard knowledge graph](https://raw.githubusercontent.com/Bilal-Junaid-Jiwani/okfsmith/master/docs/assets/img/dashboard-graph.png)
+
+Full walkthrough with screenshots: [Web dashboard
+guide](https://bilal-junaid-jiwani.github.io/okfsmith/dashboard.html).
+
 ## Use any model (API key)
 
 Ollama is the default, but any OpenAI-compatible model works — one key,

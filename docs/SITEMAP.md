@@ -16,20 +16,21 @@ Every page: slug (URL filename), title, one-line description.
 |---|------|-------|-------------|
 | 1 | `install.html` | Installation | Install okfsmith from PyPI, add optional extras (office/mcp/ocr), set up shell completion, verify with `okfsmith doctor`. |
 | 2 | `quickstart.html` | Quickstart | Five minutes from zero to a validated, visualized knowledge bundle: `init` → `ingest --no-llm` → `validate` → `graph`. |
-| 3 | `chat.html` | Interactive chat | Ask questions over your bundle in the Claude-Code-style REPL: citations, slash commands, extractive fallback, Ollama/OpenAI-compatible answers. |
-| 4 | `ingesting.html` | Ingesting documents | What `ingest` does: parser tiers (LiteParse, MarkItDown, Docling sidecar), PDF/Office/Notion/zip inputs, sectioning, SHA-256 dedup, `--no-llm` vs LLM extraction, trust tiers. |
-| 5 | `providers.html` | Providers & API keys | The 15 OpenAI-compatible `--provider` presets, API keys via `OKFSMITH_API_KEY` / `--api-key`, `--api-base` for anything else, model resolution order, how `doctor` reports key status without ever showing keys. |
-| 6 | `syncing.html` | Syncing sources | What `sync` does: SHA-256 change detection, add/update/rename/remove handling, atomic resumable state, `--watch` polling, `--dry-run`, `--format json`. |
-| 16 | `eval.html` | Evaluating bundles | Score golden Q&A sets on the RAG Triad: context relevancy / faithfulness / answer relevancy, per-question reporting, retrieval-vs-generation diagnosis, CI gating. |
-| 7 | `validation.html` | Validation & error codes | OKF v0.2 §11 conformance: errors E001–E004, warnings W001–W006, `--strict`, `--format json`, stable CLI error codes and exit codes. |
-| 8 | `graph.html` | Visualizing the knowledge graph | `graph` output formats (text/json/mermaid/html), the offline interactive `viz.html` viewer: colorblind-safe palette, trust-by-shape legend, backlinks, search, keyboard access. |
-| 9 | `skill.html` | Agent skill pack | The `okfsmith-build` skill: what it teaches agents (init → ingest → validate → serve), where it lives, trigger phrases, scope limits. |
-| 10 | `faq.html` | FAQ | Short answers: what OKF is, no-LLM option, data privacy, Python versions, PyMuPDF/AGPL, Anthropic's non-compatible API. |
-| 11 | `cli.html` | CLI reference | One page, one section per command with flags and examples: `init`, `ingest`, `sync`, `list`, `read`, `validate`, `graph`, `doctor`, `chat`, `mcp`, `completions`; plus `search` and `get` (MCP tools and chat slash commands — they are not CLI commands, see notes). |
-| 12 | `mcp.html` | MCP server | Serve a bundle to agents over MCP: stdio/SSE/streamable-HTTP transports, the `index`/`list`/`search`/`get`/`neighbors` tools, client config for Claude Code/Desktop, Cursor, Copilot, Gemini. |
-| 13 | `troubleshooting.html` | Troubleshooting | Every common failure: `slice-not-installed`, `llm-unavailable`, `not-a-bundle`, zero-concept ingests, stub prevention, empty graph, with fixes and the "run `doctor` and file an issue" fallback. |
-| 14 | `changelog.html` | Changelog | Release history (Keep a Changelog / SemVer): what changed per version, `Unreleased` section, upgrade notes. |
-| 15 | `temporality.html` | Temporal model | Time-aware knowledge: validity windows, supersession chains, as-of queries, and how freshness interacts with trust tiers. |
+| 3 | `dashboard.html` | Web dashboard | The local web UI: launch, ingest documents, explore the knowledge graph, chat with citations — all ten product areas, with screenshots. |
+| 4 | `chat.html` | Interactive chat | Ask questions over your bundle in the Claude-Code-style REPL: citations, slash commands, extractive fallback, Ollama/OpenAI-compatible answers. |
+| 5 | `ingesting.html` | Ingesting documents | What `ingest` does: parser tiers (LiteParse, MarkItDown, Docling sidecar), PDF/Office/Notion/zip inputs, sectioning, SHA-256 dedup, `--no-llm` vs LLM extraction, trust tiers. |
+| 6 | `providers.html` | Providers & API keys | The 15 OpenAI-compatible `--provider` presets, API keys via `OKFSMITH_API_KEY` / `--api-key`, `--api-base` for anything else, model resolution order, how `doctor` reports key status without ever showing keys. |
+| 7 | `syncing.html` | Syncing sources | What `sync` does: SHA-256 change detection, add/update/rename/remove handling, atomic resumable state, `--watch` polling, `--dry-run`, `--format json`. |
+| 17 | `eval.html` | Evaluating bundles | Score golden Q&A sets on the RAG Triad: context relevancy / faithfulness / answer relevancy, per-question reporting, retrieval-vs-generation diagnosis, CI gating. |
+| 8 | `validation.html` | Validation & error codes | OKF v0.2 §11 conformance: errors E001–E004, warnings W001–W006, `--strict`, `--format json`, stable CLI error codes and exit codes. |
+| 9 | `graph.html` | Visualizing the knowledge graph | `graph` output formats (text/json/mermaid/html), the offline interactive `viz.html` viewer: colorblind-safe palette, trust-by-shape legend, backlinks, search, keyboard access. |
+| 10 | `skill.html` | Agent skill pack | The `okfsmith-build` skill: what it teaches agents (init → ingest → validate → serve), where it lives, trigger phrases, scope limits. |
+| 11 | `faq.html` | FAQ | Short answers: what OKF is, no-LLM option, data privacy, Python versions, PyMuPDF/AGPL, Anthropic's non-compatible API. |
+| 12 | `cli.html` | CLI reference | One page, one section per command with flags and examples: `init`, `ingest`, `sync`, `list`, `read`, `validate`, `graph`, `doctor`, `chat`, `mcp`, `completions`; plus `search` and `get` (MCP tools and chat slash commands — they are not CLI commands, see notes). |
+| 13 | `mcp.html` | MCP server | Serve a bundle to agents over MCP: stdio/SSE/streamable-HTTP transports, the `index`/`list`/`search`/`get`/`neighbors` tools, client config for Claude Code/Desktop, Cursor, Copilot, Gemini. |
+| 14 | `troubleshooting.html` | Troubleshooting | Every common failure: `slice-not-installed`, `llm-unavailable`, `not-a-bundle`, zero-concept ingests, stub prevention, empty graph, with fixes and the "run `doctor` and file an issue" fallback. |
+| 15 | `changelog.html` | Changelog | Release history (Keep a Changelog / SemVer): what changed per version, `Unreleased` section, upgrade notes. |
+| 16 | `temporality.html` | Temporal model | Time-aware knowledge: validity windows, supersession chains, as-of queries, and how freshness interacts with trust tiers. |
 
 Notes on the required CLI command list (from the coordinator brief):
 - `get` and `search` are **not** CLI commands in okfsmith — they are MCP server
@@ -48,7 +49,7 @@ Each page belongs to exactly one tab.
 
 | Tab | Pages (in order) | Default landing page |
 |-----|------------------|----------------------|
-| **Getting started** | `install.html` → `quickstart.html` → `chat.html` | `install.html` |
+| **Getting started** | `install.html` → `quickstart.html` → `dashboard.html` → `chat.html` | `install.html` |
 | **User guide** | `ingesting.html` → `validation.html` → `syncing.html` → `eval.html` → `graph.html` → `skill.html` → `faq.html` | `ingesting.html` |
 | **CLI reference** | `cli.html` | `cli.html` |
 | **Providers** | `providers.html` | `providers.html` |
@@ -125,8 +126,9 @@ an explicit **Next →** link so a beginner never has to guess.
 
 **Core beginner flow (the happy path):**
 1. `install.html` → **Next: Quickstart →**
-2. `quickstart.html` → **Next: Interactive chat →**
-3. `chat.html` → **Next: Ingesting documents →**
+2. `quickstart.html` → **Next: Web dashboard →**
+3. `dashboard.html` → **Next: Interactive chat →**
+4. `chat.html` → **Next: Ingesting documents →**
 
 **Going deeper:**
 4. `ingesting.html` → **Next: Providers & API keys →**

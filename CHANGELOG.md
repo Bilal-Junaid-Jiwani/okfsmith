@@ -5,6 +5,20 @@ follow SemVer.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-09-28
+
+### Added
+- **Web dashboard (`okfsmith dashboard`):** a local-first web UI covering
+  all ten product areas — Overview, Ingest (drag-and-drop with live
+  parse → chunk → embed → validate → index progress), Explore
+  (interactive knowledge graph), Temporal, Chat (grounded, with clickable
+  citations), Validate, MCP, Eval, Doctor, and Settings. Binds only to
+  `127.0.0.1`, per-launch token auth, default port 8931 with free-port
+  fallback, fully offline packaged assets (no CDN). The knowledge graph
+  renders ECharts-style: solid cluster-colored circles with labels
+  inside, degree-scaled hubs, edge-to-edge arrows, and a cluster legend.
+  See the [Web dashboard guide](https://bilal-junaid-jiwani.github.io/okfsmith/dashboard.html).
+
 ## [0.4.1] - 2026-09-28
 
 ### Fixed

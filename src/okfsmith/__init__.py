@@ -5,4 +5,4 @@ Open Knowledge Format (OKF) v0.2 knowledge bundles: markdown files with
 YAML frontmatter, plus reserved ``index.md`` / ``log.md`` files.
 """
 
-__version__ = "0.4.1"
+__version__ = "0.5.0"
