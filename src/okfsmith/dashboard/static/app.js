@@ -427,7 +427,14 @@ function boot() {
   refreshHealth();
   state.timers.push(setInterval(refreshHealth, 30000));
   loadBundles().then(() => {
-    window.addEventListener('hashchange', navigate);
+    window.addEventListener('hashchange', () => {
+      // In-page anchors (e.g. Settings' "Manage secrets ↓" -> #sec-secrets)
+      // must not be treated as routes: if the hash names an element on the
+      // current page, let the browser perform the jump instead of re-routing.
+      const id = (location.hash || '').replace(/^#/, '');
+      if (id && !id.startsWith('/') && document.getElementById(id)) return;
+      navigate();
+    });
     if (!location.hash) location.hash = '#/overview';
     navigate();
   });
