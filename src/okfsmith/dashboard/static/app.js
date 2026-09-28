@@ -1127,7 +1127,12 @@ function buildGraph(canvas, nodes, edges, onSelect, gwrap) {
       const text = label.length > 30 ? label.slice(0, 29) + '…' : label;
       ctx.font = (nd === selected ? 'bold ' : '') + '11px sans-serif';
       const tw = ctx.measureText(text).width;
-      const bx = s.x + r + 5, by = s.y - 5;
+      // keep labels inside the canvas: flip to the node's left near the
+      // right edge, and nudge vertically away from the top/bottom edges
+      let bx = s.x + r + 5;
+      if (bx + tw > w - 4) bx = s.x - r - 5 - tw;
+      if (bx < 4) bx = 4;
+      const by = Math.max(10, Math.min(h - 14, s.y - 5));
       let clash = false;
       for (const o of drawnLabels) {
         if (bx < o.x + o.w && bx + tw > o.x && by < o.y + o.h && by + 12 > o.y) { clash = true; break; }

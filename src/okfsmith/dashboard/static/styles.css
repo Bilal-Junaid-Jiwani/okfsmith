@@ -528,11 +528,14 @@ table.data tr.clickable { cursor: pointer; }
 .chat-layout { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .chat-thread { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; padding: 6px 2px 18px; }
 .chat-composer { flex: 0 0 auto; padding-top: 10px; }
-/* Welcome state: centered, Claude Desktop-style, with starter prompts. */
-.chat-welcome { display: flex; flex-direction: column; align-items: center; text-align: center; margin: auto; padding: 30px 20px; max-width: 560px; }
-.chat-welcome .welcome-logo { width: 56px; height: 56px; border-radius: 16px; margin-bottom: 18px; box-shadow: 0 6px 22px rgba(217, 119, 87, 0.4); }
-.chat-welcome h2 { margin: 0 0 8px; font-size: 21px; font-weight: 750; letter-spacing: -0.3px; }
-.chat-welcome p { margin: 0 0 20px; color: var(--muted); font-size: 13.5px; }
+/* Welcome state: centered, Claude Desktop-style, with starter prompts.
+   safe center: stays centered when it fits, top-aligns + scrolls when it
+   overflows instead of clipping both ends (margin:auto overflow trap). */
+.chat-thread:has(.chat-welcome) { justify-content: safe center; }
+.chat-welcome { display: flex; flex-direction: column; align-items: center; text-align: center; margin: 0 auto; padding: 14px 20px; max-width: 560px; }
+.chat-welcome .welcome-logo { width: 48px; height: 48px; border-radius: 14px; margin-bottom: 12px; box-shadow: 0 6px 22px rgba(217, 119, 87, 0.4); }
+.chat-welcome h2 { margin: 0 0 6px; font-size: 21px; font-weight: 750; letter-spacing: -0.3px; }
+.chat-welcome p { margin: 0 0 14px; color: var(--muted); font-size: 13.5px; }
 .welcome-chips { display: flex; flex-wrap: wrap; gap: 9px; justify-content: center; }
 .welcome-chip {
   background: var(--surface-2); border: 1px solid var(--border); color: var(--text);
