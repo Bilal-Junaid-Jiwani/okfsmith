@@ -953,6 +953,41 @@ function buildGraph(canvas, nodes, edges, onSelect, gwrap) {
     degree.set(e.to, degree.get(e.to) + 1);
   }
 
+  // ---- cluster coloring (ECharts-style): connected components via
+  // union-find; each multi-node cluster gets a categorical color, so the
+  // graph reads as colored communities like a classic knowledge graph.
+  const CLUSTER_COLORS = ['#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de',
+    '#3ba272', '#fc8452', '#9a60b4', '#ea7ccc', '#7aa2c6'];
+  const _uf = new Map(nodes.map((nd) => [nd.id, nd.id]));
+  const _find = (x) => {
+    let r = x;
+    while (_uf.get(r) !== r) r = _uf.get(r);
+    let c = x;
+    while (_uf.get(c) !== r) { const nx = _uf.get(c); _uf.set(c, r); c = nx; }
+    return r;
+  };
+  for (const e of edgeList) {
+    const ra = _find(e.from), rb = _find(e.to);
+    if (ra !== rb) _uf.set(ra, rb);
+  }
+  const _compSize = new Map();
+  for (const nd of nodes) {
+    const r = _find(nd.id);
+    _compSize.set(r, (_compSize.get(r) || 0) + 1);
+  }
+  const _compOrder = [..._compSize.entries()].sort((a, b) => b[1] - a[1]);
+  const _compColor = new Map();
+  _compOrder.forEach(([c], i) => {
+    _compColor.set(c, _compSize.get(c) > 1 ? CLUSTER_COLORS[i % CLUSTER_COLORS.length] : '#5b6478');
+  });
+  const nodeColor = (nd) => _compColor.get(_find(nd.id)) || '#5b6478';
+  // hub (highest-degree node) per cluster, for the legend
+  const _hub = new Map();
+  for (const nd of [...nodes].sort((a, b) => (degree.get(b.id) || 0) - (degree.get(a.id) || 0))) {
+    const c = _find(nd.id);
+    if (!_hub.has(c)) _hub.set(c, nd);
+  }
+
   const pos = new Map();
   let seed = 0xC0FFEE;
   const rand = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
@@ -1006,8 +1041,10 @@ function buildGraph(canvas, nodes, edges, onSelect, gwrap) {
   }
 
   function nodeRadius(nd) {
+    // Hub nodes render bigger, like a classic knowledge graph: leaves are
+    // compact circles, well-connected concepts grow up to ~2.2x.
     const d = degree.get(nd.id) || 0;
-    return 6 + Math.min(7, d * 0.9);
+    return 19 + Math.min(23, d * 3.2);
   }
 
   const view = { x: 0, y: 0, k: 1 };
@@ -1020,11 +1057,6 @@ function buildGraph(canvas, nodes, edges, onSelect, gwrap) {
 
   // ---- overlays: legend + zoom controls ----
   if (gwrap) {
-    const tiers = { high: 0, medium: 0, low: 0 };
-    for (const nd of nodes) {
-      const t = String(nd.tier || '').toLowerCase();
-      if (tiers[t] !== undefined) tiers[t]++;
-    }
     const legend = document.createElement('div');
     legend.className = 'graph-legend';
     legend.setAttribute('aria-label', 'Graph legend');
@@ -1033,14 +1065,24 @@ function buildGraph(canvas, nodes, edges, onSelect, gwrap) {
       s.className = 'lg-dot'; s.style.background = color;
       return s;
     };
-    for (const [t, c] of [['high', TIER_COLORS.high], ['medium', TIER_COLORS.medium], ['low', TIER_COLORS.low]]) {
+    // One swatch per major cluster, labeled by its hub concept — colors
+    // group related concepts, like a classic knowledge graph.
+    let shown = 0;
+    for (const [c] of _compOrder) {
+      if (shown >= 5 || _compSize.get(c) < 2) break;
+      const hub = _hub.get(c);
+      const hubLabel = hub ? String(hub.label || hub.id) : 'cluster';
       const item = document.createElement('span');
       item.className = 'lg-item';
-      item.append(dot(c), document.createTextNode(t + ' '));
+      item.append(dot(_compColor.get(c)));
+      const nm = document.createElement('span');
+      nm.textContent = (hubLabel.length > 18 ? hubLabel.slice(0, 17) + '…' : hubLabel) + ' ';
+      item.append(nm);
       const cnt = document.createElement('span');
-      cnt.className = 'lg-count'; cnt.textContent = String(tiers[t]);
+      cnt.className = 'lg-count'; cnt.textContent = String(_compSize.get(c));
       item.append(cnt);
       legend.append(item);
+      shown++;
     }
     const ec = document.createElement('span');
     ec.className = 'lg-item';
@@ -1082,42 +1124,64 @@ function buildGraph(canvas, nodes, edges, onSelect, gwrap) {
     const h = canvas.height / (window.devicePixelRatio || 1);
     ctx.clearRect(0, 0, w, h);
 
-    // edges first
+    // edges first: thin lines with arrowheads pointing at the target,
+    // drawn from circle edge to circle edge
     for (const e of edgeList) {
       const a = pos.get(e.from), b = pos.get(e.to);
       if (!a || !b) continue;
       const sa = w2s(a), sb = w2s(b);
       if ((sa.x < -60 && sb.x < -60) || (sa.x > w + 60 && sb.x > w + 60) ||
           (sa.y < -60 && sb.y > h + 60) || (sa.y > h + 60 && sb.y < -60)) continue;
+      const ra = nodeRadius(byId.get(e.from)), rb = nodeRadius(byId.get(e.to));
+      const dx = sb.x - sa.x, dy = sb.y - sa.y;
+      const d = Math.hypot(dx, dy) || 1;
+      const ux = dx / d, uy = dy / d;
+      const x1 = sa.x + ux * ra, y1 = sa.y + uy * ra;
+      const x2 = sb.x - ux * (rb + 4), y2 = sb.y - uy * (rb + 4);
+      const col = e.dead ? 'rgba(120,128,148,0.4)' : 'rgba(150,162,192,0.55)';
       ctx.beginPath();
       if (e.dead) ctx.setLineDash([5, 5]);
-      ctx.moveTo(sa.x, sa.y); ctx.lineTo(sb.x, sb.y);
-      ctx.lineWidth = 1;
-      ctx.strokeStyle = e.dead ? 'rgba(120,128,148,0.35)' : 'rgba(96,108,140,0.55)';
+      ctx.moveTo(x1, y1); ctx.lineTo(x2, y2);
+      ctx.lineWidth = 1.2;
+      ctx.strokeStyle = col;
       ctx.stroke();
       ctx.setLineDash([]);
+      if (!e.dead) {
+        // arrowhead at the target end
+        const ah = 7, ang = Math.atan2(dy, dx), spread = 0.42;
+        ctx.beginPath();
+        ctx.moveTo(x2, y2);
+        ctx.lineTo(x2 - ah * Math.cos(ang - spread), y2 - ah * Math.sin(ang - spread));
+        ctx.moveTo(x2, y2);
+        ctx.lineTo(x2 - ah * Math.cos(ang + spread), y2 - ah * Math.sin(ang + spread));
+        ctx.lineWidth = 1.2;
+        ctx.strokeStyle = col;
+        ctx.stroke();
+      }
     }
 
-    // nodes, biggest/most-connected first so labels declutter by importance
-    const drawnLabels = [];
+    // nodes: solid colored circles (color = cluster), white bold label
+    // inside the circle, truncated to fit — like a classic knowledge graph
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
     for (const nd of ranked) {
       const p = pos.get(nd.id); if (!p) continue;
       const s = w2s(p);
-      if (s.x < -30 || s.x > w + 30 || s.y < -30 || s.y > h + 30) continue;
-      const col = TIER_COLORS[String(nd.tier || '').toLowerCase()] || '#8a93a5';
+      if (s.x < -40 || s.x > w + 40 || s.y < -40 || s.y > h + 40) continue;
+      const col = nodeColor(nd);
       const r = nodeRadius(nd);
       ctx.beginPath();
       ctx.arc(s.x, s.y, nd === selected ? r + 2 : r, 0, Math.PI * 2);
       ctx.fillStyle = col;
       ctx.fill();
-      ctx.lineWidth = 1.5;
-      ctx.strokeStyle = 'rgba(13,15,20,0.85)';
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = 'rgba(8,10,14,0.65)';
       ctx.stroke();
       if (nd === hovered || nd === selected) {
         ctx.beginPath();
         ctx.arc(s.x, s.y, r + 5, 0, Math.PI * 2);
         ctx.strokeStyle = '#d97757';
-        ctx.lineWidth = 2;
+        ctx.lineWidth = 2.5;
         ctx.stroke();
       }
       if (nd === focused && nd !== selected) {
@@ -1129,27 +1193,24 @@ function buildGraph(canvas, nodes, edges, onSelect, gwrap) {
         ctx.stroke();
         ctx.setLineDash([]);
       }
-      // labels: always on, skip only on box overlap
-      const label = String(nd.label || nd.id);
-      const text = label.length > 30 ? label.slice(0, 29) + '…' : label;
-      ctx.font = (nd === selected ? 'bold ' : '') + '11px sans-serif';
-      const tw = ctx.measureText(text).width;
-      // keep labels inside the canvas: flip to the node's left near the
-      // right edge, and nudge vertically away from the top/bottom edges
-      let bx = s.x + r + 5;
-      if (bx + tw > w - 4) bx = s.x - r - 5 - tw;
-      if (bx < 4) bx = 4;
-      const by = Math.max(10, Math.min(h - 14, s.y - 5));
-      let clash = false;
-      for (const o of drawnLabels) {
-        if (bx < o.x + o.w && bx + tw > o.x && by < o.y + o.h && by + 12 > o.y) { clash = true; break; }
+      // label inside the circle
+      const rawLabel = String(nd.label || nd.id);
+      const maxW = r * 1.65;
+      ctx.font = 'bold 11px sans-serif';
+      let text = rawLabel;
+      if (ctx.measureText(text).width > maxW) {
+        text = '';
+        for (const ch of rawLabel) {
+          if (ctx.measureText(text + ch + '…').width > maxW) break;
+          text += ch;
+        }
+        text += '…';
       }
-      if (!clash || nd === hovered || nd === selected) {
-        ctx.fillStyle = nd === selected ? '#e8e6e3' : 'rgba(200,206,220,0.92)';
-        ctx.fillText(text, bx, by + 9);
-        if (!clash) drawnLabels.push({ x: bx, y: by, w: tw, h: 12 });
-      }
+      ctx.fillStyle = 'rgba(255,255,255,0.96)';
+      ctx.fillText(text, s.x, s.y + 0.5);
     }
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
   }
   function schedule() { if (!raf) raf = requestAnimationFrame(draw); }
 
