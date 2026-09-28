@@ -155,7 +155,7 @@ with pytest.raises(LLMResponseError) as excinfo:
     backend.chat([{"role": "user", "content": "hi"}])
 assert "<redacted>" not in str(excinfo.value)
 # after
-SENTINEL = "sk-test-SENTINEL-9f8e7d6c5b4a"  # distinct value; must never appear in logs/errors
+SENTINEL = "sk-test-DOC-EXAMPLE-NOT-A-REAL-KEY"  # distinct value; must never appear in logs/errors
 backend = OpenAICompatibleBackend(
     base_url="http://fake",
     model="m",

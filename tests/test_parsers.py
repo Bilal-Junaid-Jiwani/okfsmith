@@ -5,10 +5,13 @@ no heavy writer dependencies, no network.
 """
 
 import hashlib
+import importlib.util
 import logging
 import warnings
 import zipfile
 from pathlib import Path
+
+import pytest
 
 from okfsmith.core.bundle import Bundle
 from okfsmith.parsers import (
@@ -106,6 +109,16 @@ def test_missing_file_skips(tmp_path: Path):
 
 
 # ---------------------------------------------------------- office ------
+# Office-format parsing needs the `office` extra (MarkItDown). CI's base
+# install only has `[test]`, so these genuinely cannot run there — skip
+# with a clear reason instead of failing on the graceful-degradation path.
+requires_office = pytest.mark.skipif(
+    importlib.util.find_spec("markitdown") is None,
+    reason="office extra not installed",
+)
+
+
+@requires_office
 def test_docx_heading_and_table(tmp_path: Path):
     docx = write_docx(
         tmp_path / "notes.docx",
@@ -123,6 +136,7 @@ def test_docx_heading_and_table(tmp_path: Path):
     ), doc.pages[0].tables
 
 
+@requires_office
 def test_xlsx_per_sheet_pages(tmp_path: Path):
     xlsx = write_xlsx(
         tmp_path / "data.xlsx",
