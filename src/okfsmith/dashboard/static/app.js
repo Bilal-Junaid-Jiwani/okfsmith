@@ -1414,13 +1414,13 @@ ROUTES.chat = function (view) {
     thread.innerHTML = '';
     const logo = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     logo.setAttribute('class', 'welcome-logo');
-    logo.setAttribute('viewBox', '0 0 40 40');
+    logo.setAttribute('viewBox', '0 0 64 64');
     logo.setAttribute('aria-hidden', 'true');
-    logo.innerHTML = '<defs><linearGradient id="okf-gw" x1="0" y1="0" x2="1" y2="1">' +
-      '<stop offset="0" stop-color="#fbbf24"/><stop offset="0.5" stop-color="#d97757"/>' +
-      '<stop offset="1" stop-color="#c026d3"/></linearGradient></defs>' +
-      '<rect x="1.5" y="1.5" width="37" height="37" rx="10" fill="url(#okf-gw)"/>' +
-      '<text x="20" y="26.5" text-anchor="middle" font-family="system-ui,sans-serif" font-size="13.5" font-weight="800" fill="#171310">okf</text>';
+    logo.innerHTML = '<g fill="#D97757">' +
+      '<path d="M4 25 L18 20.5 L46 20.5 Q50 20.5 50 24 L50 25 Q50 28.5 46 28.5 L18 28.5 Z"/>' +
+      '<rect x="29" y="28.5" width="7" height="13"/>' +
+      '<rect x="19" y="41.5" width="27" height="8" rx="2.5"/>' +
+      '<path d="M52 4 l2 4.2 4.2 2 -4.2 2 -2 4.2 -2 -4.2 -4.2 -2 4.2 -2 Z"/></g>';
     const chips = el('div', { class: 'welcome-chips' });
     for (const sug of CHAT_SUGGESTIONS) {
       chips.append(el('button', { class: 'welcome-chip', text: sug, onclick: () => send(sug) }));
