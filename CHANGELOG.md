@@ -5,6 +5,20 @@ follow SemVer.
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-09-29
+
+### Fixed
+- **Dashboard frontend missing from the PyPI wheel:** the 0.5.1 wheel shipped
+  only the dashboard's Python files, so a pip-installed
+  `okfsmith dashboard` showed the "frontend bundle has not been built yet"
+  placeholder instead of the SPA. `[tool.setuptools.package-data]` now
+  includes `okfsmith/dashboard/static/*` in wheels and sdists, with
+  regression tests (`tests/test_packaging.py`) guarding every runtime data
+  directory against the same mistake.
+- **Stale `test_version`:** `tests/test_core_smoke.py::test_version`
+  hardcoded `"0.3.2"` and failed on every release since; it now compares
+  `okfsmith.__version__` against the version declared in `pyproject.toml`.
+
 ## [0.5.1] - 2026-09-28
 
 ### Fixed

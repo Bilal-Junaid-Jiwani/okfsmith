@@ -4,6 +4,16 @@ eyebrow: Troubleshooting
 description: Release history for okfsmith — what changed in each version, what's coming next, and upgrade notes. Follows Keep a Changelog and Semantic Versioning.
 ---
 
+## [0.5.2] — 2026-09-29 {#v0-5-2}
+
+### Fixed {#v0-5-2-fixed}
+
+- **Dashboard frontend missing from the PyPI wheel** — the 0.5.1 wheel
+  shipped only the dashboard's Python files, so a pip-installed
+  `okfsmith dashboard` showed the "frontend bundle has not been built yet"
+  placeholder instead of the SPA. The `okfsmith/dashboard/static/*` bundle
+  now ships in wheels and sdists, guarded by regression tests.
+
 ## [0.5.1] — 2026-09-28 {#v0-5-1}
 
 ### Fixed {#v0-5-1-fixed}
