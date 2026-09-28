@@ -10,6 +10,7 @@ banners, doctor output, or ``/model`` output.
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 
 import httpx
@@ -35,6 +36,19 @@ from okfsmith.extract.llm import (
 
 runner = CliRunner()
 DUMMY_KEY = "test-key-123"
+
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _plain(output: str) -> str:
+    """Strip ANSI escape sequences from CLI output.
+
+    Typer forces rich terminal styling when ``GITHUB_ACTIONS``/``FORCE_COLOR``
+    is set (even under ``CliRunner``), and its option highlighter inserts
+    escape codes *between* the dashes of ``--flags``. Content assertions must
+    therefore run against the plain text, not the raw byte stream.
+    """
+    return _ANSI_RE.sub("", output)
 
 LLM_ENV_VARS = (
     "OKFSMITH_PROVIDER",
@@ -459,7 +473,7 @@ def test_ingest_llm_flags_reject_no_llm(tmp_path: Path) -> None:
             ["ingest", str(tmp_path / "b"), str(src), "--no-llm", flag, "x"],
         )
         assert result.exit_code == 2, (flag, result.output)
-        assert "cannot be combined with --no-llm" in result.output
+        assert "cannot be combined with --no-llm" in _plain(result.output)
 
 
 def test_chat_llm_flags_reject_no_llm(tiny_bundle: Path) -> None:
@@ -467,18 +481,18 @@ def test_chat_llm_flags_reject_no_llm(tiny_bundle: Path) -> None:
         app, ["chat", str(tiny_bundle), "--no-llm", "--provider", "groq"]
     )
     assert result.exit_code == 2
-    assert "cannot be combined with --no-llm" in result.output
+    assert "cannot be combined with --no-llm" in _plain(result.output)
 
 
 def test_chat_help_mentions_provider() -> None:
     result = runner.invoke(app, ["chat", "--help"])
     assert result.exit_code == 0, result.output
-    assert "--provider" in result.output
-    assert "--api-key" in result.output
+    assert "--provider" in _plain(result.output)
+    assert "--api-key" in _plain(result.output)
 
 
 def test_ingest_help_mentions_provider() -> None:
     result = runner.invoke(app, ["ingest", "--help"])
     assert result.exit_code == 0, result.output
-    assert "--provider" in result.output
-    assert "--api-base" in result.output
+    assert "--provider" in _plain(result.output)
+    assert "--api-base" in _plain(result.output)

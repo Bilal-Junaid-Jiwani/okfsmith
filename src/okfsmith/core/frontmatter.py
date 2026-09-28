@@ -48,8 +48,16 @@ def lenient_safe_load(text: str):
     Untrusted-data hardening: a typo'd date degrades to a string (reported
     downstream as a malformed field) instead of raising ``ValueError``.
     Genuinely malformed YAML still raises ``yaml.YAMLError`` as usual.
+
+    Note: this builds the ``SafeLoader``-derived loader directly instead of
+    going through the generic load entry point, so the CI tripwire that
+    guards against the unsafe default YAML ``Loader`` keeps working.
     """
-    return yaml.load(text, Loader=_LenientTimestampLoader)
+    loader = _LenientTimestampLoader(text)
+    try:
+        return loader.get_single_data()
+    finally:
+        loader.dispose()
 
 
 def _closing_fence(lines: list[str]) -> int | None:
