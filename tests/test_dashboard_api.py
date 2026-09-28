@@ -594,7 +594,11 @@ class TestActivity:
         assert isinstance(items, list)
         assert items, "init + ingest wrote real log entries"
         for item in items[:5]:
-            assert set(item) == {"ts", "kind", "message"}
+            assert set(item) == {"ts", "date_only", "kind", "message"}
+            # log.md entries are date-only: the timestamp must be midnight
+            # and honestly flagged so the UI never invents a relative time.
+            assert item["date_only"] is True
+            assert item["ts"].endswith("T00:00:00+00:00")
 
 
 # ---------------------------------------------------------------------- spa --
@@ -610,3 +614,216 @@ class TestSpa:
         r = c.get("/styles.css")
         assert r.status_code == 200
         assert "text/css" in r.headers["content-type"]
+
+
+# ------------------------------------------------------- polish regressions --
+class TestPolishRegressions:
+    """Regression tests for the 2026-09-28 design/functional audit fixes."""
+
+    def test_bundles_list_excludes_non_bundles(self, client, workspace, tmp_path):
+        # A docs-style dir (index.md without okf_version), a hidden dir, and
+        # a plain nested-md dir must never appear as bundles.
+        c, headers = client
+        docs = workspace / "docs"
+        docs.mkdir()
+        (docs / "index.md").write_text("# docs site index\n\nJust documentation.\n", encoding="utf-8")
+        hidden = workspace / ".cache"
+        hidden.mkdir()
+        (hidden / "notes.md").write_text("# hidden notes\n", encoding="utf-8")
+        bundles = c.get("/api/v1/bundles", headers=headers).json()["bundles"]
+        names = [b["name"] for b in bundles]
+        assert names == ["kb"], f"phantom bundles leaked in: {names}"
+
+    def test_bundles_no_ancestor_double_count(self, client, workspace):
+        # The workspace root "looking like a bundle" only because it contains
+        # a real bundle must not double every concept count.
+        c, headers = client
+        # The fixture's ingest source scaffolding must not count as the
+        # root's own bundle content (each test gets a fresh fixture dir).
+        (workspace / "source.md").unlink()
+        (workspace / "index.md").write_text(
+            "---\nokf_version: '0.2'\n---\n\n# Index\n", encoding="utf-8"
+        )
+        bundles = c.get("/api/v1/bundles", headers=headers).json()["bundles"]
+        names = [b["name"] for b in bundles]
+        assert names == ["kb"], f"ancestor double-count: {names}"
+        total = sum(b["concepts"] for b in bundles)
+        concepts = c.get(
+            f"/api/v1/bundles/{_bundle_id(c, headers)}/concepts", headers=headers
+        ).json()["total"]
+        assert total == concepts == 2
+
+    def test_eval_triad_answer_relevancy_mapped(self, client, workspace):
+        # The engine's canonical key is "answer_relevancy"; the dashboard
+        # contract exposes it as "answer_relevance" — it must not read 0.0
+        # forever because of a key mismatch.
+        c, headers = client
+        bid = _bundle_id(c, headers)
+        result = runner.invoke(cli_app, ["eval", str(workspace / "kb"), "--init-sample"])
+        assert result.exit_code == 0, result.output
+        r = c.post("/api/v1/eval/runs", json={"bundle_id": bid}, headers=headers)
+        assert r.status_code == 202
+        run = _wait_for(
+            lambda: c.get(f"/api/v1/eval/runs/{r.json()['run_id']}", headers=headers).json(),
+            timeout=120.0,
+        )
+        assert run["status"] == "done"
+        assert run["triad"]["answer_relevance"] == 1.0
+        for q in run["questions"]:
+            assert q["answer_relevance"] == 1.0
+
+    def test_ingest_rejects_unsupported_file_type(self, client, workspace):
+        c, headers = client
+        before = {b["name"] for b in c.get("/api/v1/bundles", headers=headers).json()["bundles"]}
+        r = c.post(
+            "/api/v1/ingest",
+            headers=headers,
+            files={"files[]": ("evil.exe", b"MZ fake binary", "application/octet-stream")},
+            data={"new_bundle": "junk-should-not-exist", "source_kind": "auto"},
+        )
+        assert r.status_code == 400
+        _error_shape(r.json())
+        assert not (workspace / "junk-should-not-exist").exists()
+        after = {b["name"] for b in c.get("/api/v1/bundles", headers=headers).json()["bundles"]}
+        assert after == before
+
+    def test_ingest_empty_upload_leaves_no_junk_bundle(self, client, workspace):
+        # A zero-byte upload is a 400 before any bundle directory exists.
+        c, headers = client
+        r = c.post(
+            "/api/v1/ingest",
+            headers=headers,
+            files={"files[]": ("nothing.txt", b"", "text/plain")},
+            data={"new_bundle": "empty-junk"},
+        )
+        assert r.status_code == 400
+        _error_shape(r.json())
+        assert not (workspace / "empty-junk").exists(), "junk bundle left behind"
+        names = [b["name"] for b in c.get("/api/v1/bundles", headers=headers).json()["bundles"]]
+        assert "empty-junk" not in names
+
+    def test_ingest_zero_concept_upload_removes_new_bundle(self, client, workspace):
+        # A file too small to section (stub prevention) yields zero concepts;
+        # the just-created bundle dir must be removed again.
+        c, headers = client
+        r = c.post(
+            "/api/v1/ingest",
+            headers=headers,
+            files={"files[]": ("tiny.txt", b"too small", "text/plain")},
+            data={"new_bundle": "tiny-junk"},
+        )
+        assert r.status_code == 202
+        job = _wait_for(
+            lambda: c.get(f"/api/v1/ingest/jobs/{r.json()['job_id']}", headers=headers).json(),
+            timeout=60.0,
+        )
+        assert job["status"] == "done"
+        assert not (workspace / "tiny-junk").exists(), "junk bundle left behind"
+        names = [b["name"] for b in c.get("/api/v1/bundles", headers=headers).json()["bundles"]]
+        assert "tiny-junk" not in names
+
+    def test_ingest_provenance_uses_original_filename(self, client, workspace):
+        # Concept "resource" provenance must be the original upload filename,
+        # never the deleted /tmp staging path.
+        c, headers = client
+        bid = _bundle_id(c, headers)
+        before_ids = {item["id"] for item in c.get(
+            f"/api/v1/bundles/{bid}/concepts", headers=headers).json()["items"]}
+        r = c.post(
+            "/api/v1/ingest",
+            headers=headers,
+            files={"files[]": ("product-handbook.md",
+                               (SOURCE_TEXT + "\n\n## Handbook Addendum\n\n" +
+                                "How vexingly quick daft zebras jump near the handbook. " * 40).encode(),
+                               "text/markdown")},
+            data={"bundle_id": bid},
+        )
+        assert r.status_code == 202
+        job = _wait_for(
+            lambda: c.get(f"/api/v1/ingest/jobs/{r.json()['job_id']}", headers=headers).json(),
+            timeout=60.0,
+        )
+        assert job["status"] == "done", job
+        items = c.get(f"/api/v1/bundles/{bid}/concepts", headers=headers).json()["items"]
+        new_items = [i for i in items if i["id"] not in before_ids]
+        assert new_items, "expected new concepts from the dashboard ingest"
+        resources = [s for item in new_items for s in (item.get("sources") or [])]
+        assert resources, "expected ingested concepts to carry sources"
+        assert all("/tmp/" not in s and "okfsmith-ingest-" not in s for s in resources), resources
+        assert any("product-handbook" in s for s in resources), resources
+
+    def test_ingest_duplicate_reuses_active_job(self, client, workspace, monkeypatch):
+        # Re-submitting the identical ingest while the first job is still
+        # running must reuse it, not stack a redundant job.
+        import threading
+
+        import okfsmith.parsers as parsers
+
+        c, headers = client
+        real_parse = parsers.parse_file
+        started = threading.Event()
+        release = threading.Event()
+
+        def slow_parse(path, *a, **kw):
+            started.set()
+            assert release.wait(timeout=30), "worker was not released"
+            return real_parse(path, *a, **kw)
+
+        monkeypatch.setattr(parsers, "parse_file", slow_parse)
+        payload = {"files[]": ("dup-doc.md", SOURCE_TEXT.encode(), "text/markdown")}
+        try:
+            r1 = c.post("/api/v1/ingest", headers=headers, files=payload,
+                        data={"new_bundle": "dup-target"})
+            assert r1.status_code == 202
+            assert started.wait(timeout=30), "worker never started parsing"
+            r2 = c.post("/api/v1/ingest", headers=headers, files=payload,
+                        data={"new_bundle": "dup-target"})
+            assert r2.status_code == 202
+            assert r2.json().get("reused") is True
+            assert r2.json()["job_id"] == r1.json()["job_id"]
+        finally:
+            release.set()
+
+    def test_settings_put_rejects_unknown_top_level(self, client):
+        c, headers = client
+        r = c.put(
+            "/api/v1/settings",
+            json={"config": {}, "default_provider_typo": "groq"},
+            headers=headers,
+        )
+        assert r.status_code == 400
+        _error_shape(r.json())
+        assert "default_provider_typo" in r.json()["message"]
+
+    def test_job_manager_retention_bounded(self):
+        from okfsmith.dashboard import jobs as dash_jobs
+
+        mgr = dash_jobs.JobManager(max_workers=2)
+        try:
+            def quick(job):
+                job.finish("done")
+
+            submitted = [mgr.submit("ingest", None, quick)
+                         for _ in range(dash_jobs.MAX_RETAINED_JOBS + 50)]
+            deadline = time.time() + 30
+            while any(j.status not in ("done", "error") for j in submitted):
+                assert time.time() < deadline, "jobs did not finish"
+                time.sleep(0.05)
+            assert len(mgr.list()) <= dash_jobs.MAX_RETAINED_JOBS
+        finally:
+            mgr.shutdown()
+
+    def test_graph_edges_carry_dead_flag(self, client):
+        c, headers = client
+        bid = _bundle_id(c, headers)
+        g = c.get(f"/api/v1/bundles/{bid}/graph", headers=headers).json()
+        assert isinstance(g["nodes"], list) and isinstance(g["edges"], list)
+        for e in g["edges"]:
+            assert set(e) == {"from", "to", "dead"}
+            assert isinstance(e["dead"], bool)
+
+    def test_mcp_status_product_copy(self, client):
+        c, headers = client
+        s = c.get("/api/v1/mcp/status", headers=headers).json()
+        assert "BundleTools" not in s["detail"], "implementation detail leaked into product copy"
+        assert "tools" in s["detail"].lower() or "connected" in s["detail"].lower()

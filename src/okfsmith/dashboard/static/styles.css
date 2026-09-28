@@ -50,6 +50,11 @@ body {
   outline-offset: 2px;
   border-radius: 4px;
 }
+/* #view is a programmatic focus target (keyboard nav entry point), not an
+   interactive control — never paint a focus ring around the content area. */
+#view:focus, #view:focus-visible { outline: none !important; }
+/* The API marks hidden blocks with the hidden attribute; hidden must win. */
+[hidden] { display: none !important; }
 
 /* ---------- layout ---------- */
 
@@ -74,6 +79,14 @@ body {
   gap: 12px;
   padding: 20px 18px 18px;
   border-bottom: 1px solid var(--border-soft);
+}
+
+.brand-logo {
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
+  flex: 0 0 38px;
+  box-shadow: 0 4px 14px rgba(217, 119, 87, 0.35);
 }
 
 .brand-mark {
@@ -194,7 +207,7 @@ body {
   padding: 3px 11px;
 }
 
-#view { padding: 26px 28px 60px; max-width: 1280px; width: 100%; margin: 0 auto; }
+#view { padding: 26px 28px 60px; max-width: 1440px; width: 100%; margin: 0 auto; }
 
 /* ---------- generic components ---------- */
 
@@ -375,15 +388,37 @@ table.data tr.clickable { cursor: pointer; }
 .tier-legend .sw { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; }
 
 .activity-feed { display: flex; flex-direction: column; }
-.activity-item { display: flex; gap: 12px; padding: 11px 0; border-bottom: 1px solid var(--border-soft); font-size: 13px; }
 .activity-item:last-child { border-bottom: none; }
-.activity-time { color: var(--muted-dim); font-size: 12px; white-space: nowrap; min-width: 118px; font-variant-numeric: tabular-nums; }
 .activity-kind { flex: 0 0 auto; }
-.activity-msg { color: var(--text); word-break: break-word; }
 
 /* ---------- ingest pipeline ---------- */
 .pipeline { display: flex; align-items: stretch; gap: 0; margin: 22px 0; }
 .pipe-step { flex: 1; position: relative; padding: 16px 12px; background: var(--surface-2); border: 1px solid var(--border-soft); text-align: center; min-width: 0; }
+/* Connector chevrons between stages so the pipeline reads as one connected
+   workflow, not five disconnected labels. */
+.pipe-step:not(:last-child)::after {
+  content: "›";
+  position: absolute;
+  right: -11px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 22px;
+  height: 22px;
+  line-height: 20px;
+  text-align: center;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--muted-dim);
+  background: var(--bg);
+  border: 1px solid var(--border-soft);
+  border-radius: 50%;
+  z-index: 2;
+}
+.pipe-step[data-state="running"]:not(:last-child)::after,
+.pipe-step[data-state="done"]:not(:last-child)::after {
+  color: var(--accent);
+  border-color: rgba(217, 119, 87, 0.5);
+}
 .pipe-step:first-child { border-radius: 12px 0 0 12px; }
 .pipe-step:last-child { border-radius: 0 12px 12px 0; }
 .pipe-step + .pipe-step { border-left: none; }
@@ -447,9 +482,25 @@ table.data tr.clickable { cursor: pointer; }
 .graph-wrap { flex: 1; min-width: 0; position: relative; background: var(--surface); border: 1px solid var(--border-soft); border-radius: var(--radius-lg); overflow: hidden; }
 #graph-canvas { display: block; width: 100%; height: 560px; cursor: grab; }
 #graph-canvas:active { cursor: grabbing; }
-.graph-toolbar { position: absolute; top: 12px; left: 12px; display: flex; gap: 8px; z-index: 2; }
+#graph-canvas:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.graph-zoom { position: absolute; top: 12px; right: 12px; display: flex; gap: 6px; z-index: 2; }
+.graph-zoom button {
+  width: 30px; height: 30px; border-radius: 8px; border: 1px solid var(--border);
+  background: rgba(21, 25, 35, 0.92); color: var(--text); font-size: 15px; font-weight: 700;
+  cursor: pointer; line-height: 1; padding: 0;
+}
+.graph-zoom button:hover { border-color: var(--accent); color: var(--accent-hover); }
+.graph-legend {
+  position: absolute; bottom: 12px; left: 14px; z-index: 2;
+  display: flex; gap: 14px; align-items: center; flex-wrap: wrap;
+  background: rgba(13, 15, 20, 0.88); border: 1px solid var(--border-soft);
+  border-radius: 10px; padding: 8px 14px; font-size: 11.5px; color: var(--muted);
+}
+.graph-legend .lg-item { display: inline-flex; align-items: center; gap: 6px; }
+.graph-legend .lg-dot { width: 10px; height: 10px; border-radius: 50%; }
+.graph-legend .lg-count { color: var(--muted-dim); font-family: var(--mono); font-size: 10.5px; }
 .graph-hint { position: absolute; bottom: 10px; left: 14px; font-size: 11.5px; color: var(--muted-dim); z-index: 2; pointer-events: none; }
-.graph-trunc { position: absolute; top: 12px; right: 12px; z-index: 2; }
+.graph-trunc { position: absolute; top: 50px; right: 12px; z-index: 2; }
 
 .detail-panel { width: 340px; flex: 0 0 340px; background: var(--surface); border: 1px solid var(--border-soft); border-radius: var(--radius-lg); padding: 20px; overflow-y: auto; max-height: 640px; }
 .detail-panel .dp-title { margin: 0 0 10px; font-size: 16px; font-weight: 700; }
@@ -470,8 +521,36 @@ table.data tr.clickable { cursor: pointer; }
 .search-hit .hit-score { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--muted-dim); }
 
 /* ---------- chat ---------- */
-.chat-layout { display: flex; flex-direction: column; height: calc(100vh - 220px); min-height: 480px; }
-.chat-thread { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; padding: 6px 2px 18px; }
+/* The chat view is a vertical flex column that always fits the viewport:
+   the composer is pinned at the bottom and can never fall below the fold. */
+.chat-view { display: flex; flex-direction: column; height: calc(100vh - 150px); min-height: 480px; }
+.chat-view .page-head, .chat-view .chat-opts, .chat-view .chat-sessions { flex: 0 0 auto; }
+.chat-layout { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.chat-thread { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; padding: 6px 2px 18px; }
+.chat-composer { flex: 0 0 auto; padding-top: 10px; }
+/* Welcome state: centered, Claude Desktop-style, with starter prompts. */
+.chat-welcome { display: flex; flex-direction: column; align-items: center; text-align: center; margin: auto; padding: 30px 20px; max-width: 560px; }
+.chat-welcome .welcome-logo { width: 56px; height: 56px; border-radius: 16px; margin-bottom: 18px; box-shadow: 0 6px 22px rgba(217, 119, 87, 0.4); }
+.chat-welcome h2 { margin: 0 0 8px; font-size: 21px; font-weight: 750; letter-spacing: -0.3px; }
+.chat-welcome p { margin: 0 0 20px; color: var(--muted); font-size: 13.5px; }
+.welcome-chips { display: flex; flex-wrap: wrap; gap: 9px; justify-content: center; }
+.welcome-chip {
+  background: var(--surface-2); border: 1px solid var(--border); color: var(--text);
+  border-radius: 999px; padding: 8px 16px; font-size: 12.5px; font-weight: 550; cursor: pointer;
+  transition: border-color 0.15s ease, transform 0.1s ease;
+}
+.welcome-chip:hover { border-color: var(--accent); transform: translateY(-1px); }
+/* Session history strip. */
+.chat-sessions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+.session-chip {
+  background: var(--surface); border: 1px solid var(--border-soft); color: var(--muted);
+  border-radius: 999px; padding: 5px 13px; font-size: 12px; cursor: pointer; max-width: 220px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.session-chip.active { border-color: var(--accent); color: var(--text); }
+.session-chip:hover { color: var(--text); }
+.session-new { background: none; border: 1px dashed var(--border); color: var(--muted); border-radius: 999px; padding: 5px 13px; font-size: 12px; cursor: pointer; }
+.session-new:hover { color: var(--accent-hover); border-color: var(--accent); }
 .msg { max-width: 82%; padding: 13px 16px; border-radius: 14px; font-size: 13.5px; line-height: 1.6; }
 .msg.user { align-self: flex-end; background: linear-gradient(180deg, #2b3145, #232939); border: 1px solid var(--border); border-bottom-right-radius: 4px; }
 .msg.assistant { align-self: flex-start; background: var(--surface); border: 1px solid var(--border-soft); border-bottom-left-radius: 4px; }
@@ -517,6 +596,12 @@ table.data tr.clickable { cursor: pointer; }
 .tool-card .tool-desc { font-size: 12.5px; color: var(--muted); }
 .tool-card .tool-params { font-family: var(--mono); font-size: 11px; color: var(--muted-dim); margin-top: 8px; word-break: break-word; }
 
+/* Structured write-back form: real fields, with a live JSON preview and an
+   Advanced toggle for the raw JSON the power users asked to keep. */
+.wb-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 12px; }
+.wb-preview-label { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted-dim); font-weight: 700; margin: 14px 0 6px; }
+.wb-advanced { margin-top: 10px; }
+
 .diff-box { font-family: var(--mono); font-size: 12px; white-space: pre-wrap; word-break: break-word; background: var(--bg); border: 1px solid var(--border-soft); border-radius: 8px; padding: 14px; max-height: 300px; overflow-y: auto; }
 .warn-list { margin: 10px 0; padding: 12px 16px; background: var(--amber-dim); border: 1px solid rgba(251,191,36,0.35); border-radius: 8px; color: var(--amber); font-size: 13px; }
 .warn-list ul { margin: 6px 0 0; padding-left: 18px; }
@@ -552,3 +637,17 @@ table.data tr.clickable { cursor: pointer; }
 .section-title { font-size: 15px; font-weight: 700; margin: 26px 0 12px; }
 .section-title:first-child { margin-top: 0; }
 .kbd { font-family: var(--mono); font-size: 11px; background: var(--surface-3); border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 5px; padding: 1px 6px; }
+/* Long identifiers (concept ids, paths) ellipsize instead of truncating
+   mid-string; the full value is always on the title tooltip. */
+.td-id { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: 11.5px; }
+/* "now" pill for temporal Valid-to on live concepts. */
+.pill-now { display: inline-block; background: var(--green-dim); color: var(--green); border: 1px solid rgba(74, 222, 128, 0.35); border-radius: 999px; padding: 2px 10px; font-size: 11px; font-weight: 700; }
+/* Activity feed: message takes the room it needs; the timestamp never wraps. */
+.activity-item { display: flex; gap: 14px; padding: 11px 0; border-bottom: 1px solid var(--border-soft); align-items: baseline; font-size: 13px; }
+.activity-msg { flex: 1; min-width: 0; color: var(--text); overflow-wrap: break-word; }
+.activity-time { flex: 0 0 auto; white-space: nowrap; color: var(--muted-dim); font-size: 12px; font-variant-numeric: tabular-nums; }
+/* Settings summary card. */
+.settings-summary { display: flex; gap: 26px; align-items: center; flex-wrap: wrap; }
+.settings-summary .sum b { font-size: 20px; font-variant-numeric: tabular-nums; }
+.settings-summary .sum span { display: block; font-size: 12px; color: var(--muted); }
+.settings-summary .jump { margin-left: auto; }

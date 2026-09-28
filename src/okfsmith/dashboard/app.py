@@ -14,6 +14,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import tempfile
 import threading
 import time
@@ -137,6 +138,65 @@ def _search_snippet(text: str, query: str, width: int = 220) -> str:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Bundle registry
+# ---------------------------------------------------------------------------
+
+
+_INDEX_VERSION_RE = re.compile(r"okf_version\s*:", re.IGNORECASE)
+_LOG_DAY_RE = re.compile(r"^## \d{4}-\d{2}-\d{2}", re.MULTILINE)
+
+
+def _is_okf_bundle(path: Path) -> bool:
+    """Strict real-bundle test for the dashboard registry.
+
+    The loose CLI ``_looks_like_bundle()`` heuristic (any ``*.md`` anywhere
+    below the directory) is deliberately NOT used here: pointed at a repo
+    checkout it "discovers" ``docs/``, ``src/``, ``.venv/`` and the workspace
+    root itself as phantom bundles. A real OKF bundle carries at least one of:
+    an ``index.md`` whose frontmatter declares ``okf_version``, a ``log.md``
+    in OKF log format (``## YYYY-MM-DD`` day headings with ``* **Kind**:``
+    entries), or a ``.okfsmith/`` ingest-manifest directory.
+    Hidden directories (any ``.*`` path part) are never bundles.
+    """
+    try:
+        if any(part.startswith(".") for part in path.parts):
+            return False
+        index = path / "index.md"
+        if index.is_file():
+            head = index.read_text(encoding="utf-8", errors="replace")[:600]
+            if _INDEX_VERSION_RE.search(head):
+                return True
+        log = path / "log.md"
+        if log.is_file():
+            head = log.read_text(encoding="utf-8", errors="replace")[:1200]
+            if _LOG_DAY_RE.search(head) and "* **" in head:
+                return True
+        if (path / ".okfsmith").is_dir():
+            return True
+    except OSError:
+        return False
+    return False
+
+
+def _md_files_below(root: Path) -> set[Path]:
+    """Resolved ``*.md`` files under *root* (index/log excluded)."""
+    out: set[Path] = set()
+    try:
+        for md in root.rglob("*.md"):
+            name = md.name.lower()
+            if name in ("index.md", "log.md"):
+                continue
+            try:
+                if md.is_file() and not md.is_symlink():
+                    out.add(md.resolve())
+            except OSError:
+                continue
+    except OSError:
+        pass
+    return out
+
+
 class Registry:
     """In-memory ``sha1(abs_path)[:12]`` → bundle dir registry."""
 
@@ -147,22 +207,52 @@ class Registry:
         self.refresh()
 
     def refresh(self) -> None:
-        from okfsmith.cli.commands import _looks_like_bundle
-
-        found: dict[str, Path] = {}
-        candidates = [self.workspace] + sorted(
-            p for p in self.workspace.iterdir() if p.is_dir()
-        )
-        for path in candidates:
+        # Strict OKF bundle detection only (never the loose CLI heuristic),
+        # then drop any candidate that is a strict ancestor of another
+        # candidate without contributing markdown of its own — e.g. the
+        # workspace root "looking like a bundle" only because it contains
+        # a real bundle subdirectory. That used to double-count every
+        # concept (one entry for the parent, one for the child).
+        candidates: list[Path] = []
+        try:
+            roots = [self.workspace] + sorted(
+                p for p in self.workspace.iterdir() if p.is_dir()
+            )
+        except OSError:
+            roots = [self.workspace]
+        for path in roots:
             try:
-                if _looks_like_bundle(path):
-                    resolved = path.resolve()
-                    bid = hashlib.sha1(str(resolved).encode()).hexdigest()[:12]
-                    found[bid] = resolved
+                resolved = path.resolve()
             except OSError:
                 continue
+            if _is_okf_bundle(resolved):
+                candidates.append(resolved)
+        md_sets = {c: _md_files_below(c) for c in candidates}
+        keep: list[Path] = []
+        for cand in candidates:
+            descendants = []
+            for other in candidates:
+                if other == cand:
+                    continue
+                try:
+                    other.relative_to(cand)
+                except ValueError:
+                    continue
+                descendants.append(other)
+            # Drop *cand* when it contributes nothing of its own beyond what
+            # lives inside descendant bundle dirs — e.g. the workspace root
+            # "looking like a bundle" only because it contains a real bundle
+            # subdirectory. That used to double-count every concept (one entry
+            # for the parent, one for the child).
+            dominated = bool(descendants) and not (
+                md_sets[cand] - set().union(*(md_sets[o] for o in descendants))
+            )
+            if not dominated:
+                keep.append(cand)
         with self._lock:
-            self._bundles = found
+            self._bundles = {
+                hashlib.sha1(str(p).encode()).hexdigest()[:12]: p for p in keep
+            }
 
     def get(self, bundle_id: str) -> Path:
         with self._lock:
@@ -420,7 +510,7 @@ def create_app(workspace: Path, token: str) -> FastAPI:
             for n in kept
         ]
         edges = [
-            {"from": e["from"], "to": e["to"]}
+            {"from": e["from"], "to": e["to"], "dead": bool(e.get("dead"))}
             for e in model.get("edges", [])
             if e.get("from") in kept_ids and e.get("to") in kept_ids
         ]
@@ -569,7 +659,16 @@ def create_app(workspace: Path, token: str) -> FastAPI:
             return True
         return path.suffix.lower() in _KIND_SUFFIXES[source_kind]
 
-    def _new_bundle_dir(name: str, workspace: Path) -> Path:
+    def _new_bundle_dir(name: str, workspace: Path) -> tuple[Path, bool]:
+        """Create a new bundle dir; return ``(target, created_new)``.
+
+        New bundles are scaffolded exactly like ``okfsmith init`` (a real
+        ``index.md`` with ``okf_version`` frontmatter plus a ``log.md``
+        creation entry), so they are first-class OKF bundles — never bare
+        directories. ``created_new`` is True when this call created the
+        directory, letting the worker remove it again if the ingest that
+        requested it produced nothing (no junk bundles left behind).
+        """
         slug = re.sub(r"[^A-Za-z0-9._-]+", "-", (name or "").strip()).strip("-")[:80]
         if not slug:
             raise err("bad-request", "'new_bundle' name is empty after sanitizing.",
@@ -578,15 +677,21 @@ def create_app(workspace: Path, token: str) -> FastAPI:
         if target.parent != workspace:
             raise err("bad-request", "Invalid bundle name.", "Use a plain directory name.", 400)
         try:
+            created_new = not target.exists()
             target.mkdir(parents=True, exist_ok=True)
-            index = target / "index.md"
-            if not index.exists():
-                index.write_text(f"# {slug}\n", encoding="utf-8")
+            from okfsmith.core import indexlog as _indexlog
+            from okfsmith.core.bundle import Bundle as _Bundle
+
+            bundle_obj = _Bundle(target)
+            _indexlog.ensure_index(bundle_obj)
+            if created_new:
+                _indexlog.append_log(bundle_obj, kind="Creation",
+                                     message="Bundle created via the okfsmith dashboard.")
         except OSError as exc:
             raise err("bundle-create-failed", f"Cannot create bundle '{slug}': {exc}",
                       "Check the workspace directory is writable.", 500) from None
         registry.refresh()
-        return target
+        return target, created_new
 
     def _ingest_worker(
         job: _jobs.Job,
@@ -597,6 +702,7 @@ def create_app(workspace: Path, token: str) -> FastAPI:
         chunk_size: int | None,
         dry_run: bool,
         staging_dir: Path,
+        created_new_bundle: bool = False,
     ) -> None:
         from functools import partial
 
@@ -699,6 +805,11 @@ def create_app(workspace: Path, token: str) -> FastAPI:
                 job.set_step("embed", "running", label)
                 from okfsmith.parsers import ingest_no_llm as _inm
 
+                # Provenance: the staged filename is the sanitized original
+                # upload name. Record THAT as the concept source — never the
+                # /tmp/ staging path, which is deleted before the job ends
+                # and would otherwise point every citation at a dead file.
+                provenance = path.name
                 created: list[str] = []
                 if chunk_size is not None:
                     # BODY_MAX_CHARS is the real truncation knob inside
@@ -707,11 +818,11 @@ def create_app(workspace: Path, token: str) -> FastAPI:
                         prev = _inm.BODY_MAX_CHARS
                         _inm.BODY_MAX_CHARS = chunk_size
                         try:
-                            created = _inm.ingest_no_llm(target, parsed, str(path))
+                            created = _inm.ingest_no_llm(target, parsed, provenance)
                         finally:
                             _inm.BODY_MAX_CHARS = prev
                 else:
-                    created = _inm.ingest_no_llm(target, parsed, str(path))
+                    created = _inm.ingest_no_llm(target, parsed, provenance)
                 if not created:
                     n_skipped += 1
                     notes.append(f"{label}: no concepts created")
@@ -732,7 +843,7 @@ def create_app(workspace: Path, token: str) -> FastAPI:
 
                 # -- index: real dedup-manifest write -----------------------------------
                 job.set_step("index", "running", label)
-                record_ingested(target, digest, str(path))
+                record_ingested(target, digest, provenance)
                 job.set_step("index", "done", f"{label}: dedup manifest updated")
                 n_ok += 1
                 notes.append(f"{label}: ok ({len(created)} concept(s))")
@@ -762,6 +873,16 @@ def create_app(workspace: Path, token: str) -> FastAPI:
             job.finish("error", detail="; ".join(notes[:5]), error="; ".join(notes[:5]))
         else:
             job.finish("done", detail=detail)
+        # A new bundle that ended up with zero concepts is junk: the ingest
+        # produced nothing (unsupported or empty uploads) and the directory
+        # was created only for this job, so remove it again. A dry run that
+        # *would* create concepts keeps its directory for the real run.
+        if created_new_bundle and n_ok == 0 and would_create == 0:
+            try:
+                if sum(1 for _ in target.iter_concepts()) == 0:
+                    shutil.rmtree(target_root, ignore_errors=True)
+            except OSError:
+                pass
         registry.refresh()
 
     @app.post(f"{API}/ingest", status_code=202)
@@ -793,12 +914,20 @@ def create_app(workspace: Path, token: str) -> FastAPI:
             if chunk < 100:
                 raise err("bad-request", "'chunk_size' must be >= 100.",
                           "It caps concept body characters.", 400)
-        if new_bundle:
-            target_root = _new_bundle_dir(new_bundle, registry.workspace)
-            bid = hashlib.sha1(str(target_root).encode()).hexdigest()[:12]
+        # Reject unsupported uploads BEFORE anything is created: an .exe
+        # (or any suffix outside the ingestable set) is a 400, never a 202
+        # that quietly leaves a zero-concept junk bundle behind.
+        if source_kind == "auto":
+            allowed_suffixes = set().union(*_KIND_SUFFIXES.values())
         else:
-            target_root = registry.get(bundle_id or "")
-            bid = bundle_id or ""
+            allowed_suffixes = _KIND_SUFFIXES[source_kind]
+        for upload in files:
+            suffix = Path(_sanitize_filename(upload.filename, "x")).suffix.lower()
+            if suffix not in allowed_suffixes:
+                raise err("unsupported-file-type",
+                          f"'{upload.filename or suffix or 'file'}' is not an ingestable file type.",
+                          f"Supported for source_kind '{source_kind}': "
+                          f"{', '.join(sorted(allowed_suffixes))}.", 400)
         staging = Path(tempfile.mkdtemp(prefix="okfsmith-ingest-"))
         staged: list[Path] = []
         try:
@@ -815,7 +944,54 @@ def create_app(workspace: Path, token: str) -> FastAPI:
             except OSError:
                 pass
             raise
+        # All-empty uploads are a 400: there is nothing to ingest, and the
+        # bundle directory is only created after this check passes.
+        try:
+            all_empty = all(p.stat().st_size == 0 for p in staged)
+        except OSError:
+            all_empty = False  # let the worker deal with unreadable files
+        if all_empty:
+            for p in staged:
+                try:
+                    p.unlink(missing_ok=True)
+                except OSError:
+                    pass
+            try:
+                staging.rmdir()
+            except OSError:
+                pass
+            raise err("empty-file", "All uploaded files are empty.",
+                      "Upload a file with content to ingest.", 400)
+        if new_bundle:
+            target_root, created_new = _new_bundle_dir(new_bundle, registry.workspace)
+            bid = hashlib.sha1(str(target_root).encode()).hexdigest()[:12]
+        else:
+            target_root = registry.get(bundle_id or "")
+            bid = bundle_id or ""
+            created_new = False
         filenames = [p.name for p in staged]
+        signature = filenames[0] + (f" (+{len(filenames) - 1} more)" if len(filenames) > 1 else "")
+        # A fast double-submit (or the user re-clicking) must not stack a
+        # redundant job: reuse the still-active job for the same bundle and
+        # file signature instead of queueing a duplicate.
+        for existing in job_manager.list("ingest"):
+            if (existing.bundle_id == bid
+                    and existing.status in ("queued", "running")
+                    and existing.extra.get("filename") == signature
+                    and existing.extra.get("source_kind") == source_kind
+                    and bool(existing.extra.get("dry_run", False)) == dry):
+                # The files we just staged are unneeded — clean up before
+                # handing the caller the already-running job.
+                for p in staged:
+                    try:
+                        p.unlink(missing_ok=True)
+                    except OSError:
+                        pass
+                try:
+                    staging.rmdir()
+                except OSError:
+                    pass
+                return {"job_id": existing.job_id, "reused": True}
         job = job_manager.submit(
             "ingest",
             bid,
@@ -823,10 +999,11 @@ def create_app(workspace: Path, token: str) -> FastAPI:
                 j, target_root, staged,
                 source_kind=source_kind, chunk_size=chunk,
                 dry_run=dry, staging_dir=staging,
+                created_new_bundle=created_new,
             ),
             step_names=list(_INGEST_STEPS),
             extra={
-                "filename": filenames[0] + (f" (+{len(filenames) - 1} more)" if len(filenames) > 1 else ""),
+                "filename": signature,
                 "source_kind": source_kind,
                 "dry_run": dry,
                 "n_files": len(filenames),
@@ -1169,10 +1346,12 @@ def create_app(workspace: Path, token: str) -> FastAPI:
             job.finish("error", detail=msg, error=msg)
             return
         means = report.metric_means()
+        # Canonical engine key is "answer_relevancy" (eval/engine.py METRICS);
+        # the dashboard contract keeps the "answer_relevance" output name.
         triad = {
             "context": round(means.get("context_relevancy", 0.0), 4),
             "groundedness": round(means.get("faithfulness", 0.0), 4),
-            "answer_relevance": round(means.get("answer_relevance", 0.0), 4),
+            "answer_relevance": round(means.get("answer_relevancy", 0.0), 4),
         }
         verdict = report.verdict()
         ci_gate = {
@@ -1190,7 +1369,9 @@ def create_app(workspace: Path, token: str) -> FastAPI:
                     "score": round(q.mean(), 4),
                     "context": _score_value(scores, "context_relevancy"),
                     "groundedness": _score_value(scores, "faithfulness"),
-                    "answer_relevance": _score_value(scores, "answer_relevance"),
+                    # Engine key is "answer_relevancy"; contract name stays
+                    # "answer_relevance" (see triad above).
+                    "answer_relevance": _score_value(scores, "answer_relevancy"),
                     "citations": [{"concept_id": rid} for rid in (q.retrieved_ids or [])],
                 }
             )
@@ -1471,9 +1652,9 @@ def create_app(workspace: Path, token: str) -> FastAPI:
             "transport": "in-process",
             "tools": list(_MCP_TOOL_NAMES),
             "detail": (
-                "MCP tools execute in-process via okfsmith.mcp_server.BundleTools "
-                f"(no separate MCP server process needed). fastmcp extra {fastmcp_state}."
+                f"Built-in MCP server · connected · {len(_MCP_TOOL_NAMES)} tools"
             ),
+            "engine": f"in-process (fastmcp extra {fastmcp_state})",
         }
 
     @app.get(f"{API}/mcp/tools")
@@ -1721,6 +1902,15 @@ def create_app(workspace: Path, token: str) -> FastAPI:
         except Exception:
             raise err("bad-json", "Request body must be JSON.", None, 400) from None
         body = body or {}
+        # Top-level keys are a closed contract: unknown fields are a 400,
+        # never silently swallowed (a misspelled "default_provider" that
+        # does nothing is worse than an error).
+        allowed_top = {"config", "default_provider", "secrets"}
+        unknown = [k for k in body if k not in allowed_top]
+        if unknown:
+            raise err("bad-request",
+                      f"Unknown settings field(s): {', '.join(sorted(map(str, unknown)))}.",
+                      f"Allowed: {', '.join(sorted(allowed_top))}.", 400)
         config = body.get("config") or {}
         default_provider = body.get("default_provider")
         secrets = body.get("secrets") or {}
@@ -1765,7 +1955,7 @@ def create_app(workspace: Path, token: str) -> FastAPI:
 
     @app.get(f"{API}/activity")
     async def activity(limit: int = Query(default=20, ge=1, le=200)):
-        items: list[dict[str, str]] = []
+        items: list[dict[str, Any]] = []
         for bid in sorted(registry.list()):
             try:
                 _, root = _load_bundle_or_404(bid)
@@ -1780,9 +1970,14 @@ def create_app(workspace: Path, token: str) -> FastAPI:
                     continue
                 m = re.match(r"\*\s+\*\*(.+?)\*\*:\s*(.*)", line.strip())
                 if m and current_date:
+                    # log.md entries are date-only: there is no time-of-day
+                    # in the file, so emitting a midnight timestamp would
+                    # fabricate a time the event never had. Mark them
+                    # honestly and let the frontend render the plain date.
                     items.append(
                         {
                             "ts": f"{current_date}T00:00:00+00:00",
+                            "date_only": True,
                             "kind": m.group(1).strip(),
                             "message": m.group(2).strip(),
                         }

@@ -176,13 +176,21 @@ function fmtBytes(n) {
 function fmtTime(iso) {
   if (!iso) return '–';
   const d = new Date(iso);
-  return isNaN(d) ? '–' : d.toLocaleString();
+  // Explicit timezone: "Sep 28, 2026, 8:11 PM PKT" instead of an ambiguous
+  // bare locale string.
+  return isNaN(d) ? '–' : d.toLocaleString(undefined, {
+    year: 'numeric', month: 'short', day: 'numeric',
+    hour: 'numeric', minute: '2-digit', timeZoneName: 'short',
+  });
 }
 
-function timeAgo(iso) {
+function timeAgo(iso, dateOnly) {
   if (!iso) return '–';
   const d = new Date(iso);
   if (isNaN(d)) return '–';
+  // log.md entries are date-only: there is no time-of-day, so a relative
+  // "x hours ago" would fabricate precision the data doesn't have.
+  if (dateOnly) return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   const s = Math.floor((Date.now() - d.getTime()) / 1000);
   if (s < 60) return 'just now';
   const m = Math.floor(s / 60);
@@ -208,7 +216,7 @@ function statusPill(status) {
 function tierPill(tier) {
   const t = String(tier || 'unknown').toLowerCase();
   const cls = t === 'high' ? 'pill-green' : t === 'medium' ? 'pill-amber' : t === 'low' ? 'pill-red' : 'pill-muted';
-  return el('span', { class: 'pill ' + cls, text: 'tier: ' + String(tier || 'unknown') });
+  return el('span', { class: 'pill ' + cls, text: String(tier || 'unknown') });
 }
 
 function scoreColor(v) {
@@ -224,11 +232,22 @@ function pageHead(title, sub) {
   return h;
 }
 
+const EMPTY_ICONS = {
+  empty: '<rect x="3" y="7" width="18" height="13" rx="2"/><path d="M3 7l4-4h10l4 4M9 12h6"/>',
+  search: '<circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/>',
+  sync: '<path d="M4 12a8 8 0 0 1 14-5l2 2M20 12a8 8 0 0 1-14 5l-2-2M20 4v5h-5M4 20v-5h5"/>',
+  temporal: '<circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/>',
+  validate: '<circle cx="12" cy="12" r="8"/><path d="M8.5 12.5l2.5 2.5 4.5-5"/>',
+  mcp: '<path d="M9 3h6v4l4 3v11H5V10l4-3z"/><path d="M9 21v-6h6v6"/>',
+  eval: '<path d="M4 20V10M10 20V4M16 20v-8M22 20H2"/>',
+  chat: '<path d="M4 5h16v11H9l-5 4z"/>',
+};
 function emptyState(icon, title, body, actionLabel, actionHref) {
-  const box = el('div', { class: 'empty' },
-    el('div', { class: 'empty-icon', icon: icon || 'empty' }),
-    el('h3', { text: title }),
-    el('p', { text: body }));
+  const box = el('div', { class: 'empty' });
+  const iconBox = el('div', { class: 'empty-icon' });
+  iconBox.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true">'
+    + (EMPTY_ICONS[icon] || EMPTY_ICONS.empty) + '</svg>';
+  box.append(iconBox, el('h3', { text: title }), el('p', { text: body }));
   if (actionLabel && actionHref) {
     box.append(el('a', { class: 'btn btn-primary', href: actionHref, text: actionLabel }));
   }
@@ -350,7 +369,14 @@ async function loadBundles() {
     return;
   }
   for (const b of state.bundles) {
-    sel.append(el('option', { value: b.id, text: b.name + ' (' + (b.concepts || 0) + ' concepts)', selected: b.id === state.bundleId }));
+    // Bundle "name" is the directory name; the full path rides the tooltip
+    // so two same-named bundles stay distinguishable.
+    sel.append(el('option', {
+      value: b.id,
+      text: b.name + ' · ' + (b.concepts || 0) + ' concepts',
+      title: b.path || b.name,
+      selected: b.id === state.bundleId,
+    }));
   }
   if (!state.bundles.find((b) => b.id === state.bundleId)) {
     state.bundleId = state.bundles[0].id;
@@ -374,9 +400,25 @@ function boot() {
   }
   state.token = sessionStorage.getItem('okf-token');
   if (!state.token) {
-    document.getElementById('view').append(
-      emptyState('empty', 'No session token',
-        'This dashboard needs a launch token. Run `okfsmith dashboard` and open the printed URL.'));
+    // A token set late (e.g. pasted into another tab) can recover without a
+    // manual reload: retry re-reads sessionStorage, and hash changes too.
+    const retryBtn = el('button', {
+      class: 'btn btn-primary', text: 'Retry', onclick: () => {
+        document.getElementById('view').innerHTML = '';
+        boot();
+      },
+    });
+    const box = emptyState('empty', 'No session token',
+      'This dashboard needs a launch token. Run `okfsmith dashboard` and open the printed URL.');
+    const wrap = el('div', null, box, el('div', { style: 'margin-top:14px' }, retryBtn));
+    document.getElementById('view').append(wrap);
+    window.addEventListener('hashchange', function tokenRetry() {
+      if (sessionStorage.getItem('okf-token') && !state.token) {
+        window.removeEventListener('hashchange', tokenRetry);
+        document.getElementById('view').innerHTML = '';
+        boot();
+      }
+    });
     return;
   }
   for (const ic of document.querySelectorAll('.nav-icon[data-icon]')) {
@@ -406,6 +448,7 @@ function navigate() {
     a.classList.toggle('active', a.dataset.route === route));
   const view = document.getElementById('view');
   view.innerHTML = '';
+  view.classList.remove('chat-view');
   view.focus({ preventScroll: true });
   try { ROUTES[route](view); } catch (e) {
     view.append(el('div', { class: 'empty' }, el('h3', { text: 'Page error' }), el('p', { text: e.message })));
@@ -442,7 +485,7 @@ ROUTES.overview = async function (view) {
   }), { concepts: 0, sources: 0, size: 0 });
   const stats = [
     ['Bundles', String(bundles.length), false],
-    ['Concepts', totals.concepts.toLocaleString(), true],
+    ['Concepts', totals.concepts.toLocaleString(), false],
     ['Sources', totals.sources.toLocaleString(), false],
     ['Storage', fmtBytes(totals.size), false],
   ];
@@ -476,6 +519,8 @@ ROUTES.overview = async function (view) {
         k + ': ' + tiers[k].toLocaleString()));
     }
     tierCard.append(legend);
+    tierCard.append(el('div', { class: 'muted small mt', style: 'font-size:12px',
+      text: 'Tiers describe source trust and provenance — a low tier is not an error.' }));
   }
 
   actCard.innerHTML = '';
@@ -486,7 +531,7 @@ ROUTES.overview = async function (view) {
     const feed = el('div', { class: 'activity-feed' });
     for (const item of activity) {
       feed.append(el('div', { class: 'activity-item' },
-        el('span', { class: 'activity-time', text: timeAgo(item.ts), title: fmtTime(item.ts) }),
+        el('span', { class: 'activity-time muted small', text: timeAgo(item.ts, item.date_only), title: fmtTime(item.ts) }),
         el('span', { class: 'activity-kind' }, statusPill(item.kind)),
         el('span', { class: 'activity-msg', text: item.message })));
     }
@@ -525,7 +570,7 @@ function renderNewIngestTab(root) {
   }
   bundleField.append(useExisting);
   const newBundleField = el('div', { class: 'form-field' },
-    el('label', { text: '…or new bundle name' }),
+    el('label', { text: 'Or new bundle name' }),
     el('input', { class: 'input', type: 'text', placeholder: 'e.g. project-docs', id: 'new-bundle-name' }));
   root.append(el('div', { class: 'form-row' }, bundleField, newBundleField));
 
@@ -582,15 +627,19 @@ function renderNewIngestTab(root) {
   root.append(uploadBtn, pipeWrap, reportWrap);
 
   function renderPipeline(stepStates) {
-    // stepStates: {name: {state, detail}}
+    // stepStates: {name: {state, detail, elapsed}}
     pipeWrap.innerHTML = '';
     const pipe = el('div', { class: 'pipeline', role: 'status', 'aria-label': 'Ingest pipeline' });
     for (const name of INGEST_STEPS) {
       const s = (stepStates && stepStates[name]) || { state: 'pending', detail: '' };
+      let detail = s.detail || '';
+      if (s.elapsed !== undefined && s.elapsed !== null && (s.state === 'done' || s.state === 'error')) {
+        detail = (detail ? detail + ' · ' : '') + Number(s.elapsed).toFixed(1) + 's';
+      }
       pipe.append(el('div', { class: 'pipe-step', 'data-state': s.state },
         el('div', { class: 'step-dot' }),
         el('div', { class: 'step-name', text: name }),
-        el('div', { class: 'step-detail', text: s.detail || '' })));
+        el('div', { class: 'step-detail', text: detail })));
     }
     pipeWrap.append(pipe);
   }
@@ -616,7 +665,8 @@ function renderNewIngestTab(root) {
     try {
       const r = await api('/ingest', { method: 'POST', form });
       jobId = r.job_id;
-      toast('Ingest job started' + (dryToggle.checked ? ' (dry run)' : '') + '.', 'success');
+      toast(r.reused ? 'That ingest is already running — attached to the active job.'
+                     : 'Ingest job started' + (dryToggle.checked ? ' (dry run)' : '') + '.', 'success');
     } catch (e) {
       toast('Upload failed: ' + e.message, 'error');
       uploadBtn.disabled = false;
@@ -628,13 +678,13 @@ function renderNewIngestTab(root) {
     // seed from job detail if available
     try {
       const job = await api('/ingest/jobs/' + encodeURIComponent(jobId));
-      for (const s of (job.steps || [])) if (steps[s.name]) steps[s.name] = { state: s.state, detail: s.detail || '' };
+      for (const s of (job.steps || [])) if (steps[s.name]) steps[s.name] = { state: s.state, detail: s.detail || '', elapsed: s.elapsed };
       renderPipeline(steps);
     } catch (e) { /* SSE will fill in */ }
     openSSE('/ingest/jobs/' + encodeURIComponent(jobId) + '/events', (ev) => {
       if (ev.__streamError) { toast('Live updates lost: ' + ev.message, 'error'); return; }
       if (ev.step && steps[ev.step]) {
-        steps[ev.step] = { state: ev.state, detail: ev.detail || '' };
+        steps[ev.step] = { state: ev.state, detail: ev.detail || '', elapsed: ev.elapsed };
         renderPipeline(steps);
       }
       if (ev.status) {
@@ -643,7 +693,7 @@ function renderNewIngestTab(root) {
           toast('Ingest finished.', 'success');
           // fetch final detail for dry-run report
           api('/ingest/jobs/' + encodeURIComponent(jobId)).then((job) => {
-            for (const s of (job.steps || [])) if (steps[s.name]) steps[s.name] = { state: s.state, detail: s.detail || '' };
+            for (const s of (job.steps || [])) if (steps[s.name]) steps[s.name] = { state: s.state, detail: s.detail || '', elapsed: s.elapsed };
             renderPipeline(steps);
             if (job.dry_run_report) renderDryRunReport(reportWrap, job.dry_run_report);
             refreshJobHistory(historyWrap);
@@ -688,7 +738,11 @@ async function refreshJobHistory(wrap) {
     return;
   }
   wrap.innerHTML = '';
-  if (!jobs.length) { wrap.append(el('div', { class: 'muted', text: 'No ingest jobs yet.' })); return; }
+  if (!jobs.length) {
+    wrap.append(emptyState('empty', 'No dashboard ingest jobs yet',
+      'Jobs started from this page appear here with live pipeline progress.'));
+    return;
+  }
   const tw = el('div', { class: 'table-wrap' });
   const tb = el('tbody');
   tw.append(el('table', { class: 'data' },
@@ -797,9 +851,9 @@ ROUTES.explore = function (view) {
     let results = [];
     try {
       results = (await api('/search?q=' + encodeURIComponent(q) + '&bundle_id=' + encodeURIComponent(scopeSel.value) + '&limit=25')).results || [];
-    } catch (err) { resultsWrap.innerHTML = ''; resultsWrap.append(el('div', { class: 'muted', text: 'Search failed: ' + err.message })); return; }
+    } catch (err) { resultsWrap.innerHTML = ''; resultsWrap.append(emptyState('search', 'Search failed', err.message)); return; }
     resultsWrap.innerHTML = '';
-    if (!results.length) { resultsWrap.append(el('div', { class: 'muted', text: 'No results for "' + q + '".' })); return; }
+    if (!results.length) { resultsWrap.append(emptyState('search', 'No results', 'Nothing in this bundle matched "' + q + '". Try different keywords.')); return; }
     resultsWrap.append(el('div', { class: 'muted small', text: results.length + ' result' + (results.length === 1 ? '' : 's') }));
     for (const r of results) {
       const hit = el('button', { class: 'search-hit' },
@@ -814,11 +868,9 @@ ROUTES.explore = function (view) {
   const layout = el('div', { class: 'explore-layout' });
   const gwrap = el('div', { class: 'graph-wrap' });
   const canvas = el('canvas', { id: 'graph-canvas' });
-  const toolbar = el('div', { class: 'graph-toolbar' },
-    el('button', { class: 'btn btn-sm', text: 'Reset view', onclick: () => graph && graph.reset() }));
-  const hint = el('div', { class: 'graph-hint', text: 'Drag to pan · scroll to zoom · click a node for details' });
+  const hint = el('div', { class: 'graph-hint', text: 'Drag to pan · scroll to zoom · click a node for details · focus the graph for keyboard controls' });
   const truncBadge = el('span', { class: 'pill pill-amber graph-trunc', hidden: true });
-  gwrap.append(canvas, toolbar, hint, truncBadge);
+  gwrap.append(canvas, hint, truncBadge);
   const panel = el('div', { class: 'detail-panel' },
     el('h3', { text: 'Concept detail' }),
     el('div', { class: 'muted small', text: 'Click a node in the graph to inspect it.' }));
@@ -846,7 +898,7 @@ ROUTES.explore = function (view) {
       ctx.fillText('This bundle has no graph nodes yet.', 20, 30);
       return;
     }
-    graph = buildGraph(canvas, nodes, edges, (node) => showConceptInPanel(panel, bundle.id, node));
+    graph = buildGraph(canvas, nodes, edges, (node) => showConceptInPanel(panel, bundle.id, node), gwrap);
   })();
 };
 
@@ -875,42 +927,136 @@ async function showConceptInPanel(panel, bundleId, node) {
   }
 }
 
-function buildGraph(canvas, nodes, edges, onSelect) {
-  // deterministic component-based layout (O(n))
-  const parent = new Map();
-  const find = (x) => { let p = parent.get(x); if (p === undefined) { parent.set(x, x); return x; } while (parent.get(p) !== p) { parent.set(p, parent.get(parent.get(p))); p = parent.get(p); } return p; };
-  for (const n of nodes) parent.set(n.id, n.id);
-  const nodeIds = new Set(nodes.map((n) => n.id));
+function buildGraph(canvas, nodes, edges, onSelect, gwrap) {
+  // Labeled force-directed knowledge graph.
+  // Layout: deterministic Fruchterman–Reingold for n ≤ 500 (fast enough in
+  // JS: 500² × 110 iterations), degree-sorted golden-spiral for larger
+  // graphs. Labels are always drawn with box-collision decluttering; nodes
+  // have real hit areas, edges are visible, dead links render dashed, and a
+  // legend + zoom controls + keyboard navigation complete the picture.
+  const n = nodes.length;
+  const byId = new Map(nodes.map((nd) => [nd.id, nd]));
+  const degree = new Map();
+  for (const nd of nodes) degree.set(nd.id, 0);
+  const edgeList = [];
   for (const e of edges) {
-    if (!nodeIds.has(e.from) || !nodeIds.has(e.to)) continue;
-    const a = find(e.from), b = find(e.to);
-    if (a !== b) parent.set(a, b);
+    if (!byId.has(e.from) || !byId.has(e.to) || e.from === e.to) continue;
+    edgeList.push(e);
+    degree.set(e.from, degree.get(e.from) + 1);
+    degree.set(e.to, degree.get(e.to) + 1);
   }
-  const comps = new Map();
-  for (const n of nodes) {
-    const r = find(n.id);
-    if (!comps.has(r)) comps.set(r, []);
-    comps.get(r).push(n);
-  }
-  const compList = [...comps.values()].sort((a, b) => b.length - a.length);
-  const cols = Math.max(1, Math.ceil(Math.sqrt(compList.length)));
-  const cell = 460;
+
   const pos = new Map();
-  compList.forEach((comp, ci) => {
-    const cx = (ci % cols) * cell + cell / 2, cy = Math.floor(ci / cols) * cell + cell / 2;
-    const radius = Math.min(cell / 2 - 30, 46 + Math.sqrt(comp.length) * 26);
-    comp.forEach((n, i) => {
-      const ring = Math.floor(i / 10), slot = i % 10;
-      const ang = (slot / 10) * Math.PI * 2 + ring * 0.45 + ci;
-      const r = Math.min(24 + ring * 42, radius);
-      pos.set(n.id, { x: cx + Math.cos(ang) * r + ((i * 37) % 13), y: cy + Math.sin(ang) * r + ((i * 53) % 13) });
+  let seed = 0xC0FFEE;
+  const rand = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+
+  if (n <= 500) {
+    const idx = new Map(nodes.map((nd, i) => [nd.id, i]));
+    const xs = new Float64Array(n), ys = new Float64Array(n);
+    for (let i = 0; i < n; i++) { xs[i] = (rand() - 0.5) * 900; ys[i] = (rand() - 0.5) * 900; }
+    const ei = edgeList.map((e) => [idx.get(e.from), idx.get(e.to)]);
+    const k = 200 * Math.sqrt(120 / Math.max(1, n));
+    let temp = 130;
+    const ITERS = 110;
+    for (let it = 0; it < ITERS; it++) {
+      const dx = new Float64Array(n), dy = new Float64Array(n);
+      for (let i = 0; i < n; i++) {
+        for (let j = i + 1; j < n; j++) {
+          let ddx = xs[i] - xs[j], ddy = ys[i] - ys[j];
+          let d2 = ddx * ddx + ddy * ddy;
+          if (d2 < 1) { ddx = rand() - 0.5; ddy = rand() - 0.5; d2 = ddx * ddx + ddy * ddy + 0.01; }
+          const d = Math.sqrt(d2);
+          const f = (k * k) / d;
+          const fx = (f * ddx) / d, fy = (f * ddy) / d;
+          dx[i] += fx; dy[i] += fy; dx[j] -= fx; dy[j] -= fy;
+        }
+      }
+      for (const [a, b] of ei) {
+        const ddx = xs[a] - xs[b], ddy = ys[a] - ys[b];
+        const d = Math.hypot(ddx, ddy) || 0.01;
+        const f = (d * d) / k;
+        const fx = (f * ddx) / d, fy = (f * ddy) / d;
+        dx[a] -= fx; dy[a] -= fy; dx[b] += fx; dy[b] += fy;
+      }
+      for (let i = 0; i < n; i++) {
+        dx[i] += -xs[i] * 0.01; dy[i] += -ys[i] * 0.01;
+        const dl = Math.hypot(dx[i], dy[i]) || 1;
+        const step = Math.min(dl, temp);
+        xs[i] += (dx[i] / dl) * step; ys[i] += (dy[i] / dl) * step;
+      }
+      temp *= 0.955;
+    }
+    nodes.forEach((nd, i) => pos.set(nd.id, { x: xs[i], y: ys[i] }));
+  } else {
+    // Large graph: degree-sorted golden-angle spiral (O(n), organic spread).
+    const GOLDEN = Math.PI * (3 - Math.sqrt(5));
+    const ordered = [...nodes].sort((a, b) => (degree.get(b.id) || 0) - (degree.get(a.id) || 0));
+    ordered.forEach((nd, i) => {
+      const r = 40 * Math.sqrt(i + 1);
+      const t = i * GOLDEN;
+      pos.set(nd.id, { x: Math.cos(t) * r, y: Math.sin(t) * r });
     });
-  });
+  }
+
+  function nodeRadius(nd) {
+    const d = degree.get(nd.id) || 0;
+    return 6 + Math.min(7, d * 0.9);
+  }
 
   const view = { x: 0, y: 0, k: 1 };
   const ctx = canvas.getContext('2d');
-  let hovered = null, selected = null, dragging = false, moved = false, lx = 0, ly = 0;
+  let hovered = null, selected = null, focused = null;
+  let dragging = false, moved = false, lx = 0, ly = 0;
   let raf = 0;
+  const ranked = [...nodes].sort((a, b) => (degree.get(b.id) || 0) - (degree.get(a.id) || 0));
+  focused = ranked[0] || null;
+
+  // ---- overlays: legend + zoom controls ----
+  if (gwrap) {
+    const tiers = { high: 0, medium: 0, low: 0 };
+    for (const nd of nodes) {
+      const t = String(nd.tier || '').toLowerCase();
+      if (tiers[t] !== undefined) tiers[t]++;
+    }
+    const legend = document.createElement('div');
+    legend.className = 'graph-legend';
+    legend.setAttribute('aria-label', 'Graph legend');
+    const dot = (color) => {
+      const s = document.createElement('span');
+      s.className = 'lg-dot'; s.style.background = color;
+      return s;
+    };
+    for (const [t, c] of [['high', TIER_COLORS.high], ['medium', TIER_COLORS.medium], ['low', TIER_COLORS.low]]) {
+      const item = document.createElement('span');
+      item.className = 'lg-item';
+      item.append(dot(c), document.createTextNode(t + ' '));
+      const cnt = document.createElement('span');
+      cnt.className = 'lg-count'; cnt.textContent = String(tiers[t]);
+      item.append(cnt);
+      legend.append(item);
+    }
+    const ec = document.createElement('span');
+    ec.className = 'lg-item';
+    ec.append(document.createTextNode(nodes.length + ' nodes · ' + edgeList.length + ' links'));
+    legend.append(ec);
+    gwrap.append(legend);
+
+    const zoom = document.createElement('div');
+    zoom.className = 'graph-zoom';
+    const mkBtn = (label, title, fn) => {
+      const b = document.createElement('button');
+      b.type = 'button'; b.textContent = label; b.title = title;
+      b.setAttribute('aria-label', title);
+      b.addEventListener('click', fn);
+      return b;
+    };
+    zoom.append(
+      mkBtn('+', 'Zoom in', () => zoomBy(1.25)),
+      mkBtn('−', 'Zoom out', () => zoomBy(1 / 1.25)),
+      mkBtn('⤾', 'Reset view', reset),
+    );
+    gwrap.append(zoom);
+  }
 
   function resize() {
     const r = canvas.getBoundingClientRect();
@@ -921,49 +1067,124 @@ function buildGraph(canvas, nodes, edges, onSelect) {
     schedule();
   }
   function w2s(p) { return { x: (p.x - view.x) * view.k, y: (p.y - view.y) * view.k }; }
+  function s2w(sx, sy) { return { x: sx / view.k + view.x, y: sy / view.k + view.y }; }
+
   function draw() {
     raf = 0;
-    const w = canvas.width / (window.devicePixelRatio || 1), h = canvas.height / (window.devicePixelRatio || 1);
+    const w = canvas.width / (window.devicePixelRatio || 1);
+    const h = canvas.height / (window.devicePixelRatio || 1);
     ctx.clearRect(0, 0, w, h);
-    ctx.lineWidth = 1;
-    ctx.strokeStyle = 'rgba(60,70,95,0.55)';
-    ctx.beginPath();
-    for (const e of edges) {
+
+    // edges first
+    for (const e of edgeList) {
       const a = pos.get(e.from), b = pos.get(e.to);
       if (!a || !b) continue;
       const sa = w2s(a), sb = w2s(b);
-      if (sa.x < -50 || sa.x > w + 50 || sa.y < -50 || sa.y > h + 50) continue;
-      ctx.moveTo(sa.x, sa.y); ctx.lineTo(sb.x, sb.y);
-    }
-    ctx.stroke();
-    for (const n of nodes) {
-      const p = pos.get(n.id); if (!p) continue;
-      const s = w2s(p);
-      if (s.x < -20 || s.x > w + 20 || s.y < -20 || s.y > h + 20) continue;
-      const col = TIER_COLORS[String(n.tier || '').toLowerCase()] || '#8a93a5';
+      if ((sa.x < -60 && sb.x < -60) || (sa.x > w + 60 && sb.x > w + 60) ||
+          (sa.y < -60 && sb.y > h + 60) || (sa.y > h + 60 && sb.y < -60)) continue;
       ctx.beginPath();
-      ctx.arc(s.x, s.y, n === selected ? 9 : 6, 0, Math.PI * 2);
+      if (e.dead) ctx.setLineDash([5, 5]);
+      ctx.moveTo(sa.x, sa.y); ctx.lineTo(sb.x, sb.y);
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = e.dead ? 'rgba(120,128,148,0.35)' : 'rgba(96,108,140,0.55)';
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    // nodes, biggest/most-connected first so labels declutter by importance
+    const drawnLabels = [];
+    for (const nd of ranked) {
+      const p = pos.get(nd.id); if (!p) continue;
+      const s = w2s(p);
+      if (s.x < -30 || s.x > w + 30 || s.y < -30 || s.y > h + 30) continue;
+      const col = TIER_COLORS[String(nd.tier || '').toLowerCase()] || '#8a93a5';
+      const r = nodeRadius(nd);
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, nd === selected ? r + 2 : r, 0, Math.PI * 2);
       ctx.fillStyle = col;
       ctx.fill();
-      if (n === hovered || n === selected) {
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = 'rgba(13,15,20,0.85)';
+      ctx.stroke();
+      if (nd === hovered || nd === selected) {
         ctx.beginPath();
-        ctx.arc(s.x, s.y, n === selected ? 13 : 10, 0, Math.PI * 2);
+        ctx.arc(s.x, s.y, r + 5, 0, Math.PI * 2);
         ctx.strokeStyle = '#d97757';
         ctx.lineWidth = 2;
         ctx.stroke();
       }
-      if (view.k > 1.15 || n === hovered || n === selected) {
-        ctx.fillStyle = n === selected ? '#e8e6e3' : '#9aa3b2';
-        ctx.font = (n === selected ? 'bold ' : '') + '11px sans-serif';
-        ctx.fillText(n.label || n.id, s.x + 11, s.y + 4);
+      if (nd === focused && nd !== selected) {
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, r + 5, 0, Math.PI * 2);
+        ctx.setLineDash([3, 3]);
+        ctx.strokeStyle = 'rgba(217,119,87,0.7)';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      // labels: always on, skip only on box overlap
+      const label = String(nd.label || nd.id);
+      const text = label.length > 30 ? label.slice(0, 29) + '…' : label;
+      ctx.font = (nd === selected ? 'bold ' : '') + '11px sans-serif';
+      const tw = ctx.measureText(text).width;
+      const bx = s.x + r + 5, by = s.y - 5;
+      let clash = false;
+      for (const o of drawnLabels) {
+        if (bx < o.x + o.w && bx + tw > o.x && by < o.y + o.h && by + 12 > o.y) { clash = true; break; }
+      }
+      if (!clash || nd === hovered || nd === selected) {
+        ctx.fillStyle = nd === selected ? '#e8e6e3' : 'rgba(200,206,220,0.92)';
+        ctx.fillText(text, bx, by + 9);
+        if (!clash) drawnLabels.push({ x: bx, y: by, w: tw, h: 12 });
       }
     }
   }
   function schedule() { if (!raf) raf = requestAnimationFrame(draw); }
 
+  function zoomBy(f, cx, cy) {
+    const r = canvas.getBoundingClientRect();
+    const mx = cx !== undefined ? cx : r.width / 2;
+    const my = cy !== undefined ? cy : 280;
+    const k2 = Math.min(5, Math.max(0.1, view.k * f));
+    view.x = (mx / view.k + view.x) - mx / k2;
+    view.y = (my / view.k + view.y) - my / k2;
+    view.k = k2;
+    schedule();
+  }
+
+  function fitAll() {
+    let minX = 1e9, minY = 1e9, maxX = -1e9, maxY = -1e9;
+    for (const p of pos.values()) {
+      minX = Math.min(minX, p.x); minY = Math.min(minY, p.y);
+      maxX = Math.max(maxX, p.x); maxY = Math.max(maxY, p.y);
+    }
+    const w0 = canvas.getBoundingClientRect().width || 800;
+    view.k = Math.min(1.6, Math.max(0.1, Math.min(w0 / (maxX - minX + 160), 560 / (maxY - minY + 160))));
+    view.x = minX - 60; view.y = minY - 60;
+    schedule();
+  }
+  function reset() { fitAll(); }
+
+  function hitTest(mx, my) {
+    const w = s2w(mx, my);
+    const tol = 18 / view.k;
+    let best = null, bestD = tol;
+    for (const nd of nodes) {
+      const p = pos.get(nd.id); if (!p) continue;
+      const d = Math.hypot(p.x - w.x, p.y - w.y) - nodeRadius(nd) * 0.5;
+      if (d < bestD) { bestD = d; best = nd; }
+    }
+    return best;
+  }
+
+  canvas.setAttribute('tabindex', '0');
+  canvas.setAttribute('role', 'application');
+  canvas.setAttribute('aria-label', 'Knowledge graph. Arrow keys pan, plus and minus zoom, Enter opens the focused concept, brackets cycle concepts.');
+
   canvas.addEventListener('mousedown', (e) => { dragging = true; moved = false; lx = e.clientX; ly = e.clientY; });
   window.addEventListener('mouseup', () => { dragging = false; });
   canvas.addEventListener('mousemove', (e) => {
+    const r = canvas.getBoundingClientRect();
     if (dragging) {
       const dx = e.clientX - lx, dy = e.clientY - ly;
       if (Math.abs(dx) + Math.abs(dy) > 2) moved = true;
@@ -971,8 +1192,9 @@ function buildGraph(canvas, nodes, edges, onSelect) {
       lx = e.clientX; ly = e.clientY;
       schedule();
     } else {
-      const hit = hitTest(e);
+      const hit = hitTest(e.clientX - r.left, e.clientY - r.top);
       hovered = hit;
+      if (hit) focused = hit;
       canvas.style.cursor = hit ? 'pointer' : 'grab';
       schedule();
     }
@@ -981,44 +1203,50 @@ function buildGraph(canvas, nodes, edges, onSelect) {
   canvas.addEventListener('wheel', (e) => {
     e.preventDefault();
     const r = canvas.getBoundingClientRect();
-    const mx = e.clientX - r.left, my = e.clientY - r.top;
-    const k2 = Math.min(4, Math.max(0.12, view.k * (e.deltaY < 0 ? 1.12 : 1 / 1.12)));
-    view.x = (mx / view.k + view.x) - mx / k2;
-    view.y = (my / view.k + view.y) - my / k2;
-    view.k = k2;
-    schedule();
+    zoomBy(e.deltaY < 0 ? 1.15 : 1 / 1.15, e.clientX - r.left, e.clientY - r.top);
   }, { passive: false });
   canvas.addEventListener('click', (e) => {
     if (moved) return;
-    const hit = hitTest(e);
+    const r = canvas.getBoundingClientRect();
+    const hit = hitTest(e.clientX - r.left, e.clientY - r.top);
     selected = hit;
+    if (hit) focused = hit;
     schedule();
     if (hit) onSelect(hit);
   });
-  function hitTest(e) {
-    const r = canvas.getBoundingClientRect();
-    const mx = e.clientX - r.left, my = e.clientY - r.top;
-    const tol = 14 / view.k;
-    let best = null, bestD = tol;
-    for (const n of nodes) {
-      const p = pos.get(n.id); if (!p) continue;
-      const d = Math.hypot(p.x - (mx / view.k + view.x), p.y - (my / view.k + view.y));
-      if (d < bestD) { bestD = d; best = n; }
-    }
-    return best;
-  }
+  canvas.addEventListener('keydown', (e) => {
+    const pan = 60 / view.k;
+    let used = true;
+    if (e.key === 'ArrowLeft') view.x -= pan;
+    else if (e.key === 'ArrowRight') view.x += pan;
+    else if (e.key === 'ArrowUp') view.y -= pan;
+    else if (e.key === 'ArrowDown') view.y += pan;
+    else if (e.key === '+' || e.key === '=') zoomBy(1.25);
+    else if (e.key === '-' || e.key === '_') zoomBy(1 / 1.25);
+    else if (e.key === '0') reset();
+    else if (e.key === '[' || e.key === ']') {
+      const i = ranked.indexOf(focused);
+      focused = ranked[(i + (e.key === ']' ? 1 : -1) + ranked.length) % ranked.length] || null;
+      if (focused) {
+        const p = pos.get(focused.id);
+        const s = w2s(p);
+        const r = canvas.getBoundingClientRect();
+        if (s.x < 0 || s.x > r.width || s.y < 0 || s.y > 560) {
+          view.x = p.x - r.width / 2 / view.k; view.y = p.y - 280 / view.k;
+        }
+      }
+    } else if (e.key === 'Enter') {
+      if (focused) { selected = focused; onSelect(focused); }
+    } else used = false;
+    if (used) { e.preventDefault(); schedule(); }
+  });
 
   new ResizeObserver(resize).observe(canvas);
   resize();
-  // fit all
-  let minX = 1e9, minY = 1e9, maxX = -1e9, maxY = -1e9;
-  for (const p of pos.values()) { minX = Math.min(minX, p.x); minY = Math.min(minY, p.y); maxX = Math.max(maxX, p.x); maxY = Math.max(maxY, p.y); }
-  const w0 = canvas.getBoundingClientRect().width || 800;
-  view.k = Math.min(1.4, Math.max(0.12, Math.min(w0 / (maxX - minX + 120), 560 / (maxY - minY + 120))));
-  view.x = minX - 40; view.y = minY - 40;
-  schedule();
-  return { reset() { view.k = Math.min(1.4, Math.max(0.12, Math.min(w0 / (maxX - minX + 120), 560 / (maxY - minY + 120)))); view.x = minX - 40; view.y = minY - 40; schedule(); } };
+  fitAll();
+  return { reset, zoomIn: () => zoomBy(1.25), zoomOut: () => zoomBy(1 / 1.25) };
 }
+
 
 /* ============================== page: temporal ============================== */
 ROUTES.temporal = function (view) {
@@ -1048,7 +1276,7 @@ ROUTES.temporal = function (view) {
     results.append(skeletonBlock(4));
     let snap;
     try { snap = await api('/bundles/' + encodeURIComponent(bundle.id) + '/snapshot?as_of=' + encodeURIComponent(iso)); }
-    catch (e) { results.innerHTML = ''; results.append(el('div', { class: 'muted', text: 'Snapshot failed: ' + e.message })); return; }
+    catch (e) { results.innerHTML = ''; results.append(emptyState('temporal', 'Snapshot failed', e.message)); return; }
     const concepts = snap.concepts || [];
     results.innerHTML = '';
     results.append(el('div', { class: 'muted small mb', text: concepts.length + ' concepts valid at ' + fmtTime(snap.as_of || iso) }));
@@ -1059,17 +1287,31 @@ ROUTES.temporal = function (view) {
     const colors = { high: 'var(--green)', medium: 'var(--amber)', low: 'var(--red)' };
     for (const k of ['high', 'medium', 'low']) if (tiers[k]) bar.append(el('span', { style: 'width:' + (tiers[k] / concepts.length * 100) + '%;background:' + colors[k], title: k + ': ' + tiers[k] }));
     results.append(bar);
+    const tlegend = el('div', { class: 'tier-legend mb' });
+    for (const k of ['high', 'medium', 'low']) if (tiers[k]) {
+      tlegend.append(el('span', null,
+        el('span', { class: 'sw', style: 'background:' + colors[k] }), k + ': ' + tiers[k]));
+    }
+    results.append(tlegend);
     const tw = el('div', { class: 'table-wrap' });
     const tb = el('tbody');
-    tw.append(el('table', { class: 'data' },
-      el('thead', null, el('tr', null, el('th', { text: 'Concept' }), el('th', { text: 'Tier' }), el('th', { text: 'Valid from' }), el('th', { text: 'Valid to' }))),
-      tb));
+    // Validity columns exist only when at least one concept carries the data;
+    // two always-empty columns are noise, not information.
+    const showFrom = concepts.some((c) => c.valid_from);
+    const showTo = concepts.some((c) => c.valid_to);
+    const headCells = [el('th', { text: 'Concept' }), el('th', { text: 'Tier' })];
+    if (showFrom) headCells.push(el('th', { text: 'Valid from' }));
+    if (showTo) headCells.push(el('th', { text: 'Valid to' }));
+    tw.append(el('table', { class: 'data' }, el('thead', null, el('tr', null, ...headCells)), tb));
     for (const c of concepts) {
-      const row = el('tr', { class: 'clickable' },
-        el('td', { text: c.title }),
-        el('td', null, tierPill(c.tier)),
-        el('td', { class: 'validity', text: c.valid_from ? fmtTime(c.valid_from) : '–' }),
-        el('td', { class: 'validity', text: c.valid_to ? fmtTime(c.valid_to) : 'present' }));
+      const cells = [el('td', { text: c.title }), el('td', null, tierPill(c.tier))];
+      if (showFrom) cells.push(el('td', { class: 'validity', text: c.valid_from ? fmtTime(c.valid_from) : '–' }));
+      if (showTo) {
+        cells.push(el('td', { class: 'validity' },
+          c.valid_to ? el('span', { text: fmtTime(c.valid_to) })
+                     : el('span', { class: 'pill-now', text: 'now', title: 'Still valid — no end date set' })));
+      }
+      const row = el('tr', { class: 'clickable' }, ...cells);
       row.onclick = () => openConceptModal(bundle.id, c.id, c.title);
       tb.append(row);
     }
@@ -1087,13 +1329,20 @@ ROUTES.temporal = function (view) {
 
 /* ============================== page: chat ============================== */
 const SLASH = ['/search', '/read', '/list', '/graph', '/validate'];
+const CHAT_SUGGESTIONS = [
+  'Summarize this bundle',
+  'What are the main concepts?',
+  'Which sources does this bundle cite?',
+  'What are the trust tiers?',
+];
 
 ROUTES.chat = function (view) {
+  view.classList.add('chat-view');
   view.append(pageHead('Chat', 'Grounded answers with citations. Default is no-LLM retrieval; pick a provider preset for model-backed chat.'));
   const bundle = requireBundle(view, 'Chat');
   if (!bundle) return;
 
-  // options row
+  // slim options row
   const provSel = el('select', { class: 'select', 'aria-label': 'Provider preset' },
     el('option', { value: '', text: 'Grounded (no LLM) — default' }));
   const asofInput = el('input', { class: 'input', type: 'datetime-local', 'aria-label': 'Answer as of time (optional)' });
@@ -1104,7 +1353,7 @@ ROUTES.chat = function (view) {
     state.chatAsOf = null;
     view.append(note);
   }
-  const newBtn = el('button', { class: 'btn btn-sm', text: 'New session' });
+  const newBtn = el('button', { class: 'btn btn-sm', text: '+ New session' });
   view.append(el('div', { class: 'chat-opts' },
     el('div', { class: 'form-field' }, el('label', { text: 'Provider' }), provSel),
     el('div', { class: 'form-field' }, el('label', { text: 'As of (optional)' }), asofInput),
@@ -1114,6 +1363,10 @@ ROUTES.chat = function (view) {
     for (const p of (d.providers || [])) provSel.append(el('option', { value: p.id, text: p.name + (p.description ? ' — ' + p.description : '') }));
   }).catch(() => { /* providers optional; grounded mode still works */ });
 
+  // session history strip (this tab's sessions; transcripts kept client-side)
+  const sessStrip = el('div', { class: 'chat-sessions', 'aria-label': 'Chat sessions' });
+  view.append(sessStrip);
+
   const layout = el('div', { class: 'chat-layout' });
   const thread = el('div', { class: 'chat-thread', 'aria-live': 'polite' });
   const slashRow = el('div', { class: 'chat-slash' });
@@ -1122,10 +1375,104 @@ ROUTES.chat = function (view) {
   }
   const input = el('input', { class: 'input', type: 'text', placeholder: 'Ask about this bundle…  (try /search <query>)', 'aria-label': 'Chat message' });
   const sendBtn = el('button', { class: 'btn btn-primary', text: 'Send' });
-  layout.append(thread, slashRow, el('div', { class: 'chat-input-row' }, input, sendBtn));
+  const composer = el('div', { class: 'chat-composer' }, slashRow, el('div', { class: 'chat-input-row' }, input, sendBtn));
+  layout.append(thread, composer);
   view.append(layout);
 
   const chat = state.chat;
+  if (!state.chatSessions) state.chatSessions = [];
+
+  function renderSessions() {
+    sessStrip.innerHTML = '';
+    for (const s of state.chatSessions) {
+      const chip = el('button', {
+        class: 'session-chip' + (chat.sessionId === s.id ? ' active' : ''),
+        text: s.title || 'Session',
+        title: (s.title || 'Session') + ' · ' + fmtTime(s.startedAt),
+        onclick: () => switchSession(s.id),
+      });
+      sessStrip.append(chip);
+    }
+    if (state.chatSessions.length) {
+      sessStrip.append(el('button', { class: 'session-new', text: '+ New', onclick: () => startFresh() }));
+    }
+  }
+
+  function showWelcome() {
+    thread.innerHTML = '';
+    const logo = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    logo.setAttribute('class', 'welcome-logo');
+    logo.setAttribute('viewBox', '0 0 40 40');
+    logo.setAttribute('aria-hidden', 'true');
+    logo.innerHTML = '<defs><linearGradient id="okf-gw" x1="0" y1="0" x2="1" y2="1">' +
+      '<stop offset="0" stop-color="#fbbf24"/><stop offset="0.5" stop-color="#d97757"/>' +
+      '<stop offset="1" stop-color="#c026d3"/></linearGradient></defs>' +
+      '<rect x="1.5" y="1.5" width="37" height="37" rx="10" fill="url(#okf-gw)"/>' +
+      '<text x="20" y="26.5" text-anchor="middle" font-family="system-ui,sans-serif" font-size="13.5" font-weight="800" fill="#171310">okf</text>';
+    const chips = el('div', { class: 'welcome-chips' });
+    for (const sug of CHAT_SUGGESTIONS) {
+      chips.append(el('button', { class: 'welcome-chip', text: sug, onclick: () => send(sug) }));
+    }
+    thread.append(el('div', { class: 'chat-welcome' },
+      logo,
+      el('h2', { text: 'What do you want to know?' }),
+      el('p', { text: 'Ask anything about "' + bundle.name + '" — every answer is grounded in the bundle with citations.' }),
+      chips));
+  }
+
+  function renderTranscript(sess) {
+    thread.innerHTML = '';
+    if (!sess || !sess.transcript.length) { showWelcome(); return; }
+    for (const m of sess.transcript) {
+      if (m.role === 'user') {
+        thread.append(el('div', { class: 'msg user' }, el('div', { class: 'msg-text', text: m.text })));
+      } else {
+        const node = el('div', { class: 'msg assistant' }, el('div', { class: 'msg-text', text: m.text }));
+        if (m.citations && m.citations.length) node.append(citationChips(m.citations));
+        thread.append(node);
+      }
+    }
+    thread.scrollTop = thread.scrollHeight;
+  }
+
+  function activeSession() {
+    return state.chatSessions.find((s) => s.id === chat.sessionId) || null;
+  }
+
+  function switchSession(id) {
+    const s = state.chatSessions.find((x) => x.id === id);
+    if (!s) return;
+    chat.sessionId = s.id; chat.bundleId = s.bundleId;
+    chat.provider = s.provider; chat.asOf = s.asOf;
+    provSel.value = s.provider || '';
+    renderTranscript(s);
+    renderSessions();
+  }
+
+  async function startFresh() {
+    if (chat.sessionId) { try { await api('/chat/sessions/' + encodeURIComponent(chat.sessionId), { method: 'DELETE' }); } catch (e) {} }
+    chat.sessionId = null; chat.bundleId = null;
+    showWelcome();
+    renderSessions();
+    toast('Session cleared — a new one starts on your next message.', 'success');
+  }
+
+  newBtn.onclick = startFresh;
+
+  function citationChips(citations) {
+    const cites = el('div', { class: 'citations' });
+    for (const c of citations) {
+      const chip = el('button', { class: 'cite-chip', text: c.title || c.concept_id, title: (c.snippet || '') + '\nSources: ' + (c.sources || []).join(', ') });
+      chip.onclick = () => openConceptModal(bundle.id, c.concept_id, c.title);
+      cites.append(chip);
+    }
+    return cites;
+  }
+
+  function recordMsg(sess, role, text, citations) {
+    sess.transcript.push({ role, text, citations: citations || [] });
+  }
+
   function threadMsg(cls, textNode) {
     const m = el('div', { class: 'msg ' + cls }, el('div', { class: 'msg-text', text: textNode }));
     thread.append(m);
@@ -1133,52 +1480,58 @@ ROUTES.chat = function (view) {
     return m;
   }
 
-  async function ensureSession() {
-    if (chat.sessionId && chat.bundleId === bundle.id) return chat.sessionId;
+  async function ensureSession(firstMsg) {
+    let sess = activeSession();
+    if (sess && sess.bundleId === bundle.id) return sess;
     if (chat.sessionId) { try { await api('/chat/sessions/' + encodeURIComponent(chat.sessionId), { method: 'DELETE' }); } catch (e) {} }
     const asOf = asofInput.value ? new Date(asofInput.value).toISOString() : null;
     const r = await api('/chat/sessions', { method: 'POST', json: { bundle_id: bundle.id, provider: provSel.value || null, as_of: asOf } });
-    chat.sessionId = r.session_id; chat.bundleId = bundle.id;
-    chat.provider = provSel.value || null; chat.asOf = asOf;
-    threadMsg('assistant', 'Session started on "' + bundle.name + '"' +
-      (chat.provider ? ' with provider "' + provSel.selectedOptions[0].textContent.split(' — ')[0] + '"' : ' (grounded, no LLM)') +
+    sess = {
+      id: r.session_id, bundleId: bundle.id,
+      provider: provSel.value || null, asOf,
+      title: (firstMsg || 'Session').slice(0, 42),
+      startedAt: new Date().toISOString(),
+      transcript: [],
+    };
+    state.chatSessions.unshift(sess);
+    if (state.chatSessions.length > 12) state.chatSessions.length = 12;
+    chat.sessionId = sess.id; chat.bundleId = bundle.id;
+    chat.provider = sess.provider; chat.asOf = asOf;
+    recordMsg(sess, 'assistant', 'Session started on "' + bundle.name + '"' +
+      (sess.provider ? ' with provider "' + provSel.selectedOptions[0].textContent.split(' — ')[0] + '"' : ' (grounded, no LLM)') +
       (asOf ? ' as of ' + fmtTime(asOf) : '') + '.');
-    return chat.sessionId;
+    renderTranscript(sess);
+    renderSessions();
+    return sess;
   }
-
-  newBtn.onclick = async () => {
-    if (chat.sessionId) { try { await api('/chat/sessions/' + encodeURIComponent(chat.sessionId), { method: 'DELETE' }); } catch (e) {} }
-    chat.sessionId = null; chat.bundleId = null;
-    thread.innerHTML = '';
-    toast('Session cleared — a new one starts on your next message.', 'success');
-  };
 
   async function send(text) {
     const msg = (text || '').trim();
     if (!msg || chat.busy) return;
     if (msg.startsWith('/')) { runSlash(msg, bundle); input.value = ''; return; }
     chat.busy = true; sendBtn.disabled = true;
+    let sess;
+    try { sess = await ensureSession(msg); }
+    catch (e) { chat.busy = false; sendBtn.disabled = false; toast('Could not start session: ' + e.message, 'error'); return; }
+    if (!sess.transcript.length || thread.querySelector('.chat-welcome')) renderTranscript(sess);
+    recordMsg(sess, 'user', msg);
     threadMsg('user', msg);
     input.value = '';
     const typing = threadMsg('assistant', '');
     typing.firstChild.append(el('span', { class: 'typing' }, el('span'), el('span'), el('span')));
     try {
-      const sid = await ensureSession();
-      const r = await api('/chat/sessions/' + encodeURIComponent(sid) + '/messages', { method: 'POST', json: { message: msg } });
+      const r = await api('/chat/sessions/' + encodeURIComponent(sess.id) + '/messages', { method: 'POST', json: { message: msg } });
       typing.remove();
-      const m = threadMsg('assistant', r.answer || '(empty answer)');
-      if (r.citations && r.citations.length) {
-        const cites = el('div', { class: 'citations' });
-        for (const c of r.citations) {
-          const chip = el('button', { class: 'cite-chip', text: c.title || c.concept_id, title: (c.snippet || '') + '\nSources: ' + (c.sources || []).join(', ') });
-          chip.onclick = () => openConceptModal(bundle.id, c.concept_id, c.title);
-          cites.append(chip);
-        }
-        m.append(cites);
-      }
+      const answer = r.answer || '(empty answer)';
+      const m = threadMsg('assistant', answer);
+      if (r.citations && r.citations.length) m.append(citationChips(r.citations));
+      recordMsg(sess, 'assistant', answer, r.citations || []);
+      renderSessions();
     } catch (e) {
       typing.remove();
-      threadMsg('assistant', 'Error: ' + e.message);
+      const errText = 'Error: ' + e.message;
+      threadMsg('assistant', errText);
+      recordMsg(sess, 'assistant', errText);
     }
     chat.busy = false; sendBtn.disabled = false;
     thread.scrollTop = thread.scrollHeight;
@@ -1189,6 +1542,10 @@ ROUTES.chat = function (view) {
   async function runSlash(cmd, b) {
     const [name, ...rest] = cmd.trim().split(/\s+/);
     const arg = rest.join(' ');
+    let sess = activeSession();
+    if (!sess || sess.bundleId !== b.id) { try { sess = await ensureSession(cmd.trim()); } catch (e) { toast('Could not start session: ' + e.message, 'error'); return; } }
+    if (thread.querySelector('.chat-welcome')) renderTranscript(sess);
+    recordMsg(sess, 'user', cmd.trim());
     threadMsg('user', cmd.trim());
     const m = threadMsg('assistant', '');
     m.firstChild.textContent = 'Working…';
@@ -1198,43 +1555,52 @@ ROUTES.chat = function (view) {
         const r = await api('/search?q=' + encodeURIComponent(arg) + '&bundle_id=' + encodeURIComponent(b.id) + '&limit=10');
         const res = r.results || [];
         m.firstChild.textContent = res.length ? res.length + ' result(s) for "' + arg + '":' : 'No results for "' + arg + '".';
-        const cites = el('div', { class: 'citations' });
-        for (const c of res) {
-          const chip = el('button', { class: 'cite-chip', text: c.title });
-          chip.onclick = () => openConceptModal(c.bundle_id || b.id, c.concept_id, c.title);
-          cites.append(chip);
-        }
-        if (res.length) m.append(cites);
+        const chips = res.map((c) => ({ concept_id: c.concept_id, title: c.title, snippet: c.snippet, sources: [] }));
+        if (res.length) m.append(citationChips(chips));
+        recordMsg(sess, 'assistant', m.firstChild.textContent, chips);
       } else if (name === '/read') {
         if (!arg) throw new Error('Usage: /read <concept-id>');
         const c = await api('/bundles/' + encodeURIComponent(b.id) + '/concepts/' + encodeURIComponent(arg));
-        m.firstChild.textContent = c.title + '\n\n' + (c.body || '(empty body)').slice(0, 2000);
+        const txt = c.title + '\n\n' + (c.body || '(empty body)').slice(0, 2000);
+        m.firstChild.textContent = txt;
+        recordMsg(sess, 'assistant', txt);
       } else if (name === '/list') {
         const r = await api('/bundles/' + encodeURIComponent(b.id) + '/concepts?page=1&per_page=25');
         const items = r.items || [];
-        m.firstChild.textContent = 'First ' + items.length + ' of ' + r.total + ' concepts:';
-        const cites = el('div', { class: 'citations' });
-        for (const c of items) {
-          const chip = el('button', { class: 'cite-chip', text: c.title });
-          chip.onclick = () => openConceptModal(b.id, c.id, c.title);
-          cites.append(chip);
-        }
-        if (items.length) m.append(cites);
+        const txt = 'First ' + items.length + ' of ' + r.total + ' concepts:';
+        m.firstChild.textContent = txt;
+        const chips = items.map((c) => ({ concept_id: c.id, title: c.title, snippet: '', sources: [] }));
+        if (items.length) m.append(citationChips(chips));
+        recordMsg(sess, 'assistant', txt, chips);
       } else if (name === '/graph') {
         m.firstChild.textContent = 'Opening the knowledge graph…';
+        recordMsg(sess, 'assistant', 'Opening the knowledge graph…');
         location.hash = '#/explore';
       } else if (name === '/validate') {
         const r = await api('/validate/runs', { method: 'POST', json: { bundle_id: b.id } });
-        m.firstChild.textContent = 'Validator started (run ' + shortId(r.run_id) + '). See the Validate page for per-rule results.';
+        const txt = 'Validator started (run ' + shortId(r.run_id) + '). See the Validate page for per-rule results.';
+        m.firstChild.textContent = txt;
+        recordMsg(sess, 'assistant', txt);
       } else {
-        m.firstChild.textContent = 'Unknown command. Available: ' + SLASH.join(' ');
+        const txt = 'Unknown command. Available: ' + SLASH.join(' ');
+        m.firstChild.textContent = txt;
+        recordMsg(sess, 'assistant', txt);
       }
     } catch (e) {
-      m.firstChild.textContent = 'Error: ' + e.message;
+      const txt = 'Error: ' + e.message;
+      m.firstChild.textContent = txt;
+      recordMsg(sess, 'assistant', txt);
     }
     thread.scrollTop = thread.scrollHeight;
   }
+
+  // initial paint: welcome for a fresh tab, transcript for a live session
+  const sess0 = activeSession();
+  if (sess0 && sess0.bundleId === bundle.id && sess0.transcript.length) renderTranscript(sess0);
+  else showWelcome();
+  renderSessions();
 };
+
 
 /* ============================== page: validate ============================== */
 ROUTES.validate = function (view) {
@@ -1244,6 +1610,8 @@ ROUTES.validate = function (view) {
 
   const runBtn = el('button', { class: 'btn btn-primary', text: 'Run validator' });
   const results = el('div', { class: 'mt' });
+  results.append(emptyState('validate', 'No validation runs yet',
+    'The §11 validator checks this bundle against the OKF conformance rules and reports per-rule pass, warn, and fail results.'));
   view.append(el('div', { class: 'row-between mb' },
     el('div', { class: 'muted', text: 'Bundle: ' + bundle.name }),
     runBtn), results);
@@ -1336,7 +1704,8 @@ ROUTES.mcp = function (view) {
           s.available ? el('span', { class: 'pill pill-green', text: 'available' }) : el('span', { class: 'pill pill-red', text: 'unavailable' }),
           el('span', { class: 'muted small', style: 'margin-left:10px', text: 'transport: ' + (s.transport || '–') })),
         el('button', { class: 'btn btn-sm', text: 'Refresh', onclick: () => navigate() })),
-      s.detail ? el('div', { class: 'muted small mt', text: s.detail }) : null,
+      s.detail ? el('div', { class: 'mt', text: s.detail }) : null,
+      s.engine ? el('div', { class: 'muted small', style: 'margin-top:4px', text: s.engine }) : null,
       tools.length ? el('div', { class: 'mt' }, el('div', { class: 'muted small mb', text: 'Tools (' + tools.length + '):' }),
         el('div', { style: 'display:flex;flex-wrap:wrap;gap:6px' }, tools.map((t) => el('span', { class: 'src-chip', text: t })))) : null);
   }).catch((e) => { statusCard.innerHTML = ''; statusCard.append(el('h3', { text: 'Server status' }), el('div', { class: 'muted', text: 'Status unavailable: ' + e.message })); });
@@ -1356,28 +1725,89 @@ ROUTES.mcp = function (view) {
     toolsCard.append(grid);
   }).catch((e) => { toolsCard.innerHTML = ''; toolsCard.append(el('h3', { text: 'Tool catalog' }), el('div', { class: 'muted', text: 'Catalog unavailable: ' + e.message })); });
 
-  // write-back flow
+  // write-back flow: structured form with a live JSON preview, plus an
+  // Advanced mode for the raw JSON power users.
   writeCard.append(el('h3', { text: 'Governed write-back' }),
     el('p', { class: 'muted small', text: 'Writes are previewed first. Nothing is written until you explicitly approve.' }));
   const opSel = el('select', { class: 'select' },
     el('option', { value: 'create', text: 'create — new concept' }),
     el('option', { value: 'update', text: 'update — existing concept' }));
   const cidInput = el('input', { class: 'input', type: 'text', placeholder: 'concept id (required for update)' });
-  const payloadInput = el('textarea', { class: 'textarea', placeholder: 'Payload as JSON, e.g. {"title": "...", "body": "...", "tier": "high"}' });
+  const titleInput = el('input', { class: 'input', type: 'text', placeholder: 'e.g. Billing retry policy' });
+  const tierSel = el('select', { class: 'select' },
+    el('option', { value: '', text: 'auto' }),
+    el('option', { value: 'high', text: 'high' }),
+    el('option', { value: 'medium', text: 'medium' }),
+    el('option', { value: 'low', text: 'low' }));
+  const bodyInput = el('textarea', { class: 'textarea', rows: '6', placeholder: 'Concept body in Markdown…' });
+  const sourcesInput = el('input', { class: 'input', type: 'text', placeholder: 'Comma-separated source names or paths (optional)' });
   const previewBtn = el('button', { class: 'btn btn-primary', text: 'Preview write' });
   const previewOut = el('div', { class: 'mt' });
+
+  const jsonPreview = el('div', { class: 'diff-box', 'aria-live': 'polite' });
+  const advancedBox = el('div', { class: 'wb-advanced', hidden: true },
+    el('div', { class: 'form-field' }, el('label', { text: 'Payload (raw JSON)' }),
+      el('textarea', { class: 'textarea mono', rows: '8', id: 'wb-raw-json' })));
+  const advancedToggle = el('button', { class: 'btn btn-ghost btn-sm', text: 'Advanced: edit raw JSON' });
+  const rawJsonInput = () => advancedBox.querySelector('#wb-raw-json');
+
+  function formPayload() {
+    const payload = {};
+    const title = titleInput.value.trim();
+    const body = bodyInput.value.trim();
+    if (title) payload.title = title;
+    if (body) payload.body = body;
+    if (tierSel.value) payload.trust_tier = tierSel.value;
+    const sources = sourcesInput.value.split(',').map((s) => s.trim()).filter(Boolean);
+    if (sources.length) payload.sources = sources;
+    return payload;
+  }
+
+  function syncPreview() {
+    if (!advancedBox.hidden) return; // raw JSON is the source of truth there
+    jsonPreview.textContent = JSON.stringify(formPayload(), null, 2);
+  }
+  for (const node of [titleInput, tierSel, bodyInput, sourcesInput]) {
+    node.addEventListener('input', syncPreview);
+  }
+  advancedToggle.onclick = () => {
+    const opening = advancedBox.hidden;
+    advancedBox.hidden = !opening;
+    advancedToggle.textContent = opening ? 'Advanced: hide raw JSON' : 'Advanced: edit raw JSON';
+    if (opening) {
+      rawJsonInput().value = JSON.stringify(formPayload(), null, 2);
+      jsonPreview.textContent = '(editing raw JSON below)';
+    } else {
+      syncPreview();
+    }
+  };
+
   writeCard.append(
     el('div', { class: 'form-row' },
       el('div', { class: 'form-field' }, el('label', { text: 'Operation' }), opSel),
       el('div', { class: 'form-field' }, el('label', { text: 'Concept ID' }), cidInput)),
-    el('div', { class: 'form-field mb' }, el('label', { text: 'Payload (JSON)' }), payloadInput),
-    previewBtn, previewOut);
+    el('div', { class: 'wb-grid' },
+      el('div', { class: 'form-field' }, el('label', { text: 'Title' }), titleInput),
+      el('div', { class: 'form-field' }, el('label', { text: 'Trust tier' }), tierSel)),
+    el('div', { class: 'form-field mb' }, el('label', { text: 'Body (Markdown)' }), bodyInput),
+    el('div', { class: 'form-field mb' }, el('label', { text: 'Sources' }), sourcesInput),
+    el('div', { class: 'wb-preview-label', text: 'Payload preview' }),
+    jsonPreview,
+    el('div', { class: 'mt' }, advancedToggle),
+    advancedBox,
+    el('div', { class: 'mt' }, previewBtn), previewOut);
+  syncPreview();
 
   previewBtn.onclick = async () => {
     let payload;
-    try { payload = payloadInput.value.trim() ? JSON.parse(payloadInput.value) : {}; }
-    catch (e) { toast('Payload is not valid JSON: ' + e.message, 'error'); return; }
+    if (!advancedBox.hidden) {
+      try { payload = rawJsonInput().value.trim() ? JSON.parse(rawJsonInput().value) : {}; }
+      catch (e) { toast('Payload is not valid JSON: ' + e.message, 'error'); return; }
+    } else {
+      payload = formPayload();
+    }
     if (opSel.value === 'update' && !cidInput.value.trim()) { toast('Concept ID is required for update.', 'error'); return; }
+    if (opSel.value === 'create' && !payload.title && !payload.body) { toast('Give the concept a title or a body.', 'error'); return; }
     previewBtn.disabled = true;
     previewOut.innerHTML = '';
     previewOut.append(skeletonBlock(3));
@@ -1425,7 +1855,11 @@ ROUTES.mcp = function (view) {
     catch (e) { auditCard.innerHTML = ''; auditCard.append(el('h3', { text: 'Audit log' }), el('div', { class: 'muted', text: 'Audit log unavailable: ' + e.message })); return; }
     auditCard.innerHTML = '';
     auditCard.append(el('h3', { text: 'Audit log' }));
-    if (!entries.length) { auditCard.append(el('div', { class: 'muted', text: 'No audit entries yet.' })); return; }
+    if (!entries.length) {
+      auditCard.append(emptyState('mcp', 'No audit entries yet',
+        'Governed write-backs record an immutable entry here with actor, action, and concept.'));
+      return;
+    }
     const tw = el('div', { class: 'table-wrap' });
     const tb = el('tbody');
     tw.append(el('table', { class: 'data' },
@@ -1436,7 +1870,8 @@ ROUTES.mcp = function (view) {
         el('td', { class: 'small', text: fmtTime(en.ts) }),
         el('td', { text: en.actor || '–' }),
         el('td', null, statusPill(en.action)),
-        el('td', { class: 'mono small', text: en.concept_id ? shortId(en.concept_id) : '–' }),
+        // Full id in the tooltip, ellipsized in the cell (never truncated).
+        el('td', { class: 'td-id', text: en.concept_id || '–', title: en.concept_id || '' }),
         el('td', { class: 'small muted', text: en.detail || '–' })));
     }
     auditCard.append(tw);
@@ -1572,7 +2007,7 @@ ROUTES.eval = function (view) {
 
 /* ============================== page: doctor ============================== */
 ROUTES.doctor = function (view) {
-  view.append(pageHead('Doctor', 'Environment and bundle health checks, straight from `okfsmith doctor`.'));
+  view.append(pageHead('Doctor', 'Environment and bundle health checks, straight from the okfsmith doctor CLI.'));
   const rerunBtn = el('button', { class: 'btn btn-primary', text: 'Re-run checks' });
   view.append(el('div', { class: 'row-between mb' }, el('div', { class: 'muted' }), rerunBtn));
   const wrap = el('div', { class: 'card' });
@@ -1624,9 +2059,20 @@ ROUTES.settings = function (view) {
     const providers = data.providers || [];
     const secretsSet = new Set(data.secrets_set || []);
     const config = data.config || {};
+    const defaultProv = providers.find((p) => p.is_default);
+
+    // summary card: what is configured, with a jump to the hidden-ish secrets section
+    const sumCard = el('div', { class: 'card mb' },
+      el('h3', { text: 'Summary' }),
+      el('div', { class: 'settings-summary' },
+        el('div', { class: 'sum' }, el('b', { text: String(secretsSet.size) }), el('span', { text: 'secrets set' })),
+        el('div', { class: 'sum' }, el('b', { text: String(providers.length) }), el('span', { text: 'provider presets' })),
+        el('div', { class: 'sum' }, el('b', { text: defaultProv ? defaultProv.name : '–' }), el('span', { text: 'default provider' })),
+        el('a', { class: 'btn btn-sm jump', href: '#sec-secrets', text: 'Manage secrets ↓' })));
+    wrap.append(sumCard);
 
     // providers
-    const provCard = el('div', { class: 'card mb' }, el('h3', { text: 'Providers' }));
+    const provCard = el('div', { class: 'card mb', id: 'sec-providers' }, el('h3', { text: 'Providers' }));
     if (!providers.length) {
       provCard.append(el('div', { class: 'muted', text: 'No provider presets reported.' }));
     } else {
@@ -1653,7 +2099,7 @@ ROUTES.settings = function (view) {
     wrap.append(provCard);
 
     // config (non-secret key/values as JSON)
-    const cfgCard = el('div', { class: 'card mb' },
+    const cfgCard = el('div', { class: 'card mb', id: 'sec-config' },
       el('h3', { text: 'Configuration' }),
       el('p', { class: 'muted small', text: 'Non-secret settings, edited as JSON. Invalid JSON will be rejected on save.' }));
     const cfgArea = el('textarea', { class: 'textarea', value: JSON.stringify(config, null, 2), style: 'min-height:180px' });
@@ -1661,7 +2107,7 @@ ROUTES.settings = function (view) {
     wrap.append(cfgCard);
 
     // secrets (write-only)
-    const secCard = el('div', { class: 'card mb' },
+    const secCard = el('div', { class: 'card mb', id: 'sec-secrets' },
       el('h3', { text: 'Secrets' }),
       el('p', { class: 'muted small', text: 'Write-only. The server only reports whether a key is set — values are never shown.' }));
     const knownKeys = [...new Set([...secretsSet, 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'OPENROUTER_API_KEY'])];

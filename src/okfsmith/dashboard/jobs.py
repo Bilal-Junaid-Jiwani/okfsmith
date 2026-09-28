@@ -26,6 +26,11 @@ def utc_now_iso() -> str:
 
 TERMINAL_STATUSES = {"done", "error"}
 
+#: Upper bound on retained job records. Active jobs are never evicted;
+#: terminal ones are dropped oldest-first so the in-memory registry cannot
+#: grow without bound over a long dashboard session.
+MAX_RETAINED_JOBS = 200
+
 
 @dataclass
 class Job:
@@ -40,7 +45,7 @@ class Job:
     created_at: str = field(default_factory=utc_now_iso)
     started_at: str | None = None
     finished_at: str | None = None
-    steps: list[dict[str, str]] = field(default_factory=list)
+    steps: list[dict[str, Any]] = field(default_factory=list)
     events: list[dict[str, Any]] = field(default_factory=list)
     extra: dict[str, Any] = field(default_factory=dict)
     _queue: queue.Queue = field(default_factory=queue.Queue, repr=False)
@@ -53,15 +58,42 @@ class Job:
         self._queue.put(event)
 
     def set_step(self, name: str, state: str, detail: str = "") -> None:
-        """Record a step transition and emit it as an SSE event."""
+        """Record a step transition and emit it as an SSE event.
+
+        Transitions into ``running`` stamp ``started_at``; transitions into a
+        terminal step state (``done``/``error``) stamp ``finished_at`` and the
+        elapsed seconds, so the pipeline UI can show real per-step timing.
+        """
+        now = utc_now_iso()
         for step in self.steps:
             if step["name"] == name:
+                if state == "running" and not step.get("started_at"):
+                    step["started_at"] = now
+                if state in ("done", "error"):
+                    if not step.get("started_at"):
+                        step["started_at"] = now
+                    step["finished_at"] = now
+                    try:
+                        start = datetime.fromisoformat(step["started_at"])
+                        end = datetime.fromisoformat(step["finished_at"])
+                        step["elapsed"] = round((end - start).total_seconds(), 2)
+                    except (ValueError, TypeError):
+                        pass
                 step["state"] = state
                 step["detail"] = detail
                 break
         else:
-            self.steps.append({"name": name, "state": state, "detail": detail})
-        self.emit({"step": name, "state": state, "detail": detail})
+            step = {"name": name, "state": state, "detail": detail}
+            if state == "running":
+                step["started_at"] = now
+            if state in ("done", "error"):
+                step["started_at"] = step.get("started_at", now)
+                step["finished_at"] = now
+            self.steps.append(step)
+        self.emit({"step": name, "state": state, "detail": detail,
+                   "started_at": step.get("started_at"),
+                   "finished_at": step.get("finished_at"),
+                   "elapsed": step.get("elapsed")})
 
     def finish(self, status: str, detail: str = "", error: str | None = None) -> None:
         # The terminal event and the status flip happen atomically under the
@@ -117,8 +149,24 @@ class JobManager:
         )
         with self._lock:
             self._jobs[job.job_id] = job
+            self._evict_terminal_locked()
         self._pool.submit(self._run, job, fn)
         return job
+
+    def _evict_terminal_locked(self) -> None:
+        """Drop oldest terminal jobs past the cap. Caller holds ``_lock``.
+
+        Active (queued/running) jobs are never evicted — readers may still
+        be tailing their SSE streams.
+        """
+        if len(self._jobs) <= MAX_RETAINED_JOBS:
+            return
+        terminal = sorted(
+            (j for j in self._jobs.values() if j.status in TERMINAL_STATUSES),
+            key=lambda j: (j.finished_at or j.created_at),
+        )
+        for old in terminal[: len(self._jobs) - MAX_RETAINED_JOBS]:
+            del self._jobs[old.job_id]
 
     def _run(self, job: Job, fn: Callable[[Job], None]) -> None:
         job.status = "running"
@@ -127,6 +175,11 @@ class JobManager:
             fn(job)
         except Exception as exc:  # never leak tracebacks to API consumers
             job.finish("error", detail=str(exc)[:500], error=str(exc)[:500])
+        finally:
+            # Keep the registry bounded even when no further jobs are
+            # submitted: trim terminal jobs right after each completion.
+            with self._lock:
+                self._evict_terminal_locked()
 
     def get(self, job_id: str) -> Job | None:
         with self._lock:
