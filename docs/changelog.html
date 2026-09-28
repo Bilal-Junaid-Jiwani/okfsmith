@@ -93,6 +93,11 @@
       <details class="toc-mobile">
         <summary>On this page</summary>
         <ul class="toc-list">
+<li><a href="#v0-4-0">[0.4.0] — 2026-09-28</a>
+<ul class="toc-sub">
+<li><a href="#unreleased-added">Added</a></li>
+</ul>
+</li>
 <li><a href="#v0-3-0">[0.3.0] — 2026-09-26</a>
 <ul class="toc-sub">
 <li><a href="#v030-added">Added</a></li>
@@ -119,7 +124,21 @@
         </button>
       </div>
       <div class="prose">
-        <h2 id="v0-3-0">[0.3.0] — 2026-09-26</h2>
+        <h2 id="v0-4-0">[0.4.0] — 2026-09-28</h2>
+<h3 id="unreleased-added">Added</h3>
+<ul>
+<li><strong><code>okfsmith sync</code></strong> — incremental sync of a bundle with its sources: SHA-256 change detection, <code>added</code> / <code>updated</code> / <code>renamed</code> / <code>removed</code> handling (renames detected by content hash, updates replace under the same ids — never <code>name-2</code> duplicates), atomic resumable state, <code>--watch</code> polling, <code>--dry-run</code>, <code>--format json</code>. See <a href="syncing.html">Syncing sources</a>.
+</li>
+<li><strong>Temporal knowledge model</strong> — concepts carry <code>valid_from</code> / <code>valid_until</code> validity windows, <code>supersedes</code> replacement chains, and <code>last_verified</code> freshness; retrieval ranks by currency, and <code>--as-of &lt;date&gt;</code> on <code>search</code> / <code>eval</code> replays any instant. Superseded concepts are hidden by default, never deleted. See <a href="temporality.html">Temporal model</a>.
+</li>
+<li><strong>MCP expansion</strong> — four new read tools: <code>traverse</code> (BFS link-graph expansion, depth ≤ 3, cycle-safe), <code>provenance</code> (concept → sources → ingest manifest), <code>diff</code> (bundle vs bundle or vs sync snapshot), plus evidence budgets on every tool (<code>max_chunks</code>, <code>max_tokens</code>, <code>continuation_token</code>) for bounded agent context. See <a href="mcp.html">MCP server</a>.
+</li>
+<li><strong><code>okfsmith eval</code></strong> — golden Q&amp;A eval harness: scores golden sets on the RAG Triad (context relevancy / faithfulness / answer relevancy), diagnoses failures as retrieval vs generation, runs heuristic (keyless) or LLM-judge, and gates CI with <code>--fail-under</code>. See <a href="eval.html">Evaluating bundles</a>.
+</li>
+<li><strong>Governed MCP write-back</strong> — four new tools (<code>preview_write_concept</code>, <code>write_concept</code>, <code>update_concept</code>, <code>audit_log</code>) let agents contribute under code-enforced governance: writes always land at the <code>unverified</code> trust tier, human-reviewed concepts need explicit <code>downgrade_trust</code>, validator-gated, atomic, append-only audited. See <a href="mcp.html">MCP server</a>.
+</li>
+</ul>
+<h2 id="v0-3-0">[0.3.0] — 2026-09-26</h2>
 <h3 id="v030-added">Added</h3>
 <ul>
 <li><strong>Interactive chat REPL</strong> (<code>okfsmith chat</code>) — ask questions over your bundle in natural language, Claude-Code style: citations, slash commands (<code>/search</code>, <code>/read</code>, <code>/validate</code>, <code>/graph</code>, <code>/doctor</code>, …), extractive fallback when no LLM is reachable, and generative answers via Ollama or any OpenAI-compatible provider. See <a href="chat.html">Interactive chat</a>.
@@ -182,6 +201,11 @@
     <aside class="toc" aria-label="On this page">
       <p class="toc-title">On this page</p>
       <ul class="toc-list">
+<li><a href="#v0-4-0">[0.4.0] — 2026-09-28</a>
+<ul class="toc-sub">
+<li><a href="#unreleased-added">Added</a></li>
+</ul>
+</li>
 <li><a href="#v0-3-0">[0.3.0] — 2026-09-26</a>
 <ul class="toc-sub">
 <li><a href="#v030-added">Added</a></li>

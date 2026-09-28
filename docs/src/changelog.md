@@ -4,6 +4,40 @@ eyebrow: Troubleshooting
 description: Release history for okfsmith — what changed in each version, what's coming next, and upgrade notes. Follows Keep a Changelog and Semantic Versioning.
 ---
 
+## [0.4.0] — 2026-09-28 {#v0-4-0}
+
+### Added {#unreleased-added}
+
+- **`okfsmith sync`** — incremental sync of a bundle with its sources:
+  SHA-256 change detection, `added` / `updated` / `renamed` / `removed`
+  handling (renames detected by content hash, updates replace under the
+  same ids — never `name-2` duplicates), atomic resumable state,
+  `--watch` polling, `--dry-run`, `--format json`. See
+  [Syncing sources](syncing.html).
+- **Temporal knowledge model** — concepts carry `valid_from` /
+  `valid_until` validity windows, `supersedes` replacement chains, and
+  `last_verified` freshness; retrieval ranks by currency, and
+  `--as-of <date>` on `search` / `eval` replays any instant. Superseded
+  concepts are hidden by default, never deleted. See
+  [Temporal model](temporality.html).
+- **MCP expansion** — four new read tools: `traverse` (BFS link-graph
+  expansion, depth ≤ 3, cycle-safe), `provenance` (concept → sources →
+  ingest manifest), `diff` (bundle vs bundle or vs sync snapshot), plus
+  evidence budgets on every tool (`max_chunks`, `max_tokens`,
+  `continuation_token`) for bounded agent context. See
+  [MCP server](mcp.html).
+- **`okfsmith eval`** — golden Q&A eval harness: scores golden sets on the
+  RAG Triad (context relevancy / faithfulness / answer relevancy),
+  diagnoses failures as retrieval vs generation, runs heuristic (keyless)
+  or LLM-judge, and gates CI with `--fail-under`. See
+  [Evaluating bundles](eval.html).
+- **Governed MCP write-back** — four new tools (`preview_write_concept`,
+  `write_concept`, `update_concept`, `audit_log`) let agents contribute
+  under code-enforced governance: writes always land at the `unverified`
+  trust tier, human-reviewed concepts need explicit `downgrade_trust`,
+  validator-gated, atomic, append-only audited. See
+  [MCP server](mcp.html).
+
 ## [0.3.0] — 2026-09-26 {#v0-3-0}
 
 ### Added {#v030-added}
