@@ -5,6 +5,16 @@ follow SemVer.
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-09-28
+
+### Fixed
+- **Runtime `__version__` mismatch:** `okfsmith --version` and the chat
+  startup banner reported `0.3.2` because `src/okfsmith/__init__.py` was
+  never bumped in the v0.4.0 release commit (only `pyproject.toml` was).
+  Now `__version__ = "0.4.1"` everywhere; single source of truth kept in
+  sync by the release checklist.
+
+
 ### Added
 - **`okfsmith eval` (P4):** golden-set evaluation harness — the RAG Triad
   (context relevancy, faithfulness, answer relevancy) per question, not just
