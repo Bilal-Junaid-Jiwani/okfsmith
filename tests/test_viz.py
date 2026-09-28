@@ -209,3 +209,36 @@ def test_colorblind_safe_palette_used(tmp_path):
     # Okabe–Ito palette markers; the old hue-hash coloring is gone.
     assert "#E69F00" in text
     assert "hueFor" not in text
+
+
+def test_section_concept_links_resolve_to_target_document(tmp_path):
+    # Regression: a link written in a per-section concept (id "doc/section")
+    # is relative to the source *document*. "guide/related" linking
+    # "other.md" must resolve to the primary concept of document "other",
+    # not to a dead "guide/other" edge.
+    bundle = Bundle(tmp_path / "links")
+    bundle.write_concept(
+        "guide/related", {"type": "note"}, "see [other](other.md)\n"
+    )
+    bundle.write_concept(
+        "other/other", {"type": "note"}, "primary section\n"
+    )
+    bundle.write_concept(
+        "other/appendix", {"type": "note"}, "extra section\n"
+    )
+    text = render_html(bundle.root, tmp_path / "viz.html").read_text(encoding="utf-8")
+    assert '"from":"guide/related","to":"other/other","dead":false' in text
+    assert '"dead":true' not in text
+
+
+def test_section_concept_link_prefers_closest_scope(tmp_path):
+    # When a nested id exists ("docs/other"), it still wins over the
+    # document-level fallback.
+    bundle = Bundle(tmp_path / "links")
+    bundle.write_concept(
+        "docs/guide", {"type": "note"}, "see [other](other.md)\n"
+    )
+    bundle.write_concept("docs/other", {"type": "note"}, "nested doc\n")
+    bundle.write_concept("other/other", {"type": "note"}, "top-level doc\n")
+    text = render_html(bundle.root, tmp_path / "viz.html").read_text(encoding="utf-8")
+    assert '"from":"docs/guide","to":"docs/other","dead":false' in text

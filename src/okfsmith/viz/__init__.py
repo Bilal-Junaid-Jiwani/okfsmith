@@ -153,17 +153,65 @@ def _node_for(concept: Concept) -> dict[str, Any]:
     }
 
 
+def _primary_section_id(
+    ids: set[str], doc_id: str, by_id: dict[str, Any]
+) -> str | None:
+    """Return the primary concept id for a whole-document link target.
+
+    When a markdown link points at a document (``other.md``) that was split
+    into per-section concepts (``other/<section>``), the edge targets the
+    document's primary concept: the section whose slug matches the file stem,
+    else the earliest-generated section, else the first id alphabetically.
+    Returns ``None`` when no concept belongs to that document.
+    """
+    prefix = doc_id + "/"
+    cands = [i for i in ids if i.startswith(prefix)]
+    if not cands:
+        return None
+    stem = doc_id.rsplit("/", 1)[-1]
+    for i in cands:
+        if i.rsplit("/", 1)[-1] == stem:
+            return i
+
+    def _gen_at(i: str) -> str:
+        gen = ((by_id.get(i).frontmatter or {}).get("generated") or {})
+        return str(gen.get("at") or "")
+
+    return sorted(cands, key=lambda i: (_gen_at(i), i))[0]
+
+
 def _build_model(bundle: Bundle) -> dict[str, Any]:
     """Build the ``{"nodes": [...], "edges": [...]}`` model for the template."""
     concepts = list(bundle.iter_concepts())
     nodes = [_node_for(c) for c in concepts]
     ids = {n["id"] for n in nodes}
+    by_id = {c.id: c for c in concepts}
     edges: list[dict[str, Any]] = []
     for concept in concepts:
         seen: set[str] = set()
         for raw in _link_targets(concept.body):
             target = _resolve_target(concept.id, raw)
-            if not target or target == concept.id or target in seen:
+            if not target or target == concept.id:
+                continue
+            if target not in ids:
+                # The link is written relative to the source *document*, but
+                # this concept may be a section of that document (id like
+                # "doc/section"). Walk up the id and, when the target names a
+                # whole document, link to its primary section concept.
+                base = concept.id
+                while "/" in base:
+                    base = base.rpartition("/")[0]
+                    cand = _resolve_target(base, raw)
+                    if not cand or cand == concept.id:
+                        continue
+                    if cand in ids:
+                        target = cand
+                        break
+                    primary = _primary_section_id(ids, cand, by_id)
+                    if primary and primary != concept.id:
+                        target = primary
+                        break
+            if target in seen:
                 continue
             seen.add(target)
             edges.append(
