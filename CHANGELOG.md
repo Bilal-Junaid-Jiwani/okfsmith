@@ -5,6 +5,21 @@ follow SemVer.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-01
+
+### Added
+- **Similarity-based entity resolution in the extraction pipeline:** dedup
+  (`_find_duplicate`) gains a third branch after exact normalized-title match
+  and same-resource match — a Jaccard coefficient over stemmed title tokens
+  (`title_similarity`, reusing the search module's tokenizer + stemmer),
+  merging candidates at similarity ≥ 0.8 with deterministic id tie-breaking.
+  This is the dependency-free, offline-safe stand-in for the embedding
+  similarity the pipeline previously logged as a v1 TODO: no model downloads,
+  no network, reproducible across processes. Exact-match precedence is
+  unchanged; low-overlap titles (e.g. "Incremental Sync" vs
+  "Incremental Sync Guide", 2/3) still stay separate. Covered by
+  `tests/test_extract_similarity.py` (15 tests).
+
 ## [0.5.2] - 2026-09-29
 
 ### Fixed

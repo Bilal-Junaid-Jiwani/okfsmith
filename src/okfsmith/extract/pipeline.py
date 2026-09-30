@@ -11,9 +11,9 @@ Passing drafts get a machine ``verified`` stamp; failures are fixed from the
 critic's corrected JSON or flagged ``needs-review``.
 
 Dedup: a SHA-256 ``source_digest`` in frontmatter skips re-ingest; entity
-resolution (normalized-title match, or same ``resource`` with
-title compatibility) merges duplicates, keeping the richer concept. Embedding
-similarity is a v1 TODO (logged, not implemented).
+resolution (normalized-title match, same ``resource`` with title
+compatibility, then stemmed-token title similarity) merges duplicates,
+keeping the richer concept.
 
 Retroactive linking: after writing, existing concepts whose body mentions a
 new concept's title get a backlink to it (exact normalized-title substring
@@ -35,6 +35,7 @@ from dataclasses import dataclass, field
 from okfsmith.core import indexlog
 from okfsmith.core.bundle import Bundle, Concept, slugify
 from okfsmith.core.spec import utc_now_iso
+from okfsmith.search import tokenize as _search_tokenize
 
 from . import llm as _llm
 from . import prompts as _prompts
@@ -51,6 +52,11 @@ EXTRACT_DIR = "extracted"
 #: Minimum normalized-title length for retroactive backlink matching, to
 #: avoid noise from tiny titles like "AI".
 _MIN_BACKLINK_TITLE_LEN = 4
+
+#: Minimum Jaccard title similarity (0–1) for the similarity branch of
+#: entity resolution to merge two concepts. Deliberately strict: merging is
+#: destructive, so near-ties and low-overlap titles stay separate.
+_MIN_TITLE_SIMILARITY = 0.8
 
 
 @dataclass
@@ -290,16 +296,26 @@ def _already_ingested(bundle: Bundle, digest: str) -> Concept | None:
 def _find_duplicate(
     bundle: Bundle, title: str, resource: str, *, exclude_id: str | None = None
 ) -> Concept | None:
-    """Entity resolution: normalized-title match, or same ``resource``.
+    """Entity resolution: normalized-title match, same ``resource``, or title similarity.
 
-    The same-resource branch is gated on title compatibility (one normalized
-    title containing the other): without that gate, every section of a
-    multi-section document would collapse into a single concept, since they
-    legitimately share ``resource`` (the source document path). The SHA-256
-    ``source_digest`` remains the primary re-ingest guard; embedding
-    similarity is a v1 TODO (logged in :func:`run`).
+    Branches run in precedence order:
+
+    1. Exact normalized-title match (case/punct-insensitive).
+    2. Same ``resource`` gated on title compatibility (one normalized title
+       containing the other): without that gate, every section of a
+       multi-section document would collapse into a single concept, since they
+       legitimately share ``resource`` (the source document path).
+    3. Title similarity: Jaccard coefficient over stemmed title tokens
+       (:func:`title_similarity`), merged when ``>= _MIN_TITLE_SIMILARITY``.
+       This is the dependency-free, deterministic stand-in for the embedding
+       similarity a future version may use — no model downloads, offline-safe,
+       and reproducible across processes.
+
+    The SHA-256 ``source_digest`` remains the primary re-ingest guard.
     """
     norm = normalize_title(title)
+    best: Concept | None = None
+    best_sim = 0.0
     for concept in bundle.iter_concepts():
         if concept.id == exclude_id:
             continue
@@ -315,7 +331,34 @@ def _find_duplicate(
             and (norm in existing_title or existing_title in norm)
         ):
             return concept
+        sim = title_similarity(title, str(fm.get("title") or ""))
+        # Deterministic tie-break: higher similarity wins, then lower id.
+        if sim > best_sim or (
+            sim == best_sim and best is not None and concept.id < best.id
+        ):
+            best, best_sim = concept, sim
+    if best is not None and best_sim >= _MIN_TITLE_SIMILARITY:
+        logger.info(
+            "Merging %r into %r via title similarity (%.2f)",
+            title,
+            best.frontmatter.get("title"),
+            best_sim,
+        )
+        return best
     return None
+
+
+def title_similarity(a: str, b: str) -> float:
+    """Jaccard coefficient over stemmed title tokens (0.0–1.0).
+
+    Uses :func:`okfsmith.search.tokenize` (stopword removal + the small
+    deterministic stemmer) so similarity sees "syncing" and "sync" as the
+    same token. Empty token sets score 0.0. Pure function.
+    """
+    set_a, set_b = set(_search_tokenize(a)), set(_search_tokenize(b))
+    if not set_a or not set_b:
+        return 0.0
+    return len(set_a & set_b) / len(set_a | set_b)
 
 
 def _richness(frontmatter: dict, body: str) -> tuple:
@@ -749,7 +792,9 @@ def run(
         verify,
     )
     logger.debug(
-        "Embedding similarity for entity resolution is a v1 TODO (rule-based only)"
+        "Entity resolution: exact title, same-resource, then stemmed-token "
+        "title similarity (threshold %.2f)",
+        _MIN_TITLE_SIMILARITY,
     )
 
     written: list[str] = []          # concept ids created/merged this run
