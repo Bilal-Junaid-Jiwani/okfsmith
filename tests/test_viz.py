@@ -14,9 +14,10 @@ from okfsmith.viz import render_html
 
 WORKTREE = Path(__file__).resolve().parents[1]
 FIXTURES = WORKTREE / ".contract" / "fixtures"
-# The cs-curriculum example bundle lives in the main repo checkout.
-MAIN_REPO = Path.home() / "workspace" / "projects" / "okfsmith"
-CS_BUNDLE = MAIN_REPO / "examples" / "bundles" / "cs-curriculum"
+# The cs-curriculum example bundle ships in this repo checkout, so the
+# tests use the worktree-relative path (hermetic — no machine-specific
+# HOME layout assumed, unlike the old Path.home() hardcode that broke CI).
+CS_BUNDLE = WORKTREE / "examples" / "bundles" / "cs-curriculum"
 
 
 def _script_link_tags(html_text: str) -> list[str]:
