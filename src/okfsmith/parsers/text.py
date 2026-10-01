@@ -199,6 +199,10 @@ def parse_text_file(path: str | Path) -> ParsedDocument:
     except OSError as exc:
         return _empty(f"{type(exc).__name__}: {exc}", p)
     text = _decode(raw, p)  # binary check + encoding detection (may raise)
+    # Normalize line endings: Windows (\r\n) and legacy Mac (\r) files must
+    # parse identically to Unix files, so frontmatter/section detection sees
+    # clean \n-delimited lines on every platform.
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
     text = _strip_frontmatter(text, p.suffix.lower())
     page = Page(number=1, text=text, tables=markdown_tables(text))
     return ParsedDocument(

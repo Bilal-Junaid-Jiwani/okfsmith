@@ -1041,12 +1041,19 @@ def test_save_sync_state_refuses_symlinked_statedir(tmp_path):
 
 
 def _fs_supports_non_utf8_names(tmp_path) -> bool:
-    """True if the filesystem allows invalid UTF-8 bytes in filenames.
+    """True if surrogate/non-UTF-8 filenames can be exercised on this platform.
 
-    macOS (APFS) requires valid UTF-8 filenames and raises
-    ``OSError: [Errno 92] Illegal byte sequence``; such platforms cannot
-    even create the fixture, so non-UTF-8-filename tests are vacuous there.
+    Two platform gaps are probed: (1) ``os.fsdecode`` must tolerate invalid
+    bytes -- on Windows it raises ``UnicodeDecodeError`` instead of using
+    surrogateescape; (2) the filesystem must allow creating files with
+    invalid UTF-8 names -- macOS (APFS) raises
+    ``OSError: [Errno 92] Illegal byte sequence``. Where either fails the
+    non-UTF-8-filename tests are vacuous and are skipped.
     """
+    try:
+        os.fsdecode(b"\xff\xfe")
+    except UnicodeDecodeError:
+        return False
     probe = os.path.join(os.fsencode(str(tmp_path)), b"\xff\xfe_probe")
     try:
         with open(probe, "wb") as fh:

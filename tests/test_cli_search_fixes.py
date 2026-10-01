@@ -493,6 +493,10 @@ def test_ingest_bundle_path_is_file(monkeypatch, tmp_path):
 
 
 @pytest.mark.parametrize("source", ["fifo", "devzero"])
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="Unix-specific: os.mkfifo and /dev/zero do not exist on Windows",
+)
 def test_ingest_non_file_source_rejected(monkeypatch, tmp_path, source):
     _stub_parsers(monkeypatch)
     bundle = tmp_path / "bundle"
