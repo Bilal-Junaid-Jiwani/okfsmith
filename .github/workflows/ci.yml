@@ -25,7 +25,20 @@ jobs:
           pip install ruff
           ruff check src/ tests/
       - name: Tests
-        run: python -m pytest -q
+        run: |
+          python -m pytest -q -rf --tb=line > ./pytest-diag.log 2>&1
+          code=$?
+          {
+            echo "## pytest exit code: $code"
+            echo "### key versions"
+            python --version
+            pip list 2>/dev/null | grep -iE "^(pytest|fastapi|starlette|uvicorn|httpx|typer|rich|pydantic|markitdown|fastmcp|docling) "
+            echo "### pytest tail"
+            echo '```'
+            tail -60 ./pytest-diag.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit $code
       - name: CLI smoke
         run: |
           okfsmith --version
