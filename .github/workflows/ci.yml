@@ -53,7 +53,7 @@ jobs:
         run: pip install -e ".[office,mcp]"
       - name: Dependency audit
         run: |
-          pip install pip-audit
+          pip install --upgrade pip pip-audit
           pip-audit
       - name: Secret scan
         run: |

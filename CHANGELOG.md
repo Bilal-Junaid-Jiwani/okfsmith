@@ -5,6 +5,21 @@ follow SemVer.
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-10-01
+
+### Fixed
+- **CI audit gate red: dependency security floors.** The `pip-audit` step in
+  CI failed on published advisories: `fastmcp` 2.13.0.2 (PYSEC-2026-2474,
+  PYSEC-2026-2475, PYSEC-2026-2476, GHSA-rcfx-77hg-w2wv) and `starlette`
+  0.50.x (PYSEC-2026-161, PYSEC-2026-248, PYSEC-2026-249, PYSEC-2026-2280,
+  PYSEC-2026-2281). Root cause: the old `uvicorn<0.32` cap forced pip to
+  resolve the vulnerable fastmcp 2.13.0.2 (fastmcp>=3.2 needs
+  `uvicorn>=0.35`), and `fastapi<0.122` pinned the vulnerable starlette
+  0.50.x. Floors raised: `fastapi>=0.122,<0.143` (pulls starlette>=1.x),
+  `uvicorn>=0.35,<0.55`, `fastmcp>=3.2,<5` (mcp extra). The audit step now
+  also upgrades pip itself before running pip-audit, so the runner's pip
+  CVEs can't fail the gate.
+
 ## [0.6.0] - 2026-10-01
 
 ### Added
