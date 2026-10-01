@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="okfsmith">
+  <title>okfsmith</title>
+  <!-- Mark: side-profile blacksmith anvil (horn left, face right) with a forge spark.
+       Terracotta #D97757 on transparent — legible from 16px favicon to billboard. -->
+  <g fill="#D97757">
+    <path d="M4 25 L18 20.5 L46 20.5 Q50 20.5 50 24 L50 25 Q50 28.5 46 28.5 L18 28.5 Z"/>
+    <rect x="29" y="28.5" width="7" height="13"/>
+    <rect x="19" y="41.5" width="27" height="8" rx="2.5"/>
+    <path d="M52 4 l2 4.2 4.2 2 -4.2 2 -2 4.2 -2 -4.2 -4.2 -2 4.2 -2 Z"/>
+  </g>
+</svg>

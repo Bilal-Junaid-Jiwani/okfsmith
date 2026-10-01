@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>okfsmith — Forge messy documents into OKF knowledge bundles</title>
+  <meta name="description" content="okfsmith is an open-source CLI that turns messy documentation — Markdown, PDFs, Office docs, whole folders — into knowledge bundles following the Open Knowledge Format (OKF), with trust tiers and source provenance.">
+  <link rel="icon" href="assets/img/logo.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="assets/css/site.css">
+</head>
+<body>
+
+<header class="nav">
+  <div class="wrap nav-inner">
+    <a class="brand" href="#" aria-label="okfsmith home">
+      <img src="assets/img/logo.svg" alt="okfsmith logo — anvil and forge spark" width="30" height="30">
+      okfsmith
+    </a>
+    <button class="nav-toggle" id="navToggle" aria-label="Toggle navigation" aria-expanded="false">&#9776;</button>
+    <nav class="nav-links" id="navLinks" aria-label="Primary">
+      <a href="#features">Features</a>
+      <a href="#quickstart">Quickstart</a>
+      <a href="#resources">Resources</a>
+      <a href="https://github.com/Bilal-Junaid-Jiwani/okfsmith" rel="noopener">GitHub</a>
+      <a href="https://pypi.org/project/okfsmith/" rel="noopener">PyPI</a>
+    </nav>
+    <a class="nav-cta" href="https://bilal-junaid-jiwani.github.io/okfsmith/" rel="noopener">Docs</a>
+  </div>
+</header>
+
+<main>
+  <!-- ================= HERO ================= -->
+  <section class="hero">
+    <div class="wrap hero-inner">
+      <img class="hero-logo" src="assets/img/logo.svg" alt="okfsmith logo — anvil and forge spark" width="92" height="92">
+      <h1>Forge messy documents into <span class="accent-word">knowledge bundles</span>.</h1>
+      <p class="tagline">
+        <strong>okfsmith</strong> is an open-source CLI that turns Markdown, PDFs, Office docs, and
+        whole folders into <strong>OKF&nbsp;v0.2 knowledge bundles</strong> — with trust tiers,
+        source provenance, and a built-in conformance validator your agents can check, not just read.
+      </p>
+      <div class="install-row">
+        <div class="install-box" aria-label="Install command">
+          <span class="prompt">$</span>
+          <span>pip install okfsmith</span>
+          <button class="copy-btn" type="button" data-copy="pip install okfsmith">Copy</button>
+        </div>
+      </div>
+      <div class="hero-buttons">
+        <a class="btn btn-primary" href="https://github.com/Bilal-Junaid-Jiwani/okfsmith" rel="noopener">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.11.79-.25.79-.55 0-.27-.01-1.17-.02-2.12-3.2.7-3.88-1.36-3.88-1.36-.52-1.33-1.28-1.68-1.28-1.68-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.19 1.76 1.19 1.03 1.76 2.7 1.25 3.35.96.1-.75.4-1.25.72-1.54-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.29 1.19-3.1-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.17 1.18a11 11 0 0 1 5.78 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.84 1.19 3.1 0 4.42-2.7 5.39-5.26 5.68.41.36.78 1.06.78 2.14 0 1.55-.02 2.79-.02 3.17 0 .3.2.66.8.55A11.51 11.51 0 0 0 23.5 12C23.5 5.65 18.35.5 12 .5Z"/></svg>
+          GitHub
+        </a>
+        <a class="btn btn-ghost" href="https://pypi.org/project/okfsmith/" rel="noopener">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>
+          PyPI
+        </a>
+        <a class="btn btn-ghost" href="https://bilal-junaid-jiwani.github.io/okfsmith/" rel="noopener">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+          Docs
+        </a>
+      </div>
+      <div class="hero-meta">
+        <span><span class="dot"></span>Open source · Apache-2.0</span>
+        <span><span class="dot"></span>OKF v0.2 native</span>
+        <span><span class="dot"></span>Offline-first ingest</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= PIPELINE ================= -->
+  <div class="pipeline" aria-label="okfsmith pipeline">
+    <div class="wrap pipeline-inner">
+      <span class="stage">parse</span><span class="arrow">&rarr;</span>
+      <span class="stage">section</span><span class="arrow">&rarr;</span>
+      <span class="stage">extract</span><span class="arrow">&rarr;</span>
+      <span class="stage">link</span><span class="arrow">&rarr;</span>
+      <span class="stage">emit</span><span class="arrow">&rarr;</span>
+      <span class="stage">validate</span><span class="arrow">&rarr;</span>
+      <span class="stage">serve</span>
+    </div>
+  </div>
+
+  <!-- ================= FEATURES ================= -->
+  <section class="block" id="features">
+    <div class="wrap">
+      <div class="section-kicker reveal">What it does</div>
+      <h2 class="section-title reveal">A forge for knowledge, not a black box.</h2>
+      <p class="section-sub reveal">Every concept okfsmith emits carries provenance (<code style="font-family:var(--mono);background:var(--inline-code-bg);color:var(--inline-code-fg);padding:2px 7px;border-radius:6px;font-size:.85em;">sources[]</code>), a trust tier, and lifecycle metadata — and every bundle passes a built-in §11 validator. Here is what ships today.</p>
+
+      <div class="features-grid">
+        <article class="feature reveal">
+          <div class="feature-icon"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg></div>
+          <h3>Incremental sync</h3>
+          <p><code>okfsmith sync</code> processes only new, changed, renamed, or deleted sources — with <code>--watch</code>, <code>--dry-run</code>, and text or JSON output. Re-ingest without the wait.</p>
+        </article>
+        <article class="feature reveal">
+          <div class="feature-icon"><svg viewBox="0 0 24 24"><path d="M12 2 2 7l10 5 10-5-10-5Z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/></svg></div>
+          <h3>Trust tiers &amp; provenance</h3>
+          <p>Every concept carries <code>sources[]</code> citations and a generated / verified trust tier. Answers trace back to the exact document they came from.</p>
+        </article>
+        <article class="feature reveal">
+          <div class="feature-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg></div>
+          <h3>Temporal model</h3>
+          <p>Validity and supersession are first-class: concepts expire and get replaced, and <code>--as-of</code> lets you query the bundle as it looked on any date.</p>
+        </article>
+        <article class="feature reveal">
+          <div class="feature-icon"><svg viewBox="0 0 24 24"><path d="M9 17H7A5 5 0 0 1 7 7h2"/><path d="M15 7h2a5 5 0 1 1 0 10h-2"/><path d="M8 12h8"/></svg></div>
+          <h3>One-command MCP server</h3>
+          <p><code>okfsmith mcp</code> serves any bundle over stdio, SSE, or streamable HTTP — with <code>index</code>, <code>search</code>, <code>get</code>, and <code>neighbors</code> tools, plus traverse and diff.</p>
+        </article>
+        <article class="feature reveal">
+          <div class="feature-icon"><svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="m9 12 2 2 4-4"/></svg></div>
+          <h3>Eval &amp; CI gating</h3>
+          <p><code>okfsmith eval</code> runs golden-set Q&amp;A with RAG Triad scores and a retrieval-vs-generation diagnosis — and a <code>--fail-under</code> gate for CI pipelines.</p>
+        </article>
+        <article class="feature reveal">
+          <div class="feature-icon"><svg viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></div>
+          <h3>Governed write-back</h3>
+          <p>MCP write tools are trust-tier gated: agents can update the bundle through preview/write/audit flows that respect the same tiers reading does.</p>
+        </article>
+        <article class="feature reveal">
+          <div class="feature-icon"><svg viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="6" r="2.5"/><path d="M6 8.5v5a3 3 0 0 0 3 3h6a3 3 0 0 0 3-3v-5"/><path d="M12 16.5V21"/></svg></div>
+          <h3>Similarity deduplication</h3>
+          <p>The extraction pipeline merges near-duplicate entities with stemmed-token Jaccard similarity — dependency-free, offline, and deterministic. Exact-match precedence is untouched.</p>
+        </article>
+        <article class="feature reveal">
+          <div class="feature-icon"><svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg></div>
+          <h3>Web dashboard</h3>
+          <p><code>okfsmith dashboard</code> opens a local, token-secured UI: drag-and-drop ingest with live progress, an interactive knowledge graph, grounded chat, validation, and eval.</p>
+        </article>
+        <article class="feature reveal">
+          <div class="feature-icon"><svg viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-8 8H4l2-3a8 8 0 1 1 15-5Z"/></svg></div>
+          <h3>Grounded chat</h3>
+          <p><code>okfsmith chat</code> is a REPL over your bundle that answers with <code>[concept-id]</code> citations. No relevant concepts, no invented answer — it stays honest instead.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= QUICKSTART ================= -->
+  <section class="block" id="quickstart" style="background:var(--bg-2);border-top:1px solid var(--border);border-bottom:1px solid var(--border);">
+    <div class="wrap">
+      <div class="section-kicker reveal">Quickstart</div>
+      <h2 class="section-title reveal">Sixty seconds to a bundle.</h2>
+      <p class="section-sub reveal">Install, scaffold a bundle, ingest offline, validate, and visualize — then point any MCP-capable agent at it.</p>
+
+      <div class="code-panel reveal">
+        <div class="code-header">
+          <span class="traffic r"></span><span class="traffic y"></span><span class="traffic g"></span>
+          <span class="code-title">terminal</span>
+          <button class="copy-btn" type="button" data-copy="pip install okfsmith&#10;&#10;okfsmith init ./kb&#10;okfsmith ingest ./kb notes/ report.pdf --no-llm   # offline first pass&#10;okfsmith validate ./kb&#10;okfsmith graph ./kb --format html   # writes ./kb/viz.html — open in a browser&#10;&#10;# Point any MCP-capable agent at the bundle:&#10;pip install &quot;okfsmith[mcp]&quot;&#10;okfsmith mcp ./kb">Copy</button>
+        </div>
+        <div class="code-body">
+<pre><span class="c-prompt">$</span> <span class="c-cmd">pip install okfsmith</span>
+
+<span class="c-prompt">$</span> <span class="c-cmd">okfsmith init ./kb</span>
+<span class="c-prompt">$</span> <span class="c-cmd">okfsmith ingest ./kb notes/ report.pdf --no-llm</span>   <span class="c-comment"># offline first pass</span>
+<span class="c-prompt">$</span> <span class="c-cmd">okfsmith validate ./kb</span>
+<span class="c-prompt">$</span> <span class="c-cmd">okfsmith graph ./kb --format html</span>   <span class="c-comment"># writes ./kb/viz.html — open in a browser</span>
+
+<span class="c-comment"># Point any MCP-capable agent at the bundle:</span>
+<span class="c-prompt">$</span> <span class="c-cmd">pip install "okfsmith[mcp]"</span>
+<span class="c-prompt">$</span> <span class="c-cmd">okfsmith mcp ./kb</span></pre>
+        </div>
+      </div>
+
+      <div class="steps">
+        <div class="step reveal"><div class="n">01</div><h4>Init</h4><p>Scaffold a bundle with <code>index.md</code> and <code>log.md</code>. One command, no config files.</p></div>
+        <div class="step reveal"><div class="n">02</div><h4>Ingest</h4><p>Parse PDFs, Markdown, Office docs, or whole folders. <code>--no-llm</code> gives a fast, offline, deterministic first pass.</p></div>
+        <div class="step reveal"><div class="n">03</div><h4>Validate</h4><p>Check OKF §11 conformance — hard rules E001–E004 plus advisory lints for dead links, orphans, and stubs.</p></div>
+        <div class="step reveal"><div class="n">04</div><h4>Serve</h4><p>One MCP command exposes the bundle to any capable agent, every answer traced to <code>sources[]</code>.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= RESOURCES ================= -->
+  <section class="block" id="resources">
+    <div class="wrap">
+      <div class="section-kicker reveal">Resources</div>
+      <h2 class="section-title reveal">Start where you need to.</h2>
+      <p class="section-sub reveal">Source code, install package, and full command reference — all public, all current.</p>
+      <div class="cards-grid">
+        <a class="card reveal" href="https://github.com/Bilal-Junaid-Jiwani/okfsmith" rel="noopener">
+          <div class="card-icon"><svg viewBox="0 0 24 24"><path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.11.79-.25.79-.55 0-.27-.01-1.17-.02-2.12-3.2.7-3.88-1.36-3.88-1.36-.52-1.33-1.28-1.68-1.28-1.68-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.19 1.76 1.19 1.03 1.76 2.7 1.25 3.35.96.1-.75.4-1.25.72-1.54-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.29 1.19-3.1-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.17 1.18a11 11 0 0 1 5.78 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.84 1.19 3.1 0 4.42-2.7 5.39-5.26 5.68.41.36.78 1.06.78 2.14 0 1.55-.02 2.79-.02 3.17 0 .3.2.66.8.55A11.51 11.51 0 0 0 23.5 12C23.5 5.65 18.35.5 12 .5Z" fill="currentColor" stroke="none"/></svg></div>
+          <h3>GitHub</h3>
+          <p>Source, changelog, issue tracker, and the full CLI reference. Apache-2.0.</p>
+          <span class="go">Bilal-Junaid-Jiwani/okfsmith</span>
+        </a>
+        <a class="card reveal" href="https://pypi.org/project/okfsmith/" rel="noopener">
+          <div class="card-icon"><svg viewBox="0 0 24 24"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg></div>
+          <h3>PyPI</h3>
+          <p>Latest release v0.6.0. Optional extras: <code style="font-family:var(--mono);background:var(--inline-code-bg);color:var(--inline-code-fg);padding:2px 7px;border-radius:6px;font-size:.85em;">[office]</code>, <code style="font-family:var(--mono);background:var(--inline-code-bg);color:var(--inline-code-fg);padding:2px 7px;border-radius:6px;font-size:.85em;">[ocr]</code>, <code style="font-family:var(--mono);background:var(--inline-code-bg);color:var(--inline-code-fg);padding:2px 7px;border-radius:6px;font-size:.85em;">[mcp]</code>.</p>
+          <span class="go">pip install okfsmith</span>
+        </a>
+        <a class="card reveal" href="https://bilal-junaid-jiwani.github.io/okfsmith/" rel="noopener">
+          <div class="card-icon"><svg viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg></div>
+          <h3>Docs</h3>
+          <p>Full command reference with examples, conformance rules, and the dashboard guide.</p>
+          <span class="go">Read the docs</span>
+        </a>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="footer-grid">
+      <div class="footer-brand">
+        <a class="brand" href="#">
+          <img src="assets/img/logo.svg" alt="okfsmith logo" width="26" height="26">
+          okfsmith
+        </a>
+        <p>Forge messy documents into OKF knowledge bundles — with trust tiers and source provenance.</p>
+      </div>
+      <div class="footer-links">
+        <div>
+          <h5>Project</h5>
+          <ul>
+            <li><a href="https://github.com/Bilal-Junaid-Jiwani/okfsmith" rel="noopener">GitHub</a></li>
+            <li><a href="https://pypi.org/project/okfsmith/" rel="noopener">PyPI</a></li>
+            <li><a href="https://bilal-junaid-jiwani.github.io/okfsmith/" rel="noopener">Docs</a></li>
+          </ul>
+        </div>
+        <div>
+          <h5>Resources</h5>
+          <ul>
+            <li><a href="https://github.com/Bilal-Junaid-Jiwani/okfsmith/blob/master/docs/commands.md" rel="noopener">CLI reference</a></li>
+            <li><a href="https://github.com/Bilal-Junaid-Jiwani/okfsmith/blob/master/CHANGELOG.md" rel="noopener">Changelog</a></li>
+            <li><a href="https://github.com/Bilal-Junaid-Jiwani/okfsmith/blob/master/LICENSE" rel="noopener">License</a></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>© 2026 Bilal-Junaid-Jiwani · Licensed under Apache-2.0</span>
+      <span>okfsmith v0.6.0</span>
+    </div>
+  </div>
+</footer>
+
+<script src="assets/js/site.js"></script>
+</body>
+</html>
