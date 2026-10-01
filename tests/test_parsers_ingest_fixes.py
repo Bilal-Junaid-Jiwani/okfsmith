@@ -12,6 +12,8 @@ import json
 import os
 from pathlib import Path
 
+import pytest
+
 from okfsmith.core.bundle import Bundle
 from okfsmith.parsers import dedup, parse_file
 from okfsmith.parsers.ingest_no_llm import ingest_no_llm
@@ -92,6 +94,26 @@ def test_c3_intra_file_duplicate_titles_still_deduped(tmp_path: Path):
 # ------------------------------------------------------------------ M8 ---
 
 
+def _fs_supports_non_utf8_names(tmp_path: Path) -> bool:
+    """True if the filesystem allows invalid UTF-8 bytes in filenames.
+
+    macOS (APFS) requires valid UTF-8 filenames and raises
+    ``OSError: [Errno 92] Illegal byte sequence``; such platforms cannot
+    even create the fixture, so surrogate-filename tests are vacuous there.
+    """
+    probe = os.path.join(os.fsencode(str(tmp_path)), b"\xff\xfe_probe")
+    try:
+        with open(probe, "wb") as fh:
+            fh.write(b"x")
+    except OSError:
+        return False
+    try:
+        os.unlink(probe)
+    except OSError:
+        pass
+    return True
+
+
 def _write_surrogate_source(tmp_path: Path) -> tuple[Path, str]:
     """Create a file whose name holds undecodable bytes; return (Path, source_id).
 
@@ -108,6 +130,8 @@ def _write_surrogate_source(tmp_path: Path) -> tuple[Path, str]:
 
 
 def test_m8_surrogate_filename_ingest_completes_and_logs(tmp_path: Path):
+    if not _fs_supports_non_utf8_names(tmp_path):
+        pytest.skip("filesystem does not support non-UTF-8 filenames (e.g. macOS APFS)")
     path, source_id = _write_surrogate_source(tmp_path)
     bundle = Bundle(tmp_path / "kb")
 

@@ -1040,7 +1040,29 @@ def test_save_sync_state_refuses_symlinked_statedir(tmp_path):
 # --- Finding 6: non-UTF-8 filenames round-trip -------------------------------
 
 
+def _fs_supports_non_utf8_names(tmp_path) -> bool:
+    """True if the filesystem allows invalid UTF-8 bytes in filenames.
+
+    macOS (APFS) requires valid UTF-8 filenames and raises
+    ``OSError: [Errno 92] Illegal byte sequence``; such platforms cannot
+    even create the fixture, so non-UTF-8-filename tests are vacuous there.
+    """
+    probe = os.path.join(os.fsencode(str(tmp_path)), b"\xff\xfe_probe")
+    try:
+        with open(probe, "wb") as fh:
+            fh.write(b"x")
+    except OSError:
+        return False
+    try:
+        os.unlink(probe)
+    except OSError:
+        pass
+    return True
+
+
 def test_sync_non_utf8_filename_is_idempotent(tmp_path):
+    if not _fs_supports_non_utf8_names(tmp_path):
+        pytest.skip("filesystem does not support non-UTF-8 filenames (e.g. macOS APFS)")
     bundle = tmp_path / "kb"
     src = tmp_path / "src"
     src.mkdir()
