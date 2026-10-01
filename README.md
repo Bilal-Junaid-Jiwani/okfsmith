@@ -225,14 +225,14 @@ pipx install "okfsmith[office,mcp]"
 
 ## Docs
 
-📚 **Live documentation website:** <https://bilal-junaid-jiwani.github.io/okfsmith/>
+📚 **Live documentation:** <https://bilal-junaid-jiwani.github.io/okfsmith/> · 🌐 **Website:** <https://bilal-junaid-jiwani.github.io/okfsmith/site/>
 
-[Documentation index](https://github.com/Bilal-Junaid-Jiwani/okfsmith/blob/master/docs/index.md) · [Quickstart](https://github.com/Bilal-Junaid-Jiwani/okfsmith/blob/master/docs/quickstart.md) ·
-[Pipeline](https://github.com/Bilal-Junaid-Jiwani/okfsmith/blob/master/docs/pipeline.md) · [Searching](https://github.com/Bilal-Junaid-Jiwani/okfsmith/blob/master/docs/searching.md) ·
-[Validation](https://github.com/Bilal-Junaid-Jiwani/okfsmith/blob/master/docs/validation.md) ·
-[Temporal model](https://bilal-junaid-jiwani.github.io/okfsmith/docs/temporality.html) ·
-[MCP](https://github.com/Bilal-Junaid-Jiwani/okfsmith/blob/master/docs/mcp.md) · [Troubleshooting](https://github.com/Bilal-Junaid-Jiwani/okfsmith/blob/master/docs/troubleshooting.md) ·
-[FAQ](https://github.com/Bilal-Junaid-Jiwani/okfsmith/blob/master/docs/faq.md)
+[Quickstart](https://bilal-junaid-jiwani.github.io/okfsmith/quickstart.html) ·
+[Ingesting](https://bilal-junaid-jiwani.github.io/okfsmith/ingesting.html) ·
+[Validation](https://bilal-junaid-jiwani.github.io/okfsmith/validation.html) ·
+[Temporal model](https://bilal-junaid-jiwani.github.io/okfsmith/temporality.html) ·
+[MCP](https://bilal-junaid-jiwani.github.io/okfsmith/mcp.html) · [Troubleshooting](https://bilal-junaid-jiwani.github.io/okfsmith/troubleshooting.html) ·
+[FAQ](https://bilal-junaid-jiwani.github.io/okfsmith/faq.html)
 
 ## License
 
