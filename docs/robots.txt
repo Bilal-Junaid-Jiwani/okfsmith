@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://bilal-junaid-jiwani.github.io/okfsmith/docs/sitemap.xml
+Sitemap: https://bilal-junaid-jiwani.github.io/okfsmith/sitemap.xml

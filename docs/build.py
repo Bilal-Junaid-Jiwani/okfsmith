@@ -10,7 +10,7 @@ Usage (from the repo root):
 
 Outputs:
     docs/<slug>.html            one page per source file (13 pages)
-    docs/index.html             byte-copy of docs/install.html (the homepage)
+    docs/index.html             rendered from docs/index.md (the homepage)
     docs/assets/js/search-index.json   search index for the client-side search
 
 Caching note (for whoever deploys this): the asset filenames under
@@ -53,12 +53,12 @@ SLUG_ORDER = [
 #
 # ASSUMPTION: the docs site is published to GitHub Pages as a project page
 # at https://bilal-junaid-jiwani.github.io/okfsmith/ with the docs site
-# served from the /docs/ path (e.g. Pages configured to build docs/ from
-# the feature/docs-site branch). Every canonical URL, og:url, and the
-# sitemap/robots/llms.txt references are built on this base. If the site is
-# published somewhere else, update this single constant and rebuild.
+# served from the repository's docs/ directory (Pages source: branch master,
+# path /docs). Every canonical URL, og:url, and the sitemap/robots/llms.txt
+# references are built on this base. If the site is published somewhere else,
+# update this single constant and rebuild.
 
-SITE_URL = "https://bilal-junaid-jiwani.github.io/okfsmith/docs/"
+SITE_URL = "https://bilal-junaid-jiwani.github.io/okfsmith/"
 
 
 def page_url(slug):
@@ -95,6 +95,36 @@ def jsonld_for_page(slug, title, description):
     )
 
 
+def jsonld_for_home(title, description):
+    """WebSite + WebPage JSON-LD for the docs home page. Uses real page
+    metadata only — no invented metrics, ratings, dates, or author claims."""
+    data = [
+        {
+            "@context": "https://schema.org",
+            "@type": "WebSite",
+            "name": "okfsmith docs",
+            "url": SITE_URL,
+        },
+        {
+            "@context": "https://schema.org",
+            "@type": "WebPage",
+            "headline": title,
+            "description": description,
+            "inLanguage": "en",
+            "isPartOf": {"@type": "WebSite", "name": "okfsmith docs", "url": SITE_URL},
+            "mainEntityOfPage": SITE_URL,
+        },
+    ]
+    # Escape "</" as "<\/" so a "</script>" sequence in page metadata can
+    # never terminate the JSON-LD block early ("<\/ " is valid JSON and
+    # equivalent to "/" for parsers).
+    return (
+        '  <script type="application/ld+json">\n'
+        + json.dumps(data, ensure_ascii=False, indent=2).replace("</", "<\\/")
+        + "\n  </script>"
+    )
+
+
 def write_sitemap():
     """sitemap.xml: all 16 content pages + index, lastmod = build date."""
     today = __import__("datetime").date.today().isoformat()
@@ -107,8 +137,8 @@ def write_sitemap():
             "  <url>\n    <loc>%s</loc>\n    <lastmod>%s</lastmod>\n  </url>"
             % (page_url(slug), today)
         )
-    # index.html canonicalizes to install.html (duplicate-content guard), but
-    # it is still listed so crawlers can discover the site entry point.
+    # index.html is the real docs home page; list it so crawlers can discover
+    # the site entry point.
     lines.append(
         "  <url>\n    <loc>%s</loc>\n    <lastmod>%s</lastmod>\n  </url>"
         % (SITE_URL + "index.html", today)
@@ -558,6 +588,9 @@ def read_frontmatter(text):
 
 
 def tab_of(slug):
+    if slug == "index":
+        # the docs home lives under the first tab, with nothing active
+        return TABS[0]
     for name, landing, pages in TABS:
         if slug in pages:
             return name, landing, pages
@@ -687,22 +720,82 @@ def main():
         out_file.write_text(rendered, encoding="utf-8")
         written.append(out_file)
 
-    # --- homepage: byte-copy of install.html, then point its canonical (and
-    #     JSON-LD mainEntityOfPage) at install.html to avoid duplicate content ---
-    index_file = HERE / "index.html"
-    shutil.copyfile(HERE / "install.html", index_file)
-    install_canonical = htmlmod.escape(page_url("install"), quote=True)
-    index_html = index_file.read_text(encoding="utf-8")
-    index_html = re.sub(
-        r'<link rel="canonical" href="[^"]*">',
-        '<link rel="canonical" href="%s">' % install_canonical,
-        index_html,
-        count=1,
-    )
-    index_html = index_html.replace(
-        json.dumps(page_url("index")), json.dumps(page_url("install"))
-    )
-    index_file.write_text(index_html, encoding="utf-8")
+    # --- homepage: render docs/index.md as the real docs home (never a copy
+    #     of another page — a byte-copy here once shipped install.html as the
+    #     site root with the wrong title and canonical) ---
+    index_src = HERE / "index.md"
+    if index_src.is_file():
+        _, index_body = read_frontmatter(index_src.read_text(encoding="utf-8"))
+        index_content_html, index_headings = parse_markdown(index_body)
+        first_para = ""
+        for block in re.split(r"\n\s*\n", index_body.strip()):
+            b = block.strip()
+            if b and not b.startswith("#"):
+                first_para = plain_text(parse_markdown(b)[0])
+                break
+        index_h1 = "okfsmith documentation"
+        for level, _hid, plain in index_headings:
+            if level == 1:
+                index_h1 = plain
+                break
+        # the template renders {{h1}} itself — drop the duplicate h1 from the content
+        index_content_html = re.sub(
+            r"<h1[^>]*>.*?</h1>\s*", "", index_content_html, count=1, flags=re.S
+        )
+        index_ctx = {
+            "title": esc("okfsmith docs"),
+            "description": htmlmod.escape(first_para, quote=True),
+            "canonical": htmlmod.escape(SITE_URL, quote=True),
+            "jsonld": jsonld_for_home("okfsmith docs", first_para),
+            "eyebrow": esc("Overview"),
+            "h1": esc(index_h1),
+            "content_html": index_content_html,
+            "sidebar_html": build_sidebar_html("index", titles),
+            "toc_html": render_toc(index_headings),
+            "tabs_html": build_tabs_html("index").replace(
+                ' data-active="true" aria-current="page"', ""
+            ),
+            "prev_link": "",
+            "next_link": (
+                '<a class="page-next" href="install.html">'
+                '<span class="prev-next-label">Next</span>'
+                '<span class="prev-next-title">%s &rarr;</span></a>'
+                % esc(titles["install"])
+            ),
+            "active_slug": "index",
+        }
+        rendered = template
+        for key, value in index_ctx.items():
+            rendered = rendered.replace("{{" + key + "}}", value)
+        # home page title is just "okfsmith docs" (not "okfsmith docs — okfsmith docs")
+        rendered = rendered.replace(
+            "<title>okfsmith docs — okfsmith docs</title>",
+            "<title>okfsmith docs</title>",
+            1,
+        )
+        rendered = rendered.replace(
+            '<meta property="og:title" content="okfsmith docs — okfsmith docs">',
+            '<meta property="og:title" content="okfsmith docs">',
+            1,
+        )
+        rendered = rendered.replace(
+            '<meta name="twitter:title" content="okfsmith docs — okfsmith docs">',
+            '<meta name="twitter:title" content="okfsmith docs">',
+            1,
+        )
+        # brand link points home on the home page
+        rendered = rendered.replace(
+            '<a class="brand" href="install.html">',
+            '<a class="brand" href="index.html">',
+            1,
+        )
+        leftover = re.findall(r"\{\{\w+\}\}", rendered)
+        if leftover:
+            print("warning: unreplaced placeholders on index: %s" % leftover)
+        (HERE / "index.html").write_text(rendered, encoding="utf-8")
+        written.append(HERE / "index.html")
+    else:
+        print("warning: docs/index.md missing; homepage not rebuilt")
 
     # --- discoverability: sitemap.xml, robots.txt, llms.txt ---
     write_sitemap()
@@ -738,7 +831,7 @@ def main():
         html_text = out_file.read_text(encoding="utf-8")
         anchors[out_file.name] = set(ID_RE.findall(html_text))
     anchor_warnings = []
-    for out_file in written + [index_file]:
+    for out_file in written:
         html_text = out_file.read_text(encoding="utf-8")
         for m in HREF_RE.finditer(html_text):
             href = m.group(1)
@@ -763,7 +856,7 @@ def main():
     # --- summary ---
     print("okfsmith docs build")
     print("  pages written : %d (%s)" % (len(written), ", ".join(f.name for f in written)))
-    print("  homepage      : index.html (byte-copy of install.html)")
+    print("  homepage      : index.html (rendered from index.md)")
     print("  search index  : %s (%d entries)" % (SEARCH_INDEX_FILE, len(index)))
     if anchor_warnings:
         print("  anchor warnings (%d):" % len(anchor_warnings))

@@ -7,18 +7,17 @@ knowledge bundles: markdown files with YAML frontmatter, plus reserved
 
 ## Guides
 
-- [Install](install.md) — requirements, extras, shell completion
-- [Quickstart](quickstart.md) — your first bundle in five minutes
-- [Commands](commands.md) — full CLI reference with examples
-- [Pipeline](pipeline.md) — what `ingest` actually does, stage by stage
-- [Parsing](parsing.md) — PDF / Office / Notion / zip inputs and parser tiers
-- [LLM & no-LLM modes](llm.md) — Ollama, API keys, `--no-llm`, trust tiers
-- [Validation & error codes](validation.md) — conformance rules, exit codes
-- [MCP server](mcp.md) — serve a bundle to agents (Claude, Cursor, Copilot, Gemini)
-- [Skill pack](skill.md) — the `okfsmith-build` agent skill
-- [Troubleshooting](troubleshooting.md) — common failures and fixes
-- [FAQ](faq.md) — short answers
-- [Architecture overview](OVERVIEW.md) — the eight-stage pipeline map
+- [Install](install.html) — requirements, extras, shell completion
+- [Quickstart](quickstart.html) — your first bundle in five minutes
+- [Commands](cli.html) — full CLI reference with examples
+- [Ingesting & parsing](ingesting.html) — what `ingest` does stage by stage: PDF / Office / Notion inputs and parser tiers
+- [LLM providers](providers.html) — Ollama, API keys, model configuration
+- [Validation & error codes](validation.html) — conformance rules, exit codes
+- [MCP server](mcp.html) — serve a bundle to agents (Claude, Cursor, Copilot, Gemini)
+- [Skill pack](skill.html) — the `okfsmith-build` agent skill
+- [Troubleshooting](troubleshooting.html) — common failures and fixes
+- [FAQ](faq.html) — short answers
+- [Architecture overview](https://github.com/Bilal-Junaid-Jiwani/okfsmith/blob/master/docs/OVERVIEW.md) — the eight-stage pipeline map
 
 ## Facts that matter
 
@@ -30,4 +29,4 @@ knowledge bundles: markdown files with YAML frontmatter, plus reserved
 
 ## For agents (llms.txt)
 
-A compact machine-readable map of these docs: [`llms.txt`](../llms.txt).
+A compact machine-readable map of these docs: [`llms.txt`](llms.txt).

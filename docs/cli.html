@@ -8,13 +8,13 @@
   <meta property="og:title" content="CLI reference — okfsmith docs">
   <meta property="og:description" content="Every okfsmith command on one page — init, ingest, sync, list, read, validate, graph, doctor, chat, mcp — with real syntax, flags, and runnable examples.">
   <meta property="og:type" content="article">
-  <meta property="og:url" content="https://bilal-junaid-jiwani.github.io/okfsmith/docs/cli.html">
+  <meta property="og:url" content="https://bilal-junaid-jiwani.github.io/okfsmith/cli.html">
   <meta property="og:site_name" content="okfsmith docs">
   <meta property="og:locale" content="en_US">
   <meta name="twitter:card" content="summary">
   <meta name="twitter:title" content="CLI reference — okfsmith docs">
   <meta name="twitter:description" content="Every okfsmith command on one page — init, ingest, sync, list, read, validate, graph, doctor, chat, mcp — with real syntax, flags, and runnable examples.">
-  <link rel="canonical" href="https://bilal-junaid-jiwani.github.io/okfsmith/docs/cli.html">
+  <link rel="canonical" href="https://bilal-junaid-jiwani.github.io/okfsmith/cli.html">
   <link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="assets/css/docs.css">
   <script type="application/ld+json">
@@ -23,7 +23,7 @@
     "@context": "https://schema.org",
     "@type": "WebSite",
     "name": "okfsmith docs",
-    "url": "https://bilal-junaid-jiwani.github.io/okfsmith/docs/"
+    "url": "https://bilal-junaid-jiwani.github.io/okfsmith/"
   },
   {
     "@context": "https://schema.org",
@@ -34,9 +34,9 @@
     "isPartOf": {
       "@type": "WebSite",
       "name": "okfsmith docs",
-      "url": "https://bilal-junaid-jiwani.github.io/okfsmith/docs/"
+      "url": "https://bilal-junaid-jiwani.github.io/okfsmith/"
     },
-    "mainEntityOfPage": "https://bilal-junaid-jiwani.github.io/okfsmith/docs/cli.html"
+    "mainEntityOfPage": "https://bilal-junaid-jiwani.github.io/okfsmith/cli.html"
   }
 ]
   </script></head>
@@ -326,7 +326,7 @@ Run `okfsmith init ./kb` to create a new bundle, then ingest documents.
 </details>
 <hr>
 <h2 id="okfsmith-search">okfsmith search</h2>
-<p>Full-text search over a bundle: id, title, description, tags, and body, ranked with BM25 (stdlib-only, no new dependencies). The same engine powers the MCP server's <code>search</code> tool and chat's <code>/search</code>, so all three rank identically. See <a href="../searching.md">Searching a bundle</a> for the query syntax (phrases, exclusions, stemming) and scoring details.</p>
+<p>Full-text search over a bundle: id, title, description, tags, and body, ranked with BM25 (stdlib-only, no new dependencies). The same engine powers the MCP server's <code>search</code> tool and chat's <code>/search</code>, so all three rank identically. See <a href="https://github.com/Bilal-Junaid-Jiwani/okfsmith/blob/master/docs/searching.md">Searching a bundle</a> for the query syntax (phrases, exclusions, stemming) and scoring details.</p>
 <pre class="codeblock" data-lang="bash"><code>okfsmith search [OPTIONS] {bundle} {query}
 </code></pre>
 <pre class="codeblock" data-lang="bash"><code>okfsmith search ./kb "knowledge graph"

@@ -297,7 +297,7 @@ concepts print exactly as before. JSON output adds `temporal_status`.
 Full-text search over a bundle: id, title, description, tags, and body,
 ranked with BM25 (stdlib-only, no new dependencies). The same engine powers
 the MCP server's `search` tool and chat's `/search`, so all three rank
-identically. See [Searching a bundle](../searching.md) for the query syntax
+identically. See [Searching a bundle](https://github.com/Bilal-Junaid-Jiwani/okfsmith/blob/master/docs/searching.md) for the query syntax
 (phrases, exclusions, stemming) and scoring details.
 
 ```bash
