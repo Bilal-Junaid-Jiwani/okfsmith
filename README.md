@@ -18,6 +18,8 @@ provenance (`sources[]`), a trust tier, and lifecycle metadata, and every
 bundle is checked by a built-in §11 validator. Serve it to your agents with
 one MCP command.
 
+![okfsmith dashboard — knowledge overview](https://raw.githubusercontent.com/Bilal-Junaid-Jiwani/okfsmith/master/docs/assets/img/dashboard-overview.png)
+
 ## 60-second quickstart
 
 ```bash
@@ -38,6 +40,8 @@ okfsmith mcp ./kb
 
 Tools exposed: `index`, `list`, `search`, `get`, `neighbors` — every answer
 traces back to `sources[]` in the bundle.
+
+> ⭐ If okfsmith helped you, a star means a lot — it helps other developers find the project.
 
 ## Why okfsmith
 
