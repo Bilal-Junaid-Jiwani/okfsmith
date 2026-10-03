@@ -4,6 +4,16 @@ eyebrow: Troubleshooting
 description: Release history for okfsmith — what changed in each version, what's coming next, and upgrade notes. Follows Keep a Changelog and Semantic Versioning.
 ---
 
+## [0.7.0] — 2026-10-03 {#v0-7-0}
+
+### Added {#v0-7-0-added}
+
+- **Native Anthropic Messages API backend** — `--provider anthropic`
+  (or just `ANTHROPIC_API_KEY` with nothing else configured) now speaks
+  Anthropic's native API directly: no OpenAI-compatible proxy needed.
+  Default model `claude-haiku-4-5`; system prompts use the API's native
+  `system` parameter.
+
 ## [0.5.2] — 2026-09-29 {#v0-5-2}
 
 ### Fixed {#v0-5-2-fixed}

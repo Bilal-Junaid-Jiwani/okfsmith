@@ -1456,14 +1456,14 @@ def create_app(workspace: Path, token: str) -> FastAPI:
     def _provider_list() -> list[dict[str, str]]:
         from okfsmith.extract.llm import PROVIDER_PRESETS
 
-        return [
-            {
-                "id": pid,
-                "name": pid.title(),
-                "description": f"OpenAI-compatible chat completions via {url}",
-            }
-            for pid, url in sorted(PROVIDER_PRESETS.items())
-        ]
+        items = []
+        for pid, url in sorted(PROVIDER_PRESETS.items()):
+            if pid == "anthropic":
+                description = f"Native Anthropic Messages API via {url}"
+            else:
+                description = f"OpenAI-compatible chat completions via {url}"
+            items.append({"id": pid, "name": pid.title(), "description": description})
+        return items
 
     @app.get(f"{API}/chat/providers")
     async def chat_providers():

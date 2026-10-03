@@ -5,6 +5,28 @@ follow SemVer.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-03
+
+### Added
+- **Native Anthropic Messages API backend:** `--provider anthropic`
+  (or just `ANTHROPIC_API_KEY` with no provider/base configured) now
+  speaks Anthropic's native API directly — `POST
+  https://api.anthropic.com/v1/messages` with the `x-api-key` and
+  `anthropic-version` headers — instead of warning that the native API
+  "cannot be called directly" and falling back to Ollama. This closes the
+  last `TODO` in the codebase. System prompts are hoisted into the API's
+  native `system` parameter, consecutive same-role turns are merged to
+  satisfy the API's alternation rule, and reply text blocks are
+  concatenated in order. Key precedence for the provider: `--api-key` →
+  `OKFSMITH_API_KEY` → `ANTHROPIC_API_KEY` (provider-scoped, never leaks
+  into other providers) → legacy `OPENAI_API_KEY`. Default model for the
+  provider is `claude-haiku-4-5` (`--model` / `OKFSMITH_MODEL` override).
+  A custom `--api-base` with the anthropic provider is treated as the
+  Messages API host (`/v1/messages` is appended; the OpenAI-compat
+  bare-host `/v1` rule does not apply). Covered by
+  `tests/test_llm_anthropic.py` (32 tests); the dashboard provider list
+  labels it "Native Anthropic Messages API".
+
 ## [0.6.1] - 2026-10-01
 
 ### Fixed

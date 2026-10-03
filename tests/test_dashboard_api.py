@@ -430,9 +430,16 @@ class TestChat:
     def test_providers_shape(self, client):
         c, headers = client
         providers = c.get("/api/v1/chat/providers", headers=headers).json()["providers"]
-        assert len(providers) == 15  # all presets, per contract
+        assert len(providers) == 16  # all presets, per contract
         for provider in providers:
             assert set(provider) == {"id", "name", "description"}
+        by_id = {p["id"]: p for p in providers}
+        # Anthropic is the one non-OpenAI-compatible preset: the dashboard
+        # must label its wire format honestly.
+        assert "Native Anthropic Messages API" in by_id["anthropic"]["description"]
+        for pid, p in by_id.items():
+            if pid != "anthropic":
+                assert "OpenAI-compatible" in p["description"]
         blob = json.dumps(providers).lower()
         assert "api_key" not in blob and "secret" not in blob
 

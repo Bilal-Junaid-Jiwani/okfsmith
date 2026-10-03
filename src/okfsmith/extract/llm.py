@@ -4,10 +4,12 @@ Default backend: local **Ollama** over its OpenAI-compatible API
 (``POST http://localhost:11434/v1/chat/completions``). Any hosted model
 works too: pick a ``--provider`` preset (OpenRouter, Groq, Mistral,
 DeepSeek, Together, Fireworks, DeepInfra, Anyscale, Perplexity, xAI,
-Gemini, OpenAI, Agent Router, LM Studio, Ollama) or point ``--api-base`` at any
-OpenAI-compatible endpoint (Azure OpenAI, self-hosted vLLM, llama.cpp
-server, any compat proxy — even an Anthropic-compat gateway, since
-Anthropic's *native* API is not OpenAI-compatible).
+Gemini, OpenAI, Agent Router, LM Studio, Ollama, Anthropic) or point
+``--api-base`` at any OpenAI-compatible endpoint (Azure OpenAI,
+self-hosted vLLM, llama.cpp server, any compat proxy). Anthropic's
+*native* Messages API is also supported directly: ``--provider anthropic``
+(or just ``ANTHROPIC_API_KEY``) speaks ``POST
+https://api.anthropic.com/v1/messages`` with no proxy in between.
 
 Secrets discipline: API keys come from **environment variables** (or an
 explicit ``--api-key`` flag) — never from files, never echoed into logs,
@@ -49,6 +51,19 @@ MODEL_ENV_VAR = "OKFSMITH_MODEL"
 #: Default model when neither an explicit model nor ``OKFSMITH_MODEL`` is set.
 DEFAULT_MODEL = "qwen3:8b"
 
+#: Default model for the ``anthropic`` provider preset (see
+#: :data:`PROVIDER_PRESETS`): Anthropic's cheapest current Haiku, addressed
+#: by its version-less alias so it tracks the latest snapshot.
+DEFAULT_ANTHROPIC_MODEL = "claude-haiku-4-5"
+
+#: Anthropic's native Messages API base. :class:`AnthropicBackend` appends
+#: ``/v1/messages``; ``--api-base`` may override the host for
+#: Messages-API-compatible proxies.
+ANTHROPIC_API_BASE = "https://api.anthropic.com"
+
+#: API version header required by Anthropic's Messages API.
+ANTHROPIC_API_VERSION = "2023-06-01"
+
 #: Env var selecting a provider preset (see :data:`PROVIDER_PRESETS`).
 PROVIDER_ENV_VAR = "OKFSMITH_PROVIDER"
 
@@ -71,9 +86,11 @@ OPENAI_BASE_ENV_VAR = "OPENAI_BASE_URL"
 #: Legacy alias for :data:`API_BASE_ENV_VAR` (promised by docs/llm.md).
 LEGACY_BASE_ENV_VAR = "OKFSMITH_BASE_URL"
 
-#: Env var we notice but cannot use natively yet (v1 wires OpenAI-compatible
-#: endpoints only; the user can still point ``--api-base`` at a compatible
-#: gateway).
+#: Env var we notice and CAN now use natively: with no explicit provider or
+#: base URL configured, a set ``ANTHROPIC_API_KEY`` selects the
+#: ``anthropic`` provider preset (native Messages API backend). It is also
+#: honored as the key for an explicit ``--provider anthropic`` /
+#: ``OKFSMITH_PROVIDER=anthropic``.
 ANTHROPIC_KEY_ENV_VAR = "ANTHROPIC_API_KEY"
 
 #: Named provider presets: name -> canonical base URL. The backend
@@ -99,20 +116,13 @@ PROVIDER_PRESETS: dict[str, str] = {
     "xai": "https://api.x.ai/v1",
     "gemini": "https://generativelanguage.googleapis.com/v1beta/openai",
     "agentrouter": "https://agentrouter.org/v1",
+    # The odd one out: Anthropic's native API is NOT OpenAI-compatible, so
+    # the ``anthropic`` provider dispatches to :class:`AnthropicBackend`
+    # (Messages API), never to the OpenAI-compatible backend — even though
+    # it lives in this table so ``--provider`` validation, the dashboard
+    # provider list, and doctor all stay uniform.
+    "anthropic": "https://api.anthropic.com",
 }
-
-#: Logged once when an Anthropic key is present but no explicit base URL is
-#: given: Anthropic's *native* API is not OpenAI-compatible, so it cannot
-#: be called directly — point ``--api-base`` at an OpenAI-compatible
-#: gateway/proxy in front of Anthropic (or use the ``openrouter`` preset,
-#: which routes to Claude models with one key).
-ANTHROPIC_NATIVE_TODO = (
-    "ANTHROPIC_API_KEY is set, but Anthropic's native API is not "
-    "OpenAI-compatible, so it cannot be called directly. Falling back to "
-    "the default Ollama endpoint; use --provider openrouter (one key, many "
-    "models, incl. Claude) or point --api-base at an OpenAI-compatible "
-    "gateway in front of Anthropic."
-)
 
 #: Timeout (seconds) for the Ollama reachability probe.
 REACHABILITY_TIMEOUT = 2.0
@@ -250,8 +260,10 @@ class LLMConfig:
     #: Provider label: a preset name (``"groq"``), ``"custom"``, or
     #: ``"ollama"`` for the default local path.
     provider: str
-    #: Full base URL the completions path is appended to (``/chat/completions``),
-    #: or ``None`` for the default Ollama probing path.
+    #: Full base URL the request path is appended to
+    #: (``/chat/completions`` for OpenAI-compatible backends,
+    #: ``/v1/messages`` for the Anthropic backend), or ``None`` for the
+    #: default Ollama probing path.
     base_url: str | None
     #: Resolved model name.
     model: str
@@ -425,6 +437,211 @@ class OpenAICompatibleBackend(LLMBackend):
         return content
 
 
+class AnthropicBackend(LLMBackend):
+    """Anthropic's native Messages API (``POST .../v1/messages``).
+
+    Anthropic is the one provider preset that is NOT OpenAI-compatible, so
+    it gets its own backend instead of :class:`OpenAICompatibleBackend`:
+
+    - auth via the ``x-api-key`` header (never ``Authorization: Bearer``),
+    - the required ``anthropic-version`` header,
+    - ``system`` messages hoisted out of the message list into the
+      top-level ``system`` parameter (the Messages API rejects a
+      ``"role": "system"`` entry inside ``messages``),
+    - consecutive same-role messages merged (the API requires strict
+      user/assistant alternation),
+    - the reply parsed from the ``content`` block list (text blocks
+      concatenated, in order).
+
+    ``base_url`` is the API host (default :data:`ANTHROPIC_API_BASE`); the
+    backend appends ``/v1/messages``. A prebuilt :class:`httpx.Client` can
+    be injected (tests use a mock transport); otherwise one is created
+    lazily and reused, closed by :meth:`close`, the context-manager
+    protocol, or the module's atexit hook. ``provider`` is fixed to
+    ``"anthropic"`` — it is a display label for chat banners/doctor, set
+    here (rather than only on the config) so a hand-built backend still
+    renders correctly.
+    """
+
+    name = "anthropic"
+    provider = "anthropic"
+
+    def __init__(
+        self,
+        base_url: str = ANTHROPIC_API_BASE,
+        model: str = DEFAULT_ANTHROPIC_MODEL,
+        api_key: str | None = None,
+        timeout: float = CHAT_TIMEOUT,
+        client: httpx.Client | None = None,
+    ) -> None:
+        super().__init__(model)
+        self.base_url = (base_url or ANTHROPIC_API_BASE).rstrip("/")
+        self._api_key = api_key  # never logged; never serialized
+        self._client = client  # injected: owned by the caller, never closed here
+        self._owned_client: httpx.Client | None = None  # lazily created, reused
+        self._timeout = timeout
+
+    @property
+    def has_key(self) -> bool:
+        """Whether an API key is configured (never exposes the value)."""
+        return bool(self._api_key)
+
+    def _messages_url(self) -> str:
+        return self.base_url.rstrip("/") + "/v1/messages"
+
+    def _client_or_new(self) -> httpx.Client:
+        """Return the injected client, else a lazily-created instance client.
+
+        Same ownership contract as :class:`OpenAICompatibleBackend`:
+        instance-owned clients are created once, reused across ``chat()``
+        calls, and closed by :meth:`close` / the context manager / atexit.
+        """
+        if self._client is not None:
+            return self._client
+        if self._owned_client is None:
+            self._owned_client = httpx.Client(timeout=self._timeout)
+            _owned_clients.add(self._owned_client)
+        return self._owned_client
+
+    def close(self) -> None:
+        """Close the lazily-created client, if any.
+
+        An injected client is owned by the caller and is never closed here.
+        Safe to call more than once.
+        """
+        client, self._owned_client = self._owned_client, None
+        if client is not None:
+            _owned_clients.discard(client)
+            client.close()
+
+    def __enter__(self) -> AnthropicBackend:
+        return self
+
+    def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
+        self.close()
+
+    @staticmethod
+    def _split_messages(
+        messages: list[dict],
+    ) -> tuple[str | None, list[dict[str, str]]]:
+        """Hoist ``system`` messages and merge consecutive same-role turns.
+
+        Returns ``(system, turns)`` where ``system`` is the concatenated
+        system prompt (or ``None``) and ``turns`` is the remaining
+        user/assistant message list with strict alternation restored.
+        Raises :class:`LLMResponseError` for malformed input (empty list,
+        non-string content, or a role the Messages API cannot carry).
+        """
+        if not messages:
+            raise LLMResponseError("no messages to send to the Anthropic API")
+        system_parts: list[str] = []
+        turns: list[dict[str, str]] = []
+        for msg in messages:
+            role = msg.get("role")
+            content = msg.get("content")
+            if not isinstance(content, str):
+                raise LLMResponseError(
+                    "Anthropic backend expects string message content, got "
+                    f"{type(content).__name__} for role {role!r}"
+                )
+            if role == "system":
+                system_parts.append(content)
+            elif role in ("user", "assistant"):
+                if turns and turns[-1]["role"] == role:
+                    # The Messages API requires strict alternation; merge
+                    # rather than fail on adapter-produced repeats.
+                    turns[-1]["content"] += "\n\n" + content
+                else:
+                    turns.append({"role": role, "content": content})
+            else:
+                raise LLMResponseError(
+                    f"Anthropic backend cannot carry role {role!r}: "
+                    "only 'system', 'user', and 'assistant' are supported"
+                )
+        if not turns:
+            raise LLMResponseError(
+                "no user/assistant messages to send to the Anthropic API"
+            )
+        system = "\n\n".join(system_parts) if system_parts else None
+        return system, turns
+
+    def chat(
+        self,
+        messages: list[dict],
+        *,
+        temperature: float = 0.0,
+        max_tokens: int = 4096,
+    ) -> str:
+        if not self._api_key:
+            raise LLMError(
+                "Anthropic backend has no API key: set ANTHROPIC_API_KEY, "
+                "OKFSMITH_API_KEY, or pass --api-key."
+            )
+        system, turns = self._split_messages(messages)
+        url = self._messages_url()
+        headers = {
+            "Content-Type": "application/json",
+            "x-api-key": self._api_key,
+            "anthropic-version": ANTHROPIC_API_VERSION,
+        }
+        payload: dict[str, Any] = {
+            "model": self.model,
+            "max_tokens": max_tokens,
+            "messages": turns,
+        }
+        if temperature != 0.0:
+            # Anthropic defaults temperature to 1.0; only send it when the
+            # caller actually wants non-deterministic sampling. okfsmith's
+            # extraction path always calls with temperature=0.0.
+            payload["temperature"] = temperature
+        if system:
+            payload["system"] = system
+        logger.debug(
+            "POST %s model=%s (key=%s)",
+            url,
+            self.model,
+            redact_key(self._api_key),
+        )
+        try:
+            response = self._client_or_new().post(url, json=payload, headers=headers)
+        except (httpx.HTTPError, httpx.InvalidURL) as exc:
+            raise LLMResponseError(
+                f"Anthropic endpoint {self.base_url} unreachable: "
+                f"{type(exc).__name__}: {exc}"
+            ) from exc
+        if response.status_code >= 400:
+            detail = response.text[:500]
+            try:
+                err = response.json().get("error", {})
+                if isinstance(err, dict) and err.get("message"):
+                    detail = str(err["message"])[:500]
+            except (ValueError, AttributeError):
+                pass
+            raise LLMResponseError(
+                f"Anthropic endpoint {self.base_url} returned HTTP "
+                f"{response.status_code}: {detail}"
+            )
+        try:
+            data = response.json()
+            blocks = data["content"]
+            if not isinstance(blocks, list):
+                raise TypeError("content is not a list")
+            text = "".join(
+                block.get("text", "")
+                for block in blocks
+                if isinstance(block, dict) and block.get("type") == "text"
+            )
+        except (ValueError, KeyError, TypeError, AttributeError) as exc:
+            raise LLMResponseError(
+                f"Anthropic endpoint {self.base_url} returned a malformed "
+                f"messages payload: {exc}"
+            ) from exc
+        # Empty text is returned as-is, not raised — same contract as
+        # OpenAICompatibleBackend: the pipeline's JSON-parse → repair →
+        # needs-review fallback path handles it.
+        return text
+
+
 def resolve_model(explicit: str | None = None) -> str:
     """Resolve the model name: explicit arg → ``OKFSMITH_MODEL`` → default."""
     return explicit or os.environ.get(MODEL_ENV_VAR) or DEFAULT_MODEL
@@ -482,14 +699,21 @@ def resolve_llm_config(
 
     Precedence per setting (highest wins):
 
-    - provider: ``--provider`` → ``OKFSMITH_PROVIDER``
+    - provider: ``--provider`` → ``OKFSMITH_PROVIDER`` → implied
+      ``"anthropic"`` when ``ANTHROPIC_API_KEY`` is set and no provider or
+      base URL is configured (the native Messages API needs no proxy).
     - base URL: ``--api-base`` → ``OKFSMITH_API_BASE`` → ``OKFSMITH_BASE_URL``
       (legacy alias) → ``OPENAI_BASE_URL`` (legacy) → the provider preset.
       Custom bases are normalized by :func:`_normalize_custom_base`
-      (bare hosts gain ``/v1``); the backend appends ``/chat/completions``.
+      (bare hosts gain ``/v1``); OpenAI-compatible backends append
+      ``/chat/completions``, the Anthropic backend appends ``/v1/messages``.
     - key: ``--api-key`` → ``OKFSMITH_API_KEY`` → ``AGENTROUTER_API_KEY``
-      (only when the provider is ``agentrouter``) → ``OPENAI_API_KEY`` (legacy)
+      (only when the provider is ``agentrouter``) → ``ANTHROPIC_API_KEY``
+      (only when the provider is ``anthropic``) → ``OPENAI_API_KEY``
+      (legacy)
     - model: ``--model`` → ``OKFSMITH_MODEL`` → built-in default
+      (``claude-haiku-4-5`` for the ``anthropic`` provider, ``qwen3:8b``
+      otherwise)
 
     No network is touched. Raises :class:`LLMError` for an unknown provider
     name (the message lists the valid names).
@@ -508,8 +732,26 @@ def resolve_llm_config(
         or os.environ.get(LEGACY_BASE_ENV_VAR)
         or os.environ.get(OPENAI_BASE_ENV_VAR)
     )
+    if not provider_name and not custom_base and os.environ.get(ANTHROPIC_KEY_ENV_VAR):
+        # No explicit provider or base, but an Anthropic key is configured:
+        # speak the native Messages API directly (no proxy needed).
+        provider_name = "anthropic"
+    # The anthropic provider speaks the native Messages API: its base is
+    # the API *host* and the backend appends ``/v1/messages`` itself, so
+    # the OpenAI-compat bare-host ``/v1`` rule must not apply — whether the
+    # provider was chosen explicitly, implied by ANTHROPIC_API_KEY, or
+    # inferred from a base pointing at the Anthropic host.
+    anthropic_wire = provider_name == "anthropic" or (
+        not provider_name
+        and bool(custom_base)
+        and _preset_name_for_base(custom_base.strip().rstrip("/")) == "anthropic"  # type: ignore[union-attr]
+    )
     if custom_base:
-        base_url: str | None = _normalize_custom_base(custom_base)
+        base_url: str | None = (
+            custom_base.strip().rstrip("/")
+            if anthropic_wire
+            else _normalize_custom_base(custom_base)
+        )
     elif provider_name:
         base_url = PROVIDER_PRESETS[provider_name]
     else:
@@ -534,15 +776,24 @@ def resolve_llm_config(
         # Provider-scoped on purpose: a generic key must never be silently
         # overridden for other providers by a router-specific one.
         key, key_source = os.environ[AGENTROUTER_KEY_ENV_VAR], AGENTROUTER_KEY_ENV_VAR
+    elif label == "anthropic" and os.environ.get(ANTHROPIC_KEY_ENV_VAR):
+        # Provider-scoped, same rationale: ANTHROPIC_API_KEY is the native
+        # credential for the anthropic provider only.
+        key, key_source = os.environ[ANTHROPIC_KEY_ENV_VAR], ANTHROPIC_KEY_ENV_VAR
     elif os.environ.get(OPENAI_KEY_ENV_VAR):
         key, key_source = os.environ[OPENAI_KEY_ENV_VAR], OPENAI_KEY_ENV_VAR
     else:
         key, key_source = None, "none"
 
+    default_model = (
+        DEFAULT_ANTHROPIC_MODEL if label == "anthropic" else DEFAULT_MODEL
+    )
+    resolved_model = model or os.environ.get(MODEL_ENV_VAR) or default_model
+
     return LLMConfig(
         provider=label,
         base_url=base_url,
-        model=resolve_model(model),
+        model=resolved_model,
         api_key=key,
         key_source=key_source,
     )
@@ -558,27 +809,45 @@ def resolve_backend(
 ) -> LLMBackend:
     """Pick the LLM backend for an extraction run. Single source of truth.
 
-    - Explicit provider / base URL (flags or ``OKFSMITH_*`` env) →
-      OpenAI-compatible backend; the key comes from ``--api-key``,
-      ``OKFSMITH_API_KEY``, or legacy ``OPENAI_API_KEY``. Local endpoints
-      may omit the key entirely.
+    - Explicit provider / base URL (flags or ``OKFSMITH_*`` env) → the
+      matching backend: :class:`AnthropicBackend` for the ``anthropic``
+      provider (native Messages API), :class:`OpenAICompatibleBackend`
+      for everything else. The key comes from ``--api-key``,
+      ``OKFSMITH_API_KEY``, ``ANTHROPIC_API_KEY`` (anthropic provider
+      only), ``AGENTROUTER_API_KEY`` (agentrouter only), or legacy
+      ``OPENAI_API_KEY``. Local endpoints may omit the key entirely.
+    - ``ANTHROPIC_API_KEY`` set with no explicit provider or base URL →
+      native Anthropic backend (no proxy needed).
     - Nothing configured → default Ollama at ``http://localhost:11434``
       (OpenAI-compatible API under ``/v1``).
     - Ollama unreachable and legacy ``OPENAI_API_KEY`` set → OpenAI preset
       (backwards compatible with pre-0.3 behavior).
     - Otherwise raise :class:`LLMUnavailableError` with an actionable
       message (use ``--no-llm``, start Ollama, or configure a provider).
-
-    A set-but-unused ``ANTHROPIC_API_KEY`` produces a logged warning: the
-    native Anthropic API is not OpenAI-compatible, so it needs a compat
-    proxy via ``--api-base`` (or the ``openrouter`` preset).
     """
     cfg = resolve_llm_config(
         model=model, provider=provider, api_base=api_base, api_key=api_key
     )
 
-    if os.environ.get(ANTHROPIC_KEY_ENV_VAR) and not cfg.base_url:
-        logger.warning(ANTHROPIC_NATIVE_TODO)
+    if cfg.provider == "anthropic":
+        if not cfg.api_key:
+            raise LLMError(
+                "Anthropic provider selected but no API key is configured: "
+                "set ANTHROPIC_API_KEY (or OKFSMITH_API_KEY, or pass "
+                "--api-key)."
+            )
+        logger.info(
+            "Using native Anthropic backend %s model=%s (key=%s)",
+            cfg.base_url,
+            cfg.model,
+            redact_key(cfg.api_key),
+        )
+        return AnthropicBackend(
+            base_url=cfg.base_url or ANTHROPIC_API_BASE,
+            model=cfg.model,
+            api_key=cfg.api_key,
+            timeout=timeout,
+        )
 
     if cfg.base_url:
         logger.info(
@@ -633,6 +902,9 @@ def resolve_backend(
         "      export OKFSMITH_API_KEY=...\n"
         "      export OKFSMITH_PROVIDER=openrouter   # one key -> many models\n"
         "      okfsmith ingest ./kb docs/ --model anthropic/claude-sonnet-4\n"
+        "    or use Anthropic's native API directly:\n"
+        "      export ANTHROPIC_API_KEY=...\n"
+        "      okfsmith ingest ./kb docs/            # --provider anthropic is implied\n"
         "    (flags work too: --provider groq --api-key ... --model ...)\n"
         f"    Presets: {', '.join(sorted(PROVIDER_PRESETS))}.\n"
         "    Anything else: --api-base https://your-endpoint/v1"

@@ -138,6 +138,11 @@ def test_provider_preset_urls() -> None:
         "xai": "https://api.x.ai/v1",
         "gemini": "https://generativelanguage.googleapis.com/v1beta/openai",
         "agentrouter": "https://agentrouter.org/v1",
+        # Anthropic's native API is not OpenAI-compatible: this is the
+        # Messages API host, and resolve_backend() dispatches the
+        # "anthropic" provider to AnthropicBackend, never to the
+        # OpenAI-compatible backend.
+        "anthropic": "https://api.anthropic.com",
     }
 
 

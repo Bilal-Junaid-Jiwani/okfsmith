@@ -1,3 +1,49 @@
+Metadata-Version: 2.4
+Name: okfsmith
+Version: 0.7.0
+Summary: CLI that forges PDFs, markdown, and wikis into Open Knowledge Format (OKF) knowledge bundles
+Author: okfsmith-team
+License-Expression: Apache-2.0
+Project-URL: Homepage, https://github.com/Bilal-Junaid-Jiwani/okfsmith
+Project-URL: Repository, https://github.com/Bilal-Junaid-Jiwani/okfsmith
+Project-URL: Documentation, https://github.com/Bilal-Junaid-Jiwani/okfsmith#readme
+Project-URL: Issues, https://github.com/Bilal-Junaid-Jiwani/okfsmith/issues
+Project-URL: Changelog, https://github.com/Bilal-Junaid-Jiwani/okfsmith/blob/master/CHANGELOG.md
+Keywords: okf,open-knowledge-format,knowledge-bundle,knowledge-base,knowledge-graph,pdf,markdown,notion,wiki,cli,mcp,llm,extraction,ocr,frontmatter,agents,rag
+Classifier: Development Status :: 3 - Alpha
+Classifier: Environment :: Console
+Classifier: Intended Audience :: Developers
+Classifier: Operating System :: OS Independent
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Classifier: Programming Language :: Python :: 3.12
+Classifier: Topic :: Scientific/Engineering :: Artificial Intelligence
+Classifier: Topic :: Text Processing :: General
+Classifier: Topic :: Text Processing :: Indexing
+Classifier: Topic :: Text Processing :: Markup :: Markdown
+Classifier: Topic :: Utilities
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: typer<0.28,>=0.12
+Requires-Dist: pyyaml<7,>=6
+Requires-Dist: rich<16,>=13
+Requires-Dist: httpx<1,>=0.27
+Requires-Dist: fastapi<0.143,>=0.122
+Requires-Dist: uvicorn<0.55,>=0.35
+Requires-Dist: python-multipart<0.0.40,>=0.0.18
+Requires-Dist: liteparse<3,>=2.14
+Provides-Extra: mcp
+Requires-Dist: fastmcp<5,>=3.2; extra == "mcp"
+Provides-Extra: ocr
+Requires-Dist: docling<3,>=2.130; extra == "ocr"
+Provides-Extra: test
+Requires-Dist: pytest<10,>=8; extra == "test"
+Provides-Extra: office
+Requires-Dist: markitdown[docx,pptx,xlsx]<0.2,>=0.1.5; extra == "office"
+Dynamic: license-file
+
 <p align="center">
   <img src="https://raw.githubusercontent.com/Bilal-Junaid-Jiwani/okfsmith/master/docs/assets/img/logo.svg" width="96" height="96" alt="okfsmith logo — a blacksmith's anvil with a forge spark">
 </p>

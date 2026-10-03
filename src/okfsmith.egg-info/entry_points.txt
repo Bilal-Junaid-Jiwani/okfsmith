@@ -1,0 +1,2 @@
+[console_scripts]
+okfsmith = okfsmith.cli.app:app

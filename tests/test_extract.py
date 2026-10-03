@@ -19,11 +19,13 @@ from okfsmith.core.spec import trust_tier
 from okfsmith.extract import human_review, prompts
 from okfsmith.extract import llm as llm_module
 from okfsmith.extract.llm import (
+    AnthropicBackend,
     LLMResponseError,
     LLMUnavailableError,
     OpenAICompatibleBackend,
     redact_key,
     resolve_backend,
+    resolve_llm_config,
     resolve_model,
 )
 from okfsmith.extract.pipeline import SectionInput, run
@@ -456,14 +458,25 @@ def test_no_llm_clean_error(tmp_path, monkeypatch):
     assert "Ollama" in message
 
 
-def test_anthropic_key_logs_todo_warning(monkeypatch, caplog):
-    monkeypatch.setattr(llm_module, "is_ollama_reachable", lambda *a, **k: True)
+def test_anthropic_key_implies_native_backend(monkeypatch):
+    # No provider/base configured, but ANTHROPIC_API_KEY is set: the native
+    # Messages API backend is used directly — no proxy, no Ollama fallback,
+    # no "not OpenAI-compatible" warning anymore.
+    for var in (
+        "OKFSMITH_PROVIDER", "OKFSMITH_API_BASE", "OKFSMITH_BASE_URL",
+        "OPENAI_BASE_URL", "OKFSMITH_API_KEY", "OPENAI_API_KEY",
+        "OKFSMITH_MODEL",
+    ):
+        monkeypatch.delenv(var, raising=False)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-fake")
-    with caplog.at_level("WARNING", logger="okfsmith.extract.llm"):
-        backend = resolve_backend()
-    assert "Anthropic" in caplog.text
-    assert "not OpenAI-compatible" in caplog.text
-    assert isinstance(backend, OpenAICompatibleBackend)
+    backend = resolve_backend()
+    assert isinstance(backend, AnthropicBackend)
+    assert backend.model == "claude-haiku-4-5"
+    assert backend.has_key
+    assert backend.provider == "anthropic"
+    cfg = resolve_llm_config()
+    assert cfg.provider == "anthropic"
+    assert cfg.key_source == "ANTHROPIC_API_KEY"
 
 
 def test_resolve_model_env_and_default(monkeypatch):

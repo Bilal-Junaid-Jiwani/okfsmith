@@ -21,36 +21,46 @@ claims are written with `[^source-id]` citations that resolve against
 
 1. `--model NAME` on the command line
 2. `OKFSMITH_MODEL` environment variable
-3. built-in default (Ollama `qwen3:8b`)
+3. built-in default — `claude-haiku-4-5` when the `anthropic` provider is
+   selected, otherwise Ollama `qwen3:8b`
 
 ### Backends
 
 - **Ollama** (default): expects a server at `http://localhost:11434`
   (`ollama serve`). Fully local. `okfsmith doctor` still reports whether
   it is reachable.
+- **Anthropic** (`--provider anthropic` or just `ANTHROPIC_API_KEY`): speaks
+  Anthropic's **native** Messages API directly (`POST
+  https://api.anthropic.com/v1/messages`) — no proxy, no OpenAI-compat
+  gateway needed. With no explicit provider or base URL configured, a set
+  `ANTHROPIC_API_KEY` selects this backend automatically. The key comes
+  from `--api-key`, `OKFSMITH_API_KEY`, or `ANTHROPIC_API_KEY`
+  (provider-scoped, honored only for this provider). System prompts are
+  sent via the API's native `system` parameter; the default model is
+  `claude-haiku-4-5`.
 - **Provider presets** (`--provider NAME` or `OKFSMITH_PROVIDER`): 15
   OpenAI-compatible endpoints — `openrouter`, `groq`, `mistral`,
   `deepseek`, `together`, `fireworks`, `deepinfra`, `anyscale`,
   `perplexity`, `xai`, `gemini`, `openai`, `agentrouter`, `lmstudio`,
-  `ollama`. The key comes from `OKFSMITH_API_KEY` (preferred),
-  `--api-key`, `AGENTROUTER_API_KEY` (honored when the provider is
-  `agentrouter`), or legacy `OPENAI_API_KEY`. `openrouter` is the
-  flagship: one key routes to hundreds of models via `vendor/model`-style
-  IDs (e.g. `--model anthropic/claude-sonnet-4`).
+  `ollama` — plus the native `anthropic` preset above. The key comes from
+  `OKFSMITH_API_KEY` (preferred), `--api-key`, `AGENTROUTER_API_KEY`
+  (honored when the provider is `agentrouter`), `ANTHROPIC_API_KEY`
+  (honored when the provider is `anthropic`), or legacy `OPENAI_API_KEY`.
+  `openrouter` is the flagship: one key routes to hundreds of models via
+  `vendor/model`-style IDs (e.g. `--model anthropic/claude-sonnet-4`).
 - **Anything else** (`--api-base URL` or `OKFSMITH_API_BASE`): Azure
   OpenAI, self-hosted vLLM, a llama.cpp server, any compat proxy. The base
   is the full API base (e.g. `https://my-proxy/v1`); okfsmith appends
   `/chat/completions`. A bare host with no path gains `/v1` automatically
-  (the old `OPENAI_BASE_URL` contract keeps working).
+  (the old `OPENAI_BASE_URL` contract keeps working). For the `anthropic`
+  provider the base is the Messages API *host* instead (okfsmith appends
+  `/v1/messages`), so `--provider anthropic --api-base
+  https://my-proxy` speaks the native API to your proxy.
 
 Full precedence: flags → `OKFSMITH_*` → legacy `OPENAI_API_KEY` /
 `OPENAI_BASE_URL` (and the `OKFSMITH_BASE_URL` alias promised here
-earlier) → provider preset → default Ollama.
-
-Anthropic's **native** API is not OpenAI-compatible, so it cannot be
-called directly. Use the `openrouter` preset (one key, routes to Claude
-models) or point `--api-base` at an OpenAI-compatible gateway in front of
-Anthropic.
+earlier) → provider preset → `ANTHROPIC_API_KEY`-implied `anthropic` →
+default Ollama.
 
 If no endpoint is reachable, ingest fails cleanly with
 `error [llm-unavailable]:` and a hint (`ollama serve`, env vars, or retry

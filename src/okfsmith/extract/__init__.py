@@ -24,6 +24,7 @@ from okfsmith.extract.llm import (
     LLMError,
     LLMResponseError,
     LLMUnavailableError,
+    AnthropicBackend,
     OpenAICompatibleBackend,
     key_status,
     redact_key,
@@ -34,6 +35,7 @@ from okfsmith.extract.llm import (
 from okfsmith.extract.pipeline import SectionInput, run, situating_prefix
 
 __all__ = [
+    "AnthropicBackend",
     "LLMBackend",
     "LLMConfig",
     "LLMError",
