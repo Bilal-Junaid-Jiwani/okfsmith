@@ -19,9 +19,9 @@ from okfsmith.extract import llm as llm_module
 from okfsmith.extract.llm import (
     ANTHROPIC_API_BASE,
     DEFAULT_ANTHROPIC_MODEL,
+    AnthropicBackend,
     LLMError,
     LLMResponseError,
-    AnthropicBackend,
     OpenAICompatibleBackend,
     resolve_backend,
     resolve_llm_config,
