@@ -43,6 +43,7 @@ from typing import Any
 
 from okfsmith.core import spec
 from okfsmith.core.bundle import Bundle, Concept
+from okfsmith.links import _resolve_id_target, primary_section_id
 
 __all__ = ["render_html"]
 
@@ -62,8 +63,6 @@ _REFDEF_RE = re.compile(
     r"[ \t]*$",
     re.MULTILINE,
 )
-# URI scheme, e.g. https:, mailto:, ftp: — external resources, not concepts.
-_SCHEME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
 
 
 def _link_targets(body: str) -> list[str]:
@@ -80,33 +79,11 @@ def _resolve_target(concept_id: str, raw: str) -> str | None:
     concept links; ``/a/b`` is bundle-absolute; anything else resolves
     relative to the linking concept's directory; a trailing ``.md`` suffix,
     query strings and fragments are stripped; ``.``/``..`` segments collapse.
+
+    Shared with the CLI graph and the W001 validator: implemented in
+    :mod:`okfsmith.links` so the three can never drift apart.
     """
-    raw = (raw or "").strip().strip("<>")
-    if not raw or raw.startswith("#"):
-        return None
-    if _SCHEME_RE.match(raw):
-        return None  # external resource — not a concept link
-    target = re.split(r"[#?]", raw, maxsplit=1)[0].strip()
-    if not target:
-        return None
-    if target.startswith("/"):
-        target = target[1:]
-    else:
-        base = concept_id.rpartition("/")[0]
-        target = f"{base}/{target}" if base else target
-    parts: list[str] = []
-    for part in target.split("/"):
-        if part in ("", "."):
-            continue
-        if part == "..":
-            if parts:
-                parts.pop()
-            continue
-        parts.append(part)
-    target = "/".join(parts)
-    if target.lower().endswith(".md"):
-        target = target[: -len(".md")]
-    return target or None
+    return _resolve_id_target(concept_id, raw)
 
 
 # ---------------------------------------------------------------------------
@@ -163,21 +140,16 @@ def _primary_section_id(
     document's primary concept: the section whose slug matches the file stem,
     else the earliest-generated section, else the first id alphabetically.
     Returns ``None`` when no concept belongs to that document.
+
+    Shared with the CLI graph and the W001 validator: implemented in
+    :mod:`okfsmith.links` so the three can never drift apart.
     """
-    prefix = doc_id + "/"
-    cands = [i for i in ids if i.startswith(prefix)]
-    if not cands:
-        return None
-    stem = doc_id.rsplit("/", 1)[-1]
-    for i in cands:
-        if i.rsplit("/", 1)[-1] == stem:
-            return i
 
     def _gen_at(i: str) -> str:
         gen = ((by_id.get(i).frontmatter or {}).get("generated") or {})
         return str(gen.get("at") or "")
 
-    return sorted(cands, key=lambda i: (_gen_at(i), i))[0]
+    return primary_section_id(ids, doc_id, _gen_at)
 
 
 def _build_model(bundle: Bundle) -> dict[str, Any]:

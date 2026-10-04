@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import posixpath
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import NamedTuple
@@ -26,7 +26,7 @@ import yaml
 
 from okfsmith.core import temporal as _temporal
 from okfsmith.core.frontmatter import lenient_safe_load as _yaml_load
-from okfsmith.links import extract_link_targets  # shared link extraction (M13)
+from okfsmith.links import extract_link_targets, resolve_link  # shared link resolution (W001)
 from okfsmith.validate import Finding
 
 # ---------------------------------------------------------------------------
@@ -335,28 +335,22 @@ def _resolve_contained(root: Path, rel: str) -> Path | None:
     return resolved
 
 
-def _link_is_live(root: Path, base_rel: str, target: str) -> bool:
-    """True when *target* resolves to a file or directory inside the bundle.
+def _warn_broken_links(
+    root: Path,
+    doc: _Doc,
+    concept_ids: set[str],
+    gen_at: Callable[[str], str],
+) -> list[Finding]:
+    """W001 — a body link target resolves to no concept in the bundle (§6.1).
 
-    Anything escaping the bundle root — directly or via a symlink — is dead
-    (C6), matching ``links.resolve_link``.
+    Resolution is the shared :func:`okfsmith.links.resolve_link`: links
+    written in per-section concepts (id ``doc/section``) resolve relative to
+    the source document, and a target naming a whole document that was split
+    into per-section concepts resolves to that document's primary section
+    concept — the same rule the ``okfsmith graph`` command and the
+    dashboard's Explore graph apply.
     """
-    rel = _resolve_target(root, base_rel, target)
-    if rel is None:
-        return False
-    resolved = _resolve_contained(root, rel)
-    if resolved is None:
-        return False
-    if resolved.is_dir():
-        return True
-    alt = _resolve_contained(root, rel + ".md")
-    return resolved.is_file() or (alt is not None and alt.is_file())
-
-
-def _warn_broken_links(root: Path, doc: _Doc) -> list[Finding]:
-    """W001 — a body link target resolves to no file in the bundle (§6.1)."""
     findings: list[Finding] = []
-    base_rel = posixpath.dirname(doc.rel)
     seen: set[str] = set()
     # Link extraction is shared with the graph (okfsmith.links); the shared
     # extractor already strips CommonMark titles (M12). Code is stripped first
@@ -366,7 +360,10 @@ def _warn_broken_links(root: Path, doc: _Doc) -> list[Finding]:
         if not target or _is_external(target) or target in seen:
             continue
         seen.add(target)
-        if not _link_is_live(root, base_rel, target):
+        kind, _ = resolve_link(
+            root, doc.path, target, concept_ids=concept_ids, gen_at=gen_at
+        )
+        if kind == "dead":
             findings.append(
                 Finding("W001", doc.rel, f"broken link target not found in bundle: {raw_target.strip()!r}", "§6.1")
             )
@@ -888,9 +885,22 @@ def run_checks(root: Path) -> tuple[list[Finding], list[Finding]]:
 
     warnings: list[Finding] = []
 
-    # W001 broken-link (concept bodies only; index entries are never link-checked)
+    # W001 broken-link (concept bodies only; index entries are never link-checked).
+    # Concept ids feed the shared section-concept fallback in links.resolve_link,
+    # so W001 agrees with `okfsmith graph` and the dashboard's Explore graph.
+    w001_ids: set[str] = set()
+    w001_fm: dict[str, Mapping | None] = {}
     for doc in concepts:
-        warnings.extend(_warn_broken_links(root, doc))
+        cid = doc.rel[: -len(".md")] if doc.rel.lower().endswith(".md") else doc.rel
+        w001_ids.add(cid)
+        w001_fm[cid] = doc.fm
+
+    def _w001_gen_at(cid: str) -> str:
+        fm = w001_fm.get(cid) or {}
+        return str((fm.get("generated") or {}).get("at") or "")
+
+    for doc in concepts:
+        warnings.extend(_warn_broken_links(root, doc, w001_ids, _w001_gen_at))
 
     # W002 orphan-concept (reachability from index.md entries only)
     covered_ids, covered_prefixes = _collect_index_coverage(root, index_docs)

@@ -93,6 +93,11 @@
       <details class="toc-mobile">
         <summary>On this page</summary>
         <ul class="toc-list">
+<li><a href="#v0-7-1">[0.7.1] — 2026-10-04</a>
+<ul class="toc-sub">
+<li><a href="#v0-7-1-fixed">Fixed</a></li>
+</ul>
+</li>
 <li><a href="#v0-7-0">[0.7.0] — 2026-10-03</a>
 <ul class="toc-sub">
 <li><a href="#v0-7-0-added">Added</a></li>
@@ -144,7 +149,13 @@
         </button>
       </div>
       <div class="prose">
-        <h2 id="v0-7-0">[0.7.0] — 2026-10-03</h2>
+        <h2 id="v0-7-1">[0.7.1] — 2026-10-04</h2>
+<h3 id="v0-7-1-fixed">Fixed</h3>
+<ul>
+<li><strong>Shared section-concept link resolution for <code>graph</code> and W001</strong> — links written in a per-section concept (id <code>doc/section</code>) are relative to the source <em>document</em>, but only the dashboard's Explore graph applied that rule — <code>okfsmith graph</code> reported such links as dead and <code>validate</code> raised a spurious W001. The rule now lives in the shared <code>okfsmith.links</code> resolver, so <code>graph</code>, the dashboard graph, and W001 agree: a target naming a whole document split into sections resolves to its primary section concept. Genuinely broken links are still dead.
+</li>
+</ul>
+<h2 id="v0-7-0">[0.7.0] — 2026-10-03</h2>
 <h3 id="v0-7-0-added">Added</h3>
 <ul>
 <li><strong>Native Anthropic Messages API backend</strong> — <code>--provider anthropic</code> (or just <code>ANTHROPIC_API_KEY</code> with nothing else configured) now speaks Anthropic's native API directly: no OpenAI-compatible proxy needed. Default model <code>claude-haiku-4-5</code>; system prompts use the API's native <code>system</code> parameter.
@@ -245,6 +256,11 @@
     <aside class="toc" aria-label="On this page">
       <p class="toc-title">On this page</p>
       <ul class="toc-list">
+<li><a href="#v0-7-1">[0.7.1] — 2026-10-04</a>
+<ul class="toc-sub">
+<li><a href="#v0-7-1-fixed">Fixed</a></li>
+</ul>
+</li>
 <li><a href="#v0-7-0">[0.7.0] — 2026-10-03</a>
 <ul class="toc-sub">
 <li><a href="#v0-7-0-added">Added</a></li>

@@ -51,7 +51,7 @@ temporal-model advisories (`valid_from` / `valid_until` / `supersedes` /
 
 | Code | What it means | Where in OKF |
 |---|---|---|
-| `W001` | Body link target resolves to no file in the bundle (broken link) | §6.1 |
+| `W001` | Body link target resolves to nothing in the bundle (broken link). Links in per-section concepts resolve relative to the source document; a target naming a whole document split into sections resolves to its primary section — same rule as `graph` | §6.1 |
 | `W002` | Concept not reachable from any `index.md` entry | §8 |
 | `W003` | Recommended `title` / `description` missing from frontmatter | §4.1 |
 | `W004` | Body footnote `[^id]` has no matching `sources[].id` | §5.1 |

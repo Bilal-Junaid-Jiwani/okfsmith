@@ -5,6 +5,24 @@ follow SemVer.
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-10-04
+
+### Fixed
+- **Shared section-concept link resolution for `okfsmith graph` and W001:**
+  links written in a per-section concept (id `doc/section`) are relative to
+  the source *document*, but only the dashboard's Explore graph applied that
+  rule (0.5.1) — `okfsmith graph` reported such links as dead and `validate`
+  raised a spurious W001 for them (e.g. `alpha/alpha-guide` linking
+  `beta.md` when `beta` was split into per-section concepts). The rule now
+  lives in the shared `okfsmith.links` resolver: on a miss, the target is
+  retried at each ancestor level of the linking concept's id, and a target
+  naming a whole document split into sections resolves to that document's
+  primary section concept (section slug == file stem, else
+  earliest-generated, else alphabetical). `okfsmith graph`, the dashboard
+  graph, and W001 now agree; genuinely broken links are still dead, and
+  links escaping the bundle root still resolve dead (the fallback never runs
+  for them). Covered by `tests/test_links_section_fallback.py` (11 tests).
+
 ## [0.7.0] - 2026-10-03
 
 ### Added

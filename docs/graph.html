@@ -138,7 +138,7 @@ Dead links (0):
 </li>
 <li><strong>links</strong> — edges: a concept's body links to another concept in the bundle.
 </li>
-<li><strong>dead links</strong> — link targets that resolve to no file (matches <code>W001</code> from <a href="validation.html">Validation</a>).
+<li><strong>dead links</strong> — link targets that resolve to nothing in the bundle (matches <code>W001</code> from <a href="validation.html">Validation</a>).
 </li>
 </ul>
 <p>A freshly ingested <code>--no-llm</code> bundle has 0 links — deterministic sectioning doesn't create inter-concept links, so every concept is standalone. That's normal, and it still validates.</p>
@@ -149,6 +149,7 @@ Dead links (0):
 <li><strong>Dead links</strong> — links pointing at targets that don't exist in the bundle (typos in hand-written links, renamed concept files).
 </li>
 </ul>
+<p>Links are resolved the way they were written: a link inside a per-section concept (id <code>doc/section</code>) is relative to the source <em>document</em>, so a link naming a whole document (e.g. <code>other.md</code>) lands on that document's primary section concept — the section whose slug matches the file stem, else the earliest-generated section, else the first alphabetically. This is the same rule the dashboard's Explore graph uses, and <code>validate</code> (W001) agrees with it: interlinked documents no longer show up as dead links.</p>
 <p>To fix them:</p>
 <ol>
 <li>Run <code>okfsmith graph ./kb</code> to list the offenders.

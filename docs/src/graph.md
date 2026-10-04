@@ -26,7 +26,7 @@ What each number means:
 
 - **concepts** — nodes in the graph (one per concept file).
 - **links** — edges: a concept's body links to another concept in the bundle.
-- **dead links** — link targets that resolve to no file (matches `W001` from [Validation](validation.html)).
+- **dead links** — link targets that resolve to nothing in the bundle (matches `W001` from [Validation](validation.html)).
 
 A freshly ingested `--no-llm` bundle has 0 links — deterministic sectioning doesn't create inter-concept links, so every concept is standalone. That's normal, and it still validates.
 
@@ -34,6 +34,14 @@ A freshly ingested `--no-llm` bundle has 0 links — deterministic sectioning do
 
 - **Orphans** — concepts nothing links *to*. They're valid but isolated: readers can only reach them via `list` or search.
 - **Dead links** — links pointing at targets that don't exist in the bundle (typos in hand-written links, renamed concept files).
+
+Links are resolved the way they were written: a link inside a per-section
+concept (id `doc/section`) is relative to the source *document*, so a link
+naming a whole document (e.g. `other.md`) lands on that document's primary
+section concept — the section whose slug matches the file stem, else the
+earliest-generated section, else the first alphabetically. This is the same
+rule the dashboard's Explore graph uses, and `validate` (W001) agrees with
+it: interlinked documents no longer show up as dead links.
 
 To fix them:
 

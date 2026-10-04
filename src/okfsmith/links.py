@@ -6,11 +6,22 @@ itself: a link target is dead when neither ``<target>`` nor ``<target>.md``
 resolves to a file in the bundle (fragments/queries stripped, external URLs
 skipped); a concept is an orphan when no ``index.md`` link entry reaches it,
 directly or via a directory entry.
+
+Section-concept fallback: links written in a per-section concept (id
+``doc/section``) are relative to the source *document*, so when the plain
+file-path resolution misses, :func:`resolve_link` (given the bundle's concept
+ids) walks up the linking concept's id and — when the target names a whole
+document that was split into per-section concepts — resolves to that
+document's primary section concept (see :func:`primary_section_id`).
+Genuinely broken links stay dead. This is the same rule the dashboard's
+Explore graph applies, so ``okfsmith graph``, the dashboard graph, and the
+W001 validator agree.
 """
 
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from pathlib import Path
 
 from okfsmith.core.bundle import Bundle
@@ -79,7 +90,119 @@ def _strip_fragment_query(target: str) -> str:
     return target.split("#", 1)[0].split("?", 1)[0].strip()
 
 
-def resolve_link(root: Path, source_path: Path, target: str) -> tuple[str, str | None]:
+def primary_section_id(
+    concept_ids: set[str],
+    doc_id: str,
+    gen_at: Callable[[str], str] | None = None,
+) -> str | None:
+    """Return the primary concept id for a whole-document link target.
+
+    When a markdown link points at a document (``other.md``) that was split
+    into per-section concepts (``other/<section>``), the edge targets the
+    document's primary concept: the section whose slug matches the file stem,
+    else the earliest-generated section, else the first id alphabetically.
+    ``gen_at`` maps a concept id to its ``generated.at`` timestamp string
+    (missing/unknown sorts first — same as an empty timestamp).
+    Returns ``None`` when no concept belongs to that document.
+    """
+    prefix = doc_id + "/"
+    cands = [i for i in concept_ids if i.startswith(prefix)]
+    if not cands:
+        return None
+    stem = doc_id.rsplit("/", 1)[-1]
+    for i in cands:
+        if i.rsplit("/", 1)[-1] == stem:
+            return i
+    key = (lambda i: (gen_at(i), i)) if gen_at is not None else (lambda i: ("", i))
+    return sorted(cands, key=key)[0]
+
+
+def _resolve_id_target(concept_id: str, raw: str) -> str | None:
+    """Resolve a raw markdown link target to a concept id, or ``None``.
+
+    Id-space twin of the file-path resolution in :func:`resolve_link`:
+    external URIs (any scheme) and pure ``#fragment`` links are not concept
+    links; ``/a/b`` is bundle-absolute; anything else resolves relative to
+    the linking concept's directory; a trailing ``.md`` suffix, query strings
+    and fragments are stripped; ``.``/``..`` segments collapse (never above
+    the bundle root).
+    """
+    raw = (raw or "").strip().strip("<>")
+    if not raw or raw.startswith("#"):
+        return None
+    if _EXTERNAL_RE.match(raw):
+        return None  # external resource — not a concept link
+    target = re.split(r"[#?]", raw, maxsplit=1)[0].strip()
+    if not target:
+        return None
+    if target.startswith("/"):
+        target = target[1:]
+    else:
+        base = concept_id.rpartition("/")[0]
+        target = f"{base}/{target}" if base else target
+    parts: list[str] = []
+    for part in target.split("/"):
+        if part in ("", "."):
+            continue
+        if part == "..":
+            if parts:
+                parts.pop()
+            continue
+        parts.append(part)
+    target = "/".join(parts)
+    if target.lower().endswith(".md"):
+        target = target[: -len(".md")]
+    return target or None
+
+
+def _section_concept_fallback(
+    root: Path,
+    source_path: Path,
+    clean: str,
+    concept_ids: set[str],
+    gen_at: Callable[[str], str] | None,
+) -> str | None:
+    """Walk-up + primary-section resolution for section-concept links.
+
+    The link is written relative to the source *document*, but the linking
+    concept may be a section of that document (id like ``doc/section``), so
+    a miss at the concept's own level is retried at each ancestor level.
+    When the target names a whole document split into per-section concepts,
+    the target document's primary section concept id is returned.
+    Returns ``None`` when nothing resolves.
+    """
+    try:
+        rel = source_path.resolve().relative_to(root.resolve())
+    except (OSError, ValueError):
+        return None
+    source_id = rel.with_suffix("").as_posix() if rel.suffix.lower() == ".md" else rel.as_posix()
+    target = _resolve_id_target(source_id, clean)
+    if not target or target == source_id:
+        return None
+    if target in concept_ids:
+        return target
+    base = source_id
+    while "/" in base:
+        base = base.rpartition("/")[0]
+        cand = _resolve_id_target(base, clean)
+        if not cand or cand == source_id:
+            continue
+        if cand in concept_ids:
+            return cand
+        primary = primary_section_id(concept_ids, cand, gen_at)
+        if primary and primary != source_id:
+            return primary
+    return None
+
+
+def resolve_link(
+    root: Path,
+    source_path: Path,
+    target: str,
+    *,
+    concept_ids: set[str] | None = None,
+    gen_at: Callable[[str], str] | None = None,
+) -> tuple[str, str | None]:
     """Resolve a raw markdown link *target* against the bundle.
 
     Returns ``(kind, concept_id)`` where *kind* is one of:
@@ -94,6 +217,14 @@ def resolve_link(root: Path, source_path: Path, target: str) -> tuple[str, str |
       ``log.md``, any casing); not a concept, never reported dead (QA L9).
     - ``"dead"`` — resolves to nothing in the bundle. Null bytes (QA H14) and
       filesystem errors (QA L7) also resolve here instead of raising.
+
+    When *concept_ids* is given (the bundle's concept id set) and the
+    file-path resolution misses *inside* the bundle, the section-concept
+    fallback runs: links written in a per-section concept are retried
+    relative to the source document, and a target naming a whole document
+    split into per-section concepts resolves to its primary section
+    (:func:`primary_section_id`). Targets escaping the bundle root stay
+    dead — the fallback never runs for them.
     """
     clean = _strip_fragment_query(target)
     # QA L6: protocol-relative links are external, matching the validator.
@@ -133,6 +264,10 @@ def resolve_link(root: Path, source_path: Path, target: str) -> tuple[str, str |
     except (OSError, ValueError):
         # QA L7: over-long targets raise OSError (ENAMETOOLONG) from is_file().
         return "dead", None
+    if concept_ids is not None:
+        fallback = _section_concept_fallback(root, source_path, clean, concept_ids, gen_at)
+        if fallback is not None:
+            return "ok", fallback
     return "dead", None
 
 
@@ -143,6 +278,12 @@ def _node_for(bundle: Bundle, concept_id: str) -> dict:
     return {"id": concept_id, "type": str(fm.get("type") or ""), "title": str(title)}
 
 
+def _gen_at_of(frontmatter: dict | None) -> str:
+    """Extract the ``generated.at`` timestamp string from frontmatter."""
+    fm = frontmatter or {}
+    return str((fm.get("generated") or {}).get("at") or "")
+
+
 def build_graph(bundle: Bundle) -> dict:
     """Build the concept link graph.
 
@@ -151,14 +292,27 @@ def build_graph(bundle: Bundle) -> dict:
     and dead links are ``{"source", "target"}`` dicts (raw target text).
     Asset and reserved-file links are skipped silently: they are neither
     edges nor dead links.
+
+    Links written in per-section concepts resolve relative to the source
+    document (section-concept fallback): a target naming a whole document
+    split into sections links to that document's primary section concept.
     """
-    nodes = {c.id: _node_for(bundle, c.id) for c in bundle.iter_concepts()}
+    concepts = list(bundle.iter_concepts())
+    nodes = {c.id: _node_for(bundle, c.id) for c in concepts}
+    concept_ids = set(nodes)
+    by_id = {c.id: c for c in concepts}
+
+    def _gen_at(cid: str) -> str:
+        return _gen_at_of(by_id[cid].frontmatter)
+
     edges: list[dict] = []
     dead_links: list[dict] = []
     seen_edges: set[tuple[str, str]] = set()
-    for concept in bundle.iter_concepts():
+    for concept in concepts:
         for target in extract_link_targets(concept.body):
-            kind, concept_id = resolve_link(bundle.root, concept.path, target)
+            kind, concept_id = resolve_link(
+                bundle.root, concept.path, target, concept_ids=concept_ids, gen_at=_gen_at
+            )
             if kind in ("external", "dir", "asset", "reserved"):
                 continue
             if kind == "ok" and concept_id in nodes:
@@ -172,7 +326,19 @@ def build_graph(bundle: Bundle) -> dict:
 
 
 def orphans(bundle: Bundle) -> list[str]:
-    """Concept ids not reachable from any ``index.md`` link entry."""
+    """Concept ids not reachable from any ``index.md`` link entry.
+
+    Whole-document link entries resolve through the same section-concept
+    fallback as :func:`build_graph`: an entry naming a document split into
+    per-section concepts reaches that document's primary section.
+    """
+    concepts = list(bundle.iter_concepts())
+    concept_ids = {c.id for c in concepts}
+    by_id = {c.id: c for c in concepts}
+
+    def _gen_at(cid: str) -> str:
+        return _gen_at_of(by_id[cid].frontmatter)
+
     indexed: set[str] = set()
     for index_path in sorted(bundle.root.rglob("index.md")):
         try:
@@ -181,7 +347,9 @@ def orphans(bundle: Bundle) -> list[str]:
             # QA L8: a non-UTF-8 nested index.md must not crash the graph.
             continue
         for target in extract_link_targets(text):
-            kind, concept_id = resolve_link(bundle.root, index_path, target)
+            kind, concept_id = resolve_link(
+                bundle.root, index_path, target, concept_ids=concept_ids, gen_at=_gen_at
+            )
             if kind == "ok" and concept_id:
                 indexed.add(concept_id)
             elif kind == "dir":

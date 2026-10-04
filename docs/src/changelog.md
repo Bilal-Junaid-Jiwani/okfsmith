@@ -4,6 +4,19 @@ eyebrow: Troubleshooting
 description: Release history for okfsmith — what changed in each version, what's coming next, and upgrade notes. Follows Keep a Changelog and Semantic Versioning.
 ---
 
+## [0.7.1] — 2026-10-04 {#v0-7-1}
+
+### Fixed {#v0-7-1-fixed}
+
+- **Shared section-concept link resolution for `graph` and W001** — links
+  written in a per-section concept (id `doc/section`) are relative to the
+  source *document*, but only the dashboard's Explore graph applied that
+  rule — `okfsmith graph` reported such links as dead and `validate` raised
+  a spurious W001. The rule now lives in the shared `okfsmith.links`
+  resolver, so `graph`, the dashboard graph, and W001 agree: a target naming
+  a whole document split into sections resolves to its primary section
+  concept. Genuinely broken links are still dead.
+
 ## [0.7.0] — 2026-10-03 {#v0-7-0}
 
 ### Added {#v0-7-0-added}
