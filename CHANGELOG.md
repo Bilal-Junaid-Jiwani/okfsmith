@@ -5,6 +5,19 @@ follow SemVer.
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-10-05
+
+### Added
+- **Test coverage for the dashboard background-job manager:** the SSE
+  job infrastructure (`okfsmith.dashboard.jobs` — `Job` lifecycle, step
+  timing, terminal `{"status": ...}` publication, `JobManager`
+  submit/evict/list, `sse_format`, `new_id`) previously had a single
+  retention test; it is now pinned by `tests/test_dashboard_jobs.py`
+  (22 tests), covering step-transition timing stamps, honest close-out
+  of open steps on finish, queue wake-ups, bounded retention that never
+  evicts active jobs, worker-exception → error-status conversion, and
+  concurrent-emit thread safety.
+
 ## [0.7.1] - 2026-10-04
 
 ### Fixed
