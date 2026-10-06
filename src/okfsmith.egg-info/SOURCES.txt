@@ -110,6 +110,7 @@ tests/test_core_indexlog_fixes.py
 tests/test_core_smoke.py
 tests/test_core_spec_fixes.py
 tests/test_dashboard_api.py
+tests/test_dashboard_jobs.py
 tests/test_eval.py
 tests/test_extract.py
 tests/test_extract_llm_fixes.py
@@ -117,6 +118,7 @@ tests/test_extract_pipeline_fixes.py
 tests/test_extract_review_fixes.py
 tests/test_extract_similarity.py
 tests/test_links_fixes.py
+tests/test_links_section_fallback.py
 tests/test_llm_anthropic.py
 tests/test_llm_any_model.py
 tests/test_mcp.py

@@ -9,7 +9,11 @@ Design notes:
   runs, drop ~50 English stopwords, apply a small deterministic suffix
   stemmer (``sses`` → ``ss``, ``ies`` → ``i``, ``ing``/``ed``/``s`` stripping
   with length guards). The stemmer is intentionally tiny and deterministic —
-  it is *not* Porter; e.g. ``news`` stems to ``new``.
+  it is *not* Porter; e.g. ``news`` stems to ``new``. ``stem`` is memoized
+  with an LRU cache (64k entries): token vocabularies repeat heavily
+  (Zipf's law), so index builds and query parsing spend ~no time in the
+  stemmer after its first pass over a corpus's vocabulary. The cache is a
+  pure-function memo — it never changes results.
 - Field weighting mirrors the old ``rank_concepts`` intent: id/title ×3,
   description/tags ×2, body ×1. Implemented by repeating a field's tokens
   *weight* times in the document's weighted token stream (BM25F-lite style),
@@ -34,6 +38,7 @@ Design notes:
 
 from __future__ import annotations
 
+import functools
 import math
 import re
 from dataclasses import dataclass, field
@@ -82,6 +87,15 @@ _K1 = 1.2
 _B = 0.75
 
 
+# Stem cache: token vocabularies repeat heavily within a corpus, so the
+# per-token suffix-stripping logic below would otherwise re-run ~millions
+# of times per index build. ``stem`` is a pure function of its argument,
+# so memoizing it cannot change any result. 64k entries cover the
+# vocabulary of large bundles; each entry is two short strings.
+_STEM_CACHE_SIZE = 65536
+
+
+@functools.lru_cache(maxsize=_STEM_CACHE_SIZE)
 def stem(word: str) -> str:
     """Reduce *word* to a deterministic stem.
 

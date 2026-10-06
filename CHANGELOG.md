@@ -5,6 +5,22 @@ follow SemVer.
 
 ## [Unreleased]
 
+## [0.7.3] - 2026-10-06
+
+### Fixed
+- **Search index builds ~2x faster (stemmer memoization):** the BM25
+  stemmer is a pure function called once per token, but token
+  vocabularies repeat heavily, so `SearchIndex.from_bundle` re-ran the
+  suffix-stripping logic ~millions of times per build — profiling showed
+  `stem()` dominating index-construction time (6M+ `endswith` calls for
+  5,000 concepts). `stem` is now memoized with an LRU cache (64k
+  entries); the cache is a pure-function memo, so results and ranking are
+  byte-identical (verified differentially against the old logic over
+  3,181 corpus + edge-case + random words, zero mismatches). On the
+  5,000-concept benchmark corpus, `from_bundle` dropped from ~3.7–5.2s to
+  ~2.1s, giving the `< 5 s` perf-budget tests comfortable headroom under
+  load. All existing parity/determinism tests still pass unchanged.
+
 ## [0.7.2] - 2026-10-05
 
 ### Added
