@@ -5,6 +5,28 @@ follow SemVer.
 
 ## [Unreleased]
 
+## [0.7.4] - 2026-10-07
+
+### Fixed
+- **Dashboard launch no longer crashes at the top of the port range:**
+  `find_free_port` scanned upward without bound, so when port 65535 was
+  occupied the scan walked past the last valid port and died with a raw
+  `OverflowError: bind(): port must be 0-65535` traceback. The scan is
+  now bounded at 65535 and raises a clear `OSError`
+  ("no free loopback port in range …; free a port or pass a lower
+  --port"), which the `okfsmith dashboard` command reports as
+  `error [dashboard-start-failed]: …` with exit code 1. Out-of-range
+  preferred ports are rejected with `ValueError` instead of probing.
+
+### Added
+- **Test coverage for the dashboard launch layer:**
+  `tests/test_dashboard_launch.py` (17 tests) pins `find_free_port`
+  (free/occupied/exhausted/out-of-range), `serve` (loopback-only bind,
+  access-log-off token hygiene, `--no-open`, browser-failure fallback,
+  occupied-port fallback message), and the `dashboard` command's error
+  exits (bad port, bad dir, missing deps, start failure). This layer
+  previously had no tests at all.
+
 ## [0.7.3] - 2026-10-06
 
 ### Fixed

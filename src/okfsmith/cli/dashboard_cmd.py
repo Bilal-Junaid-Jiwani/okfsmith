@@ -63,4 +63,9 @@ def dashboard(
 
     from okfsmith.dashboard.server import serve
 
-    serve(workspace, port=port, no_open=no_open)
+    try:
+        serve(workspace, port=port, no_open=no_open)
+    except OSError as exc:
+        # e.g. no free loopback port left at/above the requested one.
+        typer.echo(f"error [dashboard-start-failed]: {exc}", err=True)
+        raise typer.Exit(code=1) from None

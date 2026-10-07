@@ -111,6 +111,7 @@ tests/test_core_smoke.py
 tests/test_core_spec_fixes.py
 tests/test_dashboard_api.py
 tests/test_dashboard_jobs.py
+tests/test_dashboard_launch.py
 tests/test_eval.py
 tests/test_extract.py
 tests/test_extract_llm_fixes.py

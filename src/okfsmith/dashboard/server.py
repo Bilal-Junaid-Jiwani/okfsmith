@@ -16,9 +16,17 @@ HOST = "127.0.0.1"
 
 
 def find_free_port(preferred: int = DEFAULT_PORT) -> int:
-    """Return *preferred* if free on loopback, else the next free port."""
+    """Return *preferred* if free on loopback, else the next free port.
+
+    The scan is bounded at port 65535: when every port from *preferred*
+    upward is taken, raise ``OSError`` with an actionable message instead
+    of walking off the end of the port range (which used to surface as a
+    raw ``OverflowError`` traceback from ``socket.bind``).
+    """
+    if not 1 <= preferred <= 65535:
+        raise ValueError(f"port must be 1-65535, got {preferred}.")
     port = preferred
-    while True:
+    while port <= 65535:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             try:
@@ -27,6 +35,10 @@ def find_free_port(preferred: int = DEFAULT_PORT) -> int:
                 port += 1
                 continue
             return port
+    raise OSError(
+        f"no free loopback port in range {preferred}-65535; "
+        "free a port or pass a lower --port."
+    )
 
 
 def serve(workspace: Path, port: int = DEFAULT_PORT, no_open: bool = False) -> None:

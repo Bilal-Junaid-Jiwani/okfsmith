@@ -132,7 +132,7 @@
 <p>One command, from anywhere:</p>
 <pre class="codeblock" data-lang="bash"><code>okfsmith dashboard
 </code></pre>
-<p>This starts a server on <code>http://127.0.0.1:8931</code> (or the next free port) and prints a one-time URL with a login token. <strong>It only ever binds to localhost</strong> — nobody on your network can reach it. The token is generated fresh on every launch and printed to your terminal; there is no password to remember and nothing to configure.</p>
+<p>This starts a server on <code>http://127.0.0.1:8931</code> (or the next free port) and prints a one-time URL with a login token. If every port from the one you asked for up to 65535 is taken, it stops with a clear <code>no free loopback port</code> error instead of a traceback — free a port or pass a lower <code>--port</code>. <strong>It only ever binds to localhost</strong> — nobody on your network can reach it. The token is generated fresh on every launch and printed to your terminal; there is no password to remember and nothing to configure.</p>
 <pre class="codeblock" data-lang="bash"><code>okfsmith dashboard --port 9000   # pick a port
 okfsmith dashboard --no-open     # don't auto-open the browser
 </code></pre>

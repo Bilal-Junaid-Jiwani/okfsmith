@@ -25,7 +25,10 @@ okfsmith dashboard
 ```
 
 This starts a server on `http://127.0.0.1:8931` (or the next free port)
-and prints a one-time URL with a login token. **It only ever binds to
+and prints a one-time URL with a login token. If every port from the one
+you asked for up to 65535 is taken, it stops with a clear
+`no free loopback port` error instead of a traceback — free a port or
+pass a lower `--port`. **It only ever binds to
 localhost** — nobody on your network can reach it. The token is
 generated fresh on every launch and printed to your terminal; there is
 no password to remember and nothing to configure.
