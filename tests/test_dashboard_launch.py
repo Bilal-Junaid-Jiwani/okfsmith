@@ -26,10 +26,19 @@ runner = CliRunner()
 
 
 def _occupy(port: int) -> socket.socket:
-    """Bind+listen on *port* (loopback) so port probes see it as taken."""
+    """Bind+listen on *port* (loopback) so port probes see it as taken.
+
+    Skips the test when the OS refuses the bind outright (e.g. Windows
+    excluded port ranges near the top of the range) — the probe behavior
+    being tested is unobservable there either way.
+    """
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    sock.bind((HOST, port))
+    try:
+        sock.bind((HOST, port))
+    except OSError as exc:
+        sock.close()
+        pytest.skip(f"OS refuses to bind port {port}: {exc}")
     sock.listen(1)
     return sock
 

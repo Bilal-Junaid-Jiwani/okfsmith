@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: okfsmith
-Version: 0.7.4
+Version: 0.7.5
 Summary: CLI that forges PDFs, markdown, and wikis into Open Knowledge Format (OKF) knowledge bundles
 Author: okfsmith-team
 License-Expression: Apache-2.0

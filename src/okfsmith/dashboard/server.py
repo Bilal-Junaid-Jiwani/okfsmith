@@ -27,8 +27,12 @@ def find_free_port(preferred: int = DEFAULT_PORT) -> int:
         raise ValueError(f"port must be 1-65535, got {preferred}.")
     port = preferred
     while port <= 65535:
+        # Probe with a plain bind (no SO_REUSEADDR): on Windows,
+        # SO_REUSEADDR lets the probe bind a port that another process is
+        # already listening on, so an occupied port would be reported as
+        # free and uvicorn would then fail to bind it. A plain bind asks
+        # exactly the question serve() needs answered, on every platform.
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             try:
                 sock.bind((HOST, port))
             except OSError:

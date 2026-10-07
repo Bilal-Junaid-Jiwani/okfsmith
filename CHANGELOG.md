@@ -5,6 +5,19 @@ follow SemVer.
 
 ## [Unreleased]
 
+## [0.7.5] - 2026-10-07
+
+### Fixed
+- **Dashboard port probe gives the correct answer on Windows:**
+  `find_free_port` probed with `SO_REUSEADDR`, which on Windows lets a
+  probe bind a port another process is already listening on — so an
+  occupied port was reported as free and `serve()` would then fail when
+  uvicorn tried to bind it. The probe now uses a plain bind, which asks
+  exactly the question the launcher needs answered on every platform
+  (a `TIME_WAIT` port now counts as taken and the launcher moves to the
+  next port, which it reports). Caught by the new launch-layer tests
+  failing on all Windows CI jobs while Linux/macOS passed.
+
 ## [0.7.4] - 2026-10-07
 
 ### Fixed
