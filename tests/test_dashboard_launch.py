@@ -11,6 +11,7 @@ the friendly CLI failure, and the loopback/token launch invariants.
 
 from __future__ import annotations
 
+import re
 import socket
 import sys
 from pathlib import Path
@@ -212,6 +213,34 @@ def test_dashboard_cmd_missing_deps(
     result = runner.invoke(app, ["dashboard", "--dir", str(tmp_path)])
     assert result.exit_code == 1
     assert "dashboard-deps-missing" in result.output
+
+
+def test_dashboard_cmd_missing_deps_hint_matches_declared_pins(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Regression: the missing-deps hint used to name
+    # fastapi>=0.110,<0.122 / uvicorn>=0.29,<0.32 — ranges entirely below
+    # the floors declared in pyproject.toml since 0.6.1 (the <0.122 line
+    # also pulls the vulnerable starlette 0.50.x). Pin the hint to the
+    # declared specifiers so a future floor raise fails this test until
+    # the hint is updated too. pyproject is parsed as text (not tomllib)
+    # so the test also runs on Python 3.10.
+    pyproject_text = (
+        Path(__file__).resolve().parents[1] / "pyproject.toml"
+    ).read_text(encoding="utf-8")
+    declared = set()
+    for pkg in ("fastapi", "uvicorn"):
+        match = re.search(rf'"{pkg}(>=[^"]+)"', pyproject_text)
+        assert match, f"{pkg} specifier not found in pyproject.toml"
+        declared.add(f"{pkg}{match.group(1)}")
+
+    # `None` in sys.modules makes `import fastapi` raise ImportError.
+    monkeypatch.setitem(sys.modules, "fastapi", None)
+    result = runner.invoke(app, ["dashboard", "--dir", str(tmp_path)])
+    assert result.exit_code == 1
+    assert "dashboard-deps-missing" in result.output
+    for specifier in declared:
+        assert specifier in result.output
 
 
 def test_dashboard_cmd_delegates_to_serve(

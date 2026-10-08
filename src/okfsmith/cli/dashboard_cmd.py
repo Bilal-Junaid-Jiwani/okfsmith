@@ -42,7 +42,7 @@ def dashboard(
             "error [dashboard-deps-missing]: the dashboard needs 'fastapi' and "
             "'uvicorn'.\n"
             "hint: reinstall okfsmith ('pip install -U okfsmith') or run "
-            "'pip install \"fastapi>=0.110,<0.122\" \"uvicorn>=0.29,<0.32\"'.",
+            "'pip install \"fastapi>=0.122,<0.143\" \"uvicorn>=0.35,<0.55\"'.",
             err=True,
         )
         raise typer.Exit(code=1) from None

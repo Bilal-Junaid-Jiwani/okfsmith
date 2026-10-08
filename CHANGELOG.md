@@ -5,6 +5,24 @@ follow SemVer.
 
 ## [Unreleased]
 
+## [0.7.6] - 2026-10-08
+
+### Fixed
+- **Dashboard missing-deps hint named pre-0.6.1 dependency pins:** when
+  the dashboard extras were missing, `okfsmith dashboard` told users to
+  run `pip install "fastapi>=0.110,<0.122" "uvicorn>=0.29,<0.32"` —
+  ranges entirely below the floors this package has declared since
+  0.6.1 (`fastapi>=0.122,<0.143`, `uvicorn>=0.35,<0.55`), and the
+  `<0.122` line pulls the starlette 0.50.x releases the 0.6.1 floor
+  raise was made to escape. Following the hint therefore installed an
+  environment that violated okfsmith's own metadata. The hint now
+  names the declared constraints. Covered by a new regression test
+  (`test_dashboard_cmd_missing_deps_hint_matches_declared_pins`) that
+  reads the specifiers from `pyproject.toml` and fails if the hint and
+  the declared pins ever drift apart again; the previous
+  missing-deps test asserted only the error code, which is how the
+  stale hint survived the 0.6.1 floor raise.
+
 ## [0.7.5] - 2026-10-07
 
 ### Fixed
