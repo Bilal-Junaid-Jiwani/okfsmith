@@ -7,10 +7,16 @@ the "frontend bundle has not been built yet" placeholder instead of the SPA.
 Proves: pyproject.toml declares package-data for the dashboard's static/
 bundle, and the bundle files exist in the source tree to be packaged.
 
+Also pins the public-facing current-version claims (project website and
+man page) to the version declared in pyproject.toml, so they cannot go
+stale the way the website's "Latest release v0.6.0" and the man page's
+"okfsmith 0.1.0" header did (fixed in 0.7.7).
+
 Note: pyproject is parsed as text (not tomllib) so these tests also run on
 Python 3.10, which CI still covers.
 """
 
+import re
 from pathlib import Path
 
 WORKTREE = Path(__file__).resolve().parents[1]
@@ -57,3 +63,46 @@ def test_all_runtime_data_dirs_are_packaged():
         assert f"{leaf}/*" in section, (
             f'[tool.setuptools.package-data] entry for "{package}" does not cover "{leaf}/*"'
         )
+
+
+def _declared_version() -> str:
+    """The version declared in pyproject.toml (text-parsed for Python 3.10)."""
+    text = (WORKTREE / "pyproject.toml").read_text(encoding="utf-8")
+    match = re.search(r'^version = "([^"]+)"', text, re.MULTILINE)
+    assert match, "version not found in pyproject.toml"
+    return match.group(1)
+
+
+def test_website_states_current_release():
+    """The project website must name the release pyproject.toml declares.
+
+    Regression (0.7.7): the landing page said "Latest release v0.6.0" in its
+    PyPI card and "okfsmith v0.6.0" in the footer while 0.7.6 was current —
+    the same class of stale public claim as the dashboard hint fixed in
+    0.7.6. Pin both mentions to the declared version so the next bump fails
+    here until the page is updated too.
+    """
+    version = _declared_version()
+    site = (WORKTREE / "docs" / "site" / "index.html").read_text(encoding="utf-8")
+    assert f"Latest release v{version}" in site, (
+        "docs/site/index.html does not state the current release; "
+        f"expected 'Latest release v{version}'"
+    )
+    assert f"okfsmith v{version}" in site, (
+        "docs/site/index.html footer does not state the current release; "
+        f"expected 'okfsmith v{version}'"
+    )
+
+
+def test_man_page_states_current_version():
+    """The man page header must carry the declared version.
+
+    Regression (0.7.7): man/okfsmith.1 still said "okfsmith 0.1.0" in its
+    .TH header. Pin it to pyproject.toml's version.
+    """
+    version = _declared_version()
+    man = (WORKTREE / "man" / "okfsmith.1").read_text(encoding="utf-8")
+    header = man.splitlines()[0]
+    assert f'"okfsmith {version}"' in header, (
+        f"man/okfsmith.1 header does not name the current version: {header!r}"
+    )

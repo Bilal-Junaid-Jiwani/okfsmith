@@ -5,6 +5,23 @@ follow SemVer.
 
 ## [Unreleased]
 
+## [0.7.7] - 2026-10-09
+
+### Fixed
+- **Public pages stated a release that was no longer current:** the
+  project website (`docs/site/index.html`) said "Latest release v0.6.0"
+  in its PyPI card and "okfsmith v0.6.0" in the footer, and the man page
+  (`man/okfsmith.1`) still carried "okfsmith 0.1.0" in its `.TH` header —
+  while the shipped package was already at 0.7.6. Anyone landing on the
+  site or reading the man page was told the current release was several
+  releases behind the truth. All three mentions now state the version
+  this package declares, and two new regression tests
+  (`test_website_states_current_release`,
+  `test_man_page_states_current_version` in `tests/test_packaging.py`)
+  read the version from `pyproject.toml` and fail if the website or the
+  man page ever drift behind it again — the same guard pattern as the
+  dashboard missing-deps hint fix in 0.7.6.
+
 ## [0.7.6] - 2026-10-08
 
 ### Fixed
