@@ -106,3 +106,65 @@ def test_man_page_states_current_version():
     assert f'"okfsmith {version}"' in header, (
         f"man/okfsmith.1 header does not name the current version: {header!r}"
     )
+
+
+def _registered_mcp_tools() -> list[str]:
+    """Tool names registered by ``build_server``, parsed from its source.
+
+    Parsed as text (not imported) so this test also runs in the CI test
+    job, which installs only the ``test`` extra — no fastmcp.
+    """
+    source = (WORKTREE / "src" / "okfsmith" / "mcp_server" / "server.py").read_text(
+        encoding="utf-8"
+    )
+    return re.findall(r"server\.tool\(tools\.(\w+)\)", source)
+
+
+def test_mcp_docs_name_every_registered_tool():
+    """Every tool ``build_server`` registers must be documented by name.
+
+    Regression (0.7.8): the MCP docs and README described a five/eight-tool
+    read-only server long after the governed write-back tools
+    (``preview_write_concept``, ``write_concept``, ``update_concept``,
+    ``audit_log``) shipped in 0.4.1, so the documented surface no longer
+    matched the registered one. Pin both documents to the registrations.
+    """
+    registered = _registered_mcp_tools()
+    assert len(registered) >= 12, (
+        f"expected the twelve registered MCP tools, parsed {registered!r} "
+        "from build_server — has build_server's registration shape changed?"
+    )
+    mcp_doc = (WORKTREE / "docs" / "src" / "mcp.md").read_text(encoding="utf-8")
+    readme = (WORKTREE / "README.md").read_text(encoding="utf-8")
+    for name in registered:
+        assert f"`{name}`" in mcp_doc, (
+            f"docs/src/mcp.md does not document the registered MCP tool {name!r}"
+        )
+        assert f"`{name}`" in readme, (
+            f"README.md does not document the registered MCP tool {name!r}"
+        )
+
+
+def test_mcp_docs_do_not_claim_read_only():
+    """The MCP docs/README must not claim the server cannot write.
+
+    Regression (0.7.8): docs/src/mcp.md called the server "fully read-only"
+    with "no tool that writes, edits, or deletes concepts" and promised the
+    bundle "is never modified" — false since the governed write-back tools
+    shipped in 0.4.1, and a safety-relevant falsehood: a user could point an
+    agent at a bundle believing writes were impossible. The truthful claims
+    (the eight read tools cannot modify a bundle; writes are governed) do
+    not use these phrases.
+    """
+    false_claims = (
+        "fully **read-only**",
+        "is never modified",
+        "there is no tool that writes",
+        "read-only MCP (Model",
+    )
+    for relpath in ("docs/src/mcp.md", "README.md", "docs/src/cli.md"):
+        text = (WORKTREE / relpath).read_text(encoding="utf-8")
+        for claim in false_claims:
+            assert claim not in text, (
+                f"{relpath} still claims the MCP server cannot write: {claim!r}"
+            )

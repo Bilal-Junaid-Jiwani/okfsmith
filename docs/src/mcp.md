@@ -1,15 +1,19 @@
 ---
 title: MCP server
 eyebrow: MCP
-description: Serve a knowledge bundle to AI agents over the Model Context Protocol — read-only tools, stdio/SSE/streamable-HTTP transports, client config examples.
+description: Serve a knowledge bundle to AI agents over the Model Context Protocol — eight read tools plus four governed write-back tools, stdio/SSE/streamable-HTTP transports, client config examples.
 ---
 
 ## MCP server
 
-`okfsmith mcp` exposes your knowledge bundle as a **read-only MCP (Model
-Context Protocol) server** so AI agents — Claude Code, Claude Desktop, Cursor,
-Copilot, Gemini — can search and read your bundle directly. Agents get live
-answers; your bundle is never modified.
+`okfsmith mcp` exposes your knowledge bundle as an **MCP (Model Context
+Protocol) server** so AI agents — Claude Code, Claude Desktop, Cursor, Copilot,
+Gemini — can search and read your bundle directly. Eight of the twelve tools
+are read-only. The other four are *governed write-back* tools: an agent can
+propose and write concepts, but every write lands at the `unverified` trust
+tier, is stamped with provenance, must pass the bundle validator, and is
+recorded in an append-only audit log. Human-reviewed concepts are never
+silently overwritten (see [Governed write-back](#governed-write-back)).
 
 > [!NOTE]
 > `get` is an **MCP tool, not a CLI command** — there is no `okfsmith get`
@@ -26,7 +30,7 @@ okfsmith mcp ./kb
 ```
 
 The server starts on **stdio** (the standard transport: your MCP client
-launches it as a subprocess) and exposes eight tools. Pick one:
+launches it as a subprocess) and exposes twelve tools. Pick one:
 
 ```bash
 okfsmith mcp ./kb --transport stdio            # default
@@ -34,11 +38,13 @@ okfsmith mcp ./kb --transport sse              # Server-Sent Events
 okfsmith mcp ./kb --transport streamable-http  # streamable HTTP
 ```
 
-## The eight tools
+## The twelve tools
 
 Tool outputs are compact markdown (not giant JSON) — designed as an agent's
 reading UI. The intended flow is progressive disclosure: `index` → `search` →
 `get`.
+
+### Read tools
 
 | Tool | What it does |
 |---|---|
@@ -51,6 +57,41 @@ reading UI. The intended flow is progressive disclosure: `index` → `search` �
 | `provenance` | Trace a concept's provenance chain: `sources[]` frontmatter → footnote references → the ingested-source manifest (`sync-state.json`) with source file and digest. |
 | `diff` | Diff the bundle against another bundle directory (`against=`) or the `sync-state.json` snapshot: added / removed / changed concepts with body SHA-256. |
 
+### Governed write-back tools
+
+| Tool | What it does |
+|---|---|
+| `preview_write_concept` | Side-effect-free dry run of a create: shows the exact id, file path, frontmatter (with provenance block), and serialized content that `write_concept` would write. |
+| `write_concept` | Create a new concept. Refuses if the id already exists (use `update_concept`); the write is atomic, so exactly one concurrent writer wins. |
+| `update_concept` | Patch an existing concept's title, body, `sources`, or `links`; `dry_run=true` previews the diff without writing. |
+| `audit_log` | Read the append-only write audit trail at `<bundle>/.okfsmith/audit.jsonl`. |
+
+## Governed write-back
+
+The four write-back tools exist so an agent can contribute to a bundle
+without being able to quietly rewrite it:
+
+- **Unverified by construction.** Every MCP write lands at the `unverified`
+  trust tier; any `verified` markers in the input are stripped.
+- **Validator-gated.** The bundle validator runs before a write commits;
+  new validation errors refuse the write and roll it back. If the validator
+  itself fails, the write fails closed.
+- **Provenance-stamped.** Each write adds a frontmatter provenance entry
+  (actor `mcp:<tool>`, UTC timestamp, input sources) and appends to the
+  append-only audit log, readable via the `audit_log` tool.
+- **Human review is protected.** A write never overwrites an existing
+  concept (`write_concept` returns a structured error pointing at
+  `update_concept`), and altering a human-reviewed concept requires an
+  explicit `downgrade_trust=true`, which removes the `verified` marker and
+  is recorded in provenance.
+- **Atomic.** Creates claim the destination atomically (exactly one
+  concurrent writer wins); a refused duplicate writes no audit entry.
+
+If you want a strictly read-only server today, do not hand the agent a
+writable bundle directory: serve a copy, or mount the bundle read-only at
+the filesystem level. A future `--read-only` server flag is not currently
+implemented.
+
 A typical agent session looks like this:
 
 1. `index` — "what's in this bundle?"
@@ -62,8 +103,9 @@ A typical agent session looks like this:
 
 ## Evidence budgets
 
-Every tool accepts three evidence-budget parameters so agents get bounded
-evidence instead of unbounded context:
+The read tools accept three evidence-budget parameters so agents get bounded
+evidence instead of unbounded context (the write-back tools take their own
+arguments — see their docstrings via `preview_write_concept`):
 
 | Parameter | Meaning |
 |---|---|
@@ -100,8 +142,9 @@ Add okfsmith as an MCP server in your Claude Desktop config file
 }
 ```
 
-Restart Claude Desktop and the eight tools (`index`, `list`, `search`, `get`,
-`neighbors`, `traverse`, `provenance`, `diff`) appear in its tool list.
+Restart Claude Desktop and the twelve tools (`index`, `list`, `search`, `get`,
+`neighbors`, `traverse`, `provenance`, `diff`, `preview_write_concept`,
+`write_concept`, `update_concept`, `audit_log`) appear in its tool list.
 
 <details>
 <summary>Advanced: other clients and transports</summary>
@@ -112,14 +155,20 @@ Restart Claude Desktop and the eight tools (`index`, `list`, `search`, `get`,
 - For **SSE** or **streamable-http** transports, point your client at the
   server's URL — the bundle is loaded once at server startup, and every tool
   call afterwards reads from the in-memory bundle, so responses are fast.
-- The same eight tools back the interactive chat's `/search` and `/read`
-  commands, so chat and MCP rank identically.
+- The read tools back the interactive chat's `/search` and `/read`
+  commands, so chat and MCP rank identically. Chat itself never writes to
+  your bundle; only the MCP write-back tools can, under the governance
+  above.
 
 </details>
 
 > [!TIP]
-> The server is fully **read-only** — there is no tool that writes, edits, or
-> deletes concepts. You can point it at a bundle you care about without fear.
+> The eight read tools cannot modify your bundle. The four write-back tools
+> can create and update concepts, but only under governance: unverified
+> tier, validator gate, provenance stamp, audit log, and no silent overwrite
+> of human-reviewed work. Point the server at a bundle you care about only
+> if that trade-off is acceptable — or serve a copy (see
+> [Governed write-back](#governed-write-back)).
 
 ## Next →
 

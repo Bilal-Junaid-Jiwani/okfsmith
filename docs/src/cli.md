@@ -578,7 +578,7 @@ hint: Install it with: pip install "okfsmith[mcp]" (or pipx: pipx install "okfsm
 |---|---|
 | `--transport <stdio\|sse\|streamable-http>` | Transport (default `stdio`). |
 
-The server exposes eight **MCP tools** — `index`, `list`, `search`, `get`, `neighbors`, `traverse`, `provenance`, `diff`. These are tools for connected agents; `search` is also a CLI command (`okfsmith search`), while `get` remains MCP-only (the CLI analogue is `read`). Client config examples for Claude Code/Desktop, Cursor, Copilot, and Gemini are on [MCP server](mcp.html).
+The server exposes twelve **MCP tools** — eight read tools (`index`, `list`, `search`, `get`, `neighbors`, `traverse`, `provenance`, `diff`) plus four governed write-back tools (`preview_write_concept`, `write_concept`, `update_concept`, `audit_log`). These are tools for connected agents; `search` is also a CLI command (`okfsmith search`), while `get` remains MCP-only (the CLI analogue is `read`). Client config examples for Claude Code/Desktop, Cursor, Copilot, and Gemini are on [MCP server](mcp.html).
 
 ---
 

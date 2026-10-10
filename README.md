@@ -38,8 +38,12 @@ pip install "okfsmith[mcp]"
 okfsmith mcp ./kb
 ```
 
-Tools exposed: `index`, `list`, `search`, `get`, `neighbors` — every answer
-traces back to `sources[]` in the bundle.
+Tools exposed: eight read tools (`index`, `list`, `search`, `get`,
+`neighbors`, `traverse`, `provenance`, `diff`) plus four governed write-back
+tools (`preview_write_concept`, `write_concept`, `update_concept`,
+`audit_log`) — every answer traces back to `sources[]` in the bundle, and
+every write lands unverified, validator-gated, provenance-stamped, and
+audit-logged.
 
 > ⭐ If okfsmith helped you, a star means a lot — it helps other developers find the project.
 

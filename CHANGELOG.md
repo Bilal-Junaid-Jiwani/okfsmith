@@ -5,6 +5,33 @@ follow SemVer.
 
 ## [Unreleased]
 
+## [0.7.8] - 2026-10-10
+
+### Fixed
+- **MCP documentation described a read-only server that no longer exists:**
+  `docs/src/mcp.md` (and the built `docs/mcp.html` / `llms.txt`) called
+  `okfsmith mcp` a "read-only MCP server", promised "your bundle is never
+  modified", said it "exposes eight tools", and closed with "The server is
+  fully **read-only** — there is no tool that writes, edits, or deletes
+  concepts… without fear." All of that has been false since the governed
+  write-back tools shipped in 0.4.1: `build_server` registers twelve tools,
+  including `preview_write_concept`, `write_concept`, `update_concept`, and
+  `audit_log`, with no read-only flag or gate. The docs now describe the
+  real surface — eight read tools plus four governed write-back tools —
+  including the actual governance (writes land `unverified` with `verified`
+  markers stripped, are validator-gated and rolled back on new errors,
+  provenance-stamped, appended to the audit log, never silently overwrite
+  an existing concept, and need explicit `downgrade_trust=true` to touch a
+  human-reviewed concept), and honestly note that a strictly read-only
+  server requires serving a copy or a read-only mount today. README's MCP
+  paragraph (which listed only five tools) and `docs/src/cli.md` ("eight
+  MCP tools") are corrected the same way. Two new regression tests in
+  `tests/test_packaging.py` parse the `server.tool(...)` registrations out
+  of `build_server`'s source and fail if a registered tool is ever
+  undocumented in the MCP guide or README again, or if the read-only false
+  claims return; they run as text checks so they also execute in the CI
+  test job, which installs no `mcp` extra.
+
 ## [0.7.7] - 2026-10-09
 
 ### Fixed

@@ -4,16 +4,16 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>MCP server — okfsmith docs</title>
-  <meta name="description" content="Serve a knowledge bundle to AI agents over the Model Context Protocol — read-only tools, stdio/SSE/streamable-HTTP transports, client config examples.">
+  <meta name="description" content="Serve a knowledge bundle to AI agents over the Model Context Protocol — eight read tools plus four governed write-back tools, stdio/SSE/streamable-HTTP transports, client config examples.">
   <meta property="og:title" content="MCP server — okfsmith docs">
-  <meta property="og:description" content="Serve a knowledge bundle to AI agents over the Model Context Protocol — read-only tools, stdio/SSE/streamable-HTTP transports, client config examples.">
+  <meta property="og:description" content="Serve a knowledge bundle to AI agents over the Model Context Protocol — eight read tools plus four governed write-back tools, stdio/SSE/streamable-HTTP transports, client config examples.">
   <meta property="og:type" content="article">
   <meta property="og:url" content="https://bilal-junaid-jiwani.github.io/okfsmith/mcp.html">
   <meta property="og:site_name" content="okfsmith docs">
   <meta property="og:locale" content="en_US">
   <meta name="twitter:card" content="summary">
   <meta name="twitter:title" content="MCP server — okfsmith docs">
-  <meta name="twitter:description" content="Serve a knowledge bundle to AI agents over the Model Context Protocol — read-only tools, stdio/SSE/streamable-HTTP transports, client config examples.">
+  <meta name="twitter:description" content="Serve a knowledge bundle to AI agents over the Model Context Protocol — eight read tools plus four governed write-back tools, stdio/SSE/streamable-HTTP transports, client config examples.">
   <link rel="canonical" href="https://bilal-junaid-jiwani.github.io/okfsmith/mcp.html">
   <link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -32,7 +32,7 @@
     "@context": "https://schema.org",
     "@type": "TechArticle",
     "headline": "MCP server",
-    "description": "Serve a knowledge bundle to AI agents over the Model Context Protocol — read-only tools, stdio/SSE/streamable-HTTP transports, client config examples.",
+    "description": "Serve a knowledge bundle to AI agents over the Model Context Protocol — eight read tools plus four governed write-back tools, stdio/SSE/streamable-HTTP transports, client config examples.",
     "inLanguage": "en",
     "isPartOf": {
       "@type": "WebSite",
@@ -100,7 +100,13 @@
 </li>
 <li><a href="#quick-start">Quick start</a>
 </li>
-<li><a href="#the-eight-tools">The eight tools</a>
+<li><a href="#the-twelve-tools">The twelve tools</a>
+<ul class="toc-sub">
+<li><a href="#read-tools">Read tools</a></li>
+<li><a href="#governed-write-back-tools">Governed write-back tools</a></li>
+</ul>
+</li>
+<li><a href="#governed-write-back">Governed write-back</a>
 </li>
 <li><a href="#evidence-budgets">Evidence budgets</a>
 </li>
@@ -120,20 +126,38 @@
       </div>
       <div class="prose">
         <h2 id="mcp-server">MCP server</h2>
-<p><code>okfsmith mcp</code> exposes your knowledge bundle as a <strong>read-only MCP (Model Context Protocol) server</strong> so AI agents — Claude Code, Claude Desktop, Cursor, Copilot, Gemini — can search and read your bundle directly. Agents get live answers; your bundle is never modified.</p>
+<p><code>okfsmith mcp</code> exposes your knowledge bundle as an <strong>MCP (Model Context Protocol) server</strong> so AI agents — Claude Code, Claude Desktop, Cursor, Copilot, Gemini — can search and read your bundle directly. Eight of the twelve tools are read-only. The other four are <em>governed write-back</em> tools: an agent can propose and write concepts, but every write lands at the <code>unverified</code> trust tier, is stamped with provenance, must pass the bundle validator, and is recorded in an append-only audit log. Human-reviewed concepts are never silently overwritten (see <a href="#governed-write-back">Governed write-back</a>).</p>
 <aside class="admonition note"><span class="admon-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.75" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 7.25v3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="5" r="0.9" fill="currentColor"/></svg></span><div class="admon-body"><p class="admon-title">Note</p><p><code>get</code> is an <strong>MCP tool, not a CLI command</strong> — there is no <code>okfsmith get</code> on the command line (the CLI analogue is <code>read</code>). <code>search</code> exists in both places: the <a href="cli.html#okfsmith-search"><code>okfsmith search</code></a> CLI command and the MCP <code>search</code> tool share the same BM25 engine, so they rank identically.</p></div></aside>
 <h2 id="quick-start">Quick start</h2>
 <pre class="codeblock" data-lang="bash"><code>pip install "okfsmith[mcp]"
 okfsmith mcp ./kb
 </code></pre>
-<p>The server starts on <strong>stdio</strong> (the standard transport: your MCP client launches it as a subprocess) and exposes eight tools. Pick one:</p>
+<p>The server starts on <strong>stdio</strong> (the standard transport: your MCP client launches it as a subprocess) and exposes twelve tools. Pick one:</p>
 <pre class="codeblock" data-lang="bash"><code>okfsmith mcp ./kb --transport stdio            # default
 okfsmith mcp ./kb --transport sse              # Server-Sent Events
 okfsmith mcp ./kb --transport streamable-http  # streamable HTTP
 </code></pre>
-<h2 id="the-eight-tools">The eight tools</h2>
+<h2 id="the-twelve-tools">The twelve tools</h2>
 <p>Tool outputs are compact markdown (not giant JSON) — designed as an agent's reading UI. The intended flow is progressive disclosure: <code>index</code> → <code>search</code> → <code>get</code>.</p>
+<h3 id="read-tools">Read tools</h3>
 <div class="table-wrap"><table><thead><tr><th>Tool</th><th>What it does</th></tr></thead><tbody><tr><td><code>index</code></td><td>Return the bundle's root <code>index.md</code> — the map of the whole knowledge base. Read this first to orient.</td></tr><tr><td><code>list</code></td><td>List every concept: id, type, trust tier, title. Optional <code>filter_type</code> narrows by concept type; <code>limit</code> caps rows.</td></tr><tr><td><code>search</code></td><td>BM25-ranked keyword search over concept id, title, description, tags, and body. Title matches rank highest, body lowest; results carry excerpts.</td></tr><tr><td><code>get</code></td><td>Read one concept in full: YAML frontmatter followed by its markdown body. Unknown ids produce an error — never fabricated content.</td></tr><tr><td><code>neighbors</code></td><td>Show a concept's link graph neighborhood: outgoing links and incoming backlinks, so agents can walk the knowledge graph.</td></tr><tr><td><code>traverse</code></td><td>Breadth-first neighborhood expansion over markdown links (depth ≤ 3, cycle-safe), with an optional <code>relation_filter</code> and currency-aware ordering — superseded concepts hidden by default.</td></tr><tr><td><code>provenance</code></td><td>Trace a concept's provenance chain: <code>sources[]</code> frontmatter → footnote references → the ingested-source manifest (<code>sync-state.json</code>) with source file and digest.</td></tr><tr><td><code>diff</code></td><td>Diff the bundle against another bundle directory (<code>against=</code>) or the <code>sync-state.json</code> snapshot: added / removed / changed concepts with body SHA-256.</td></tr></tbody></table></div>
+<h3 id="governed-write-back-tools">Governed write-back tools</h3>
+<div class="table-wrap"><table><thead><tr><th>Tool</th><th>What it does</th></tr></thead><tbody><tr><td><code>preview_write_concept</code></td><td>Side-effect-free dry run of a create: shows the exact id, file path, frontmatter (with provenance block), and serialized content that <code>write_concept</code> would write.</td></tr><tr><td><code>write_concept</code></td><td>Create a new concept. Refuses if the id already exists (use <code>update_concept</code>); the write is atomic, so exactly one concurrent writer wins.</td></tr><tr><td><code>update_concept</code></td><td>Patch an existing concept's title, body, <code>sources</code>, or <code>links</code>; <code>dry_run=true</code> previews the diff without writing.</td></tr><tr><td><code>audit_log</code></td><td>Read the append-only write audit trail at <code>&lt;bundle&gt;/.okfsmith/audit.jsonl</code>.</td></tr></tbody></table></div>
+<h2 id="governed-write-back">Governed write-back</h2>
+<p>The four write-back tools exist so an agent can contribute to a bundle without being able to quietly rewrite it:</p>
+<ul>
+<li><strong>Unverified by construction.</strong> Every MCP write lands at the <code>unverified</code> trust tier; any <code>verified</code> markers in the input are stripped.
+</li>
+<li><strong>Validator-gated.</strong> The bundle validator runs before a write commits; new validation errors refuse the write and roll it back. If the validator itself fails, the write fails closed.
+</li>
+<li><strong>Provenance-stamped.</strong> Each write adds a frontmatter provenance entry (actor <code>mcp:&lt;tool&gt;</code>, UTC timestamp, input sources) and appends to the append-only audit log, readable via the <code>audit_log</code> tool.
+</li>
+<li><strong>Human review is protected.</strong> A write never overwrites an existing concept (<code>write_concept</code> returns a structured error pointing at <code>update_concept</code>), and altering a human-reviewed concept requires an explicit <code>downgrade_trust=true</code>, which removes the <code>verified</code> marker and is recorded in provenance.
+</li>
+<li><strong>Atomic.</strong> Creates claim the destination atomically (exactly one concurrent writer wins); a refused duplicate writes no audit entry.
+</li>
+</ul>
+<p>If you want a strictly read-only server today, do not hand the agent a writable bundle directory: serve a copy, or mount the bundle read-only at the filesystem level. A future <code>--read-only</code> server flag is not currently implemented.</p>
 <p>A typical agent session looks like this:</p>
 <ol>
 <li><code>index</code> — "what's in this bundle?"
@@ -150,7 +174,7 @@ okfsmith mcp ./kb --transport streamable-http  # streamable HTTP
 </li>
 </ol>
 <h2 id="evidence-budgets">Evidence budgets</h2>
-<p>Every tool accepts three evidence-budget parameters so agents get bounded evidence instead of unbounded context:</p>
+<p>The read tools accept three evidence-budget parameters so agents get bounded evidence instead of unbounded context (the write-back tools take their own arguments — see their docstrings via <code>preview_write_concept</code>):</p>
 <div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Meaning</th></tr></thead><tbody><tr><td><code>max_chunks</code></td><td>Max <strong>items</strong> (or 50-line text chunks) per response — default 10 for <code>search</code>/<code>traverse</code>, 50 elsewhere; hard cap 50. Notes (e.g. hidden-superseded counts) and <code>##</code> section headers sit outside the budget; <code>…[truncated, N more]</code> counts remaining <em>items</em> only.</td></tr><tr><td><code>max_tokens</code></td><td>Approximate output budget (chars ÷ 4). <code>None</code> (default) = unbounded; <code>0</code> = no item content; negative or unparseable values are treated as unbounded. Truncation cuts at whole-item boundaries, never mid-item, and is marked <code>…[truncated, N more]</code>.</td></tr><tr><td><code>continuation_token</code></td><td>Opaque paging cursor from a truncated response — pass it back for the next page. Tokens are result-offset cursors, not tied to a query. An invalid or out-of-range token returns a clean error, never a traceback.</td></tr></tbody></table></div>
 <aside class="admonition note"><span class="admon-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.75" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 7.25v3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="5" r="0.9" fill="currentColor"/></svg></span><div class="admon-body"><p class="admon-title">Note</p><p><code>provenance</code> and <code>diff</code> treat <code>sync-state.json</code> source paths as <strong>untrusted manifest entries</strong>: only paths inside the bundle root are hashed and displayed (bundle-relative, never absolute). Paths outside the root, <code>..</code> escapes, and symlinks are skipped with an <code>untrusted manifest</code> marker. <code>diff(against=…)</code> likewise guards its input — it rejects non-bundle directories and over-large directory trees before loading anything.</p></div></aside>
 <p><code>search</code> and <code>traverse</code> are currency-aware: superseded concepts are hidden by default (reported as a count); pass <code>include_superseded=True</code> to reveal them. <code>traverse</code> depth is capped at 3.</p>
@@ -165,7 +189,7 @@ okfsmith mcp ./kb --transport streamable-http  # streamable HTTP
   }
 }
 </code></pre>
-<p>Restart Claude Desktop and the eight tools (<code>index</code>, <code>list</code>, <code>search</code>, <code>get</code>, <code>neighbors</code>, <code>traverse</code>, <code>provenance</code>, <code>diff</code>) appear in its tool list.</p>
+<p>Restart Claude Desktop and the twelve tools (<code>index</code>, <code>list</code>, <code>search</code>, <code>get</code>, <code>neighbors</code>, <code>traverse</code>, <code>provenance</code>, <code>diff</code>, <code>preview_write_concept</code>, <code>write_concept</code>, <code>update_concept</code>, <code>audit_log</code>) appear in its tool list.</p>
 <details>
 <summary>Advanced: other clients and transports</summary>
 
@@ -175,11 +199,13 @@ okfsmith mcp ./kb --transport streamable-http  # streamable HTTP
 - For **SSE** or **streamable-http** transports, point your client at the
   server's URL — the bundle is loaded once at server startup, and every tool
   call afterwards reads from the in-memory bundle, so responses are fast.
-- The same eight tools back the interactive chat's `/search` and `/read`
-  commands, so chat and MCP rank identically.
+- The read tools back the interactive chat's `/search` and `/read`
+  commands, so chat and MCP rank identically. Chat itself never writes to
+  your bundle; only the MCP write-back tools can, under the governance
+  above.
 
 </details>
-<aside class="admonition tip"><span class="admon-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.75a4.5 4.5 0 0 0-2.6 8.15c.6.48 1.1 1.1 1.1 1.85V12h3v-.25c0-.75.5-1.37 1.1-1.85A4.5 4.5 0 0 0 8 1.75z" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M6.5 14h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></span><div class="admon-body"><p class="admon-title">Tip</p><p>The server is fully <strong>read-only</strong> — there is no tool that writes, edits, or deletes concepts. You can point it at a bundle you care about without fear.</p></div></aside>
+<aside class="admonition tip"><span class="admon-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.75a4.5 4.5 0 0 0-2.6 8.15c.6.48 1.1 1.1 1.1 1.85V12h3v-.25c0-.75.5-1.37 1.1-1.85A4.5 4.5 0 0 0 8 1.75z" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M6.5 14h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></span><div class="admon-body"><p class="admon-title">Tip</p><p>The eight read tools cannot modify your bundle. The four write-back tools can create and update concepts, but only under governance: unverified tier, validator gate, provenance stamp, audit log, and no silent overwrite of human-reviewed work. Point the server at a bundle you care about only if that trade-off is acceptable — or serve a copy (see <a href="#governed-write-back">Governed write-back</a>).</p></div></aside>
 <h2 id="next">Next →</h2>
 <p><a href="troubleshooting.html">Troubleshooting →</a></p>
       </div>
@@ -196,7 +222,13 @@ okfsmith mcp ./kb --transport streamable-http  # streamable HTTP
 </li>
 <li><a href="#quick-start">Quick start</a>
 </li>
-<li><a href="#the-eight-tools">The eight tools</a>
+<li><a href="#the-twelve-tools">The twelve tools</a>
+<ul class="toc-sub">
+<li><a href="#read-tools">Read tools</a></li>
+<li><a href="#governed-write-back-tools">Governed write-back tools</a></li>
+</ul>
+</li>
+<li><a href="#governed-write-back">Governed write-back</a>
 </li>
 <li><a href="#evidence-budgets">Evidence budgets</a>
 </li>
