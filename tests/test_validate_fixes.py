@@ -271,3 +271,69 @@ def test_m17_file_path_still_rejected(tmp_path: Path):
     target.write_text("x", encoding="utf-8")
     with pytest.raises(ValueError):
         check(target)
+
+
+# ---------------------------------------------------------------------------
+# 0.7.9 — validator frontmatter split must use the column-0 closing-fence
+# rule (M24), like the bundle loader
+# ---------------------------------------------------------------------------
+
+
+def _fence_bundle(tmp_path: Path, text: str) -> Path:
+    """Write *text* as the single concept of a fresh bundle dir."""
+    bundle = _bundle(tmp_path / "fb")
+    (bundle / "fence.md").write_text(text, encoding="utf-8")
+    return bundle
+
+
+_TRICKY = (
+    "---\n"
+    "description: |\n"
+    "  a poem about fences\n"
+    "  ---\n"
+    "  still the same description\n"
+    "type: Concept\n"
+    "title: Fence doc\n"
+    "---\n"
+    "This is the real body.\n"
+)
+
+
+def test_validator_indented_fence_does_not_truncate_frontmatter():
+    # Same raw doc through both splitters: the validator must see exactly
+    # the frontmatter/body the bundle loader sees (M24).
+    from okfsmith.core.frontmatter import parse_frontmatter
+
+    fm_text, body = rules_mod._split_frontmatter(_TRICKY)
+    data, loader_body = parse_frontmatter(_TRICKY)
+    assert data["type"] == "Concept"
+    assert body == loader_body == "This is the real body.\n"
+    assert "type: Concept" in fm_text
+    assert fm_text.count("---") == 1  # the indented one, not a fence
+
+
+def test_validator_no_e002_for_block_scalar_containing_indented_fence(tmp_path: Path):
+    # End-to-end: a concept that Bundle.load treats as valid (type parsed,
+    # body correct) must not fail validation with a spurious E002.
+    bundle = _fence_bundle(tmp_path, _TRICKY)
+    loaded = Bundle.load(bundle)
+    assert loaded.get("fence").frontmatter["type"] == "Concept"
+    assert loaded.get("fence").body == "This is the real body.\n"
+    report = check(bundle_path=bundle)
+    assert report.is_conformant
+    assert not [f for f in report.errors if f.code in ("E001", "E002")]
+
+
+def test_validator_indented_only_fence_still_e001(tmp_path: Path):
+    # The only '---' candidate is indented, so per M24 there is no closing
+    # fence: the validator reports E001, exactly as the loader refuses to
+    # split (the whole text stays the body).
+    from okfsmith.core.frontmatter import parse_frontmatter
+
+    raw = "---\ntitle: x\n  ---\nbody\n"
+    data, body = parse_frontmatter(raw)
+    assert data == {} and body == raw
+    bundle = _fence_bundle(tmp_path, raw)
+    report = check(bundle_path=bundle)
+    assert {f.code for f in report.errors} == {"E001"}
+    assert report.errors[0].message == "no parseable YAML frontmatter block found"

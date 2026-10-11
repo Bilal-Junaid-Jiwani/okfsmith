@@ -5,6 +5,25 @@ follow SemVer.
 
 ## [Unreleased]
 
+## [0.7.9] - 2026-10-11
+
+### Fixed
+- **Validator rejected valid concepts containing an indented `---` line:**
+  the validator's frontmatter splitter closed the frontmatter block at *any*
+  line that looked like `---`, while the bundle loader (rule M24) only
+  accepts a closing fence at column 0 — an indented `---` inside a YAML
+  block scalar is content, not a fence. A concept whose `description: |`
+  block scalar contained an indented `---` line (with `type:` after it) had
+  its frontmatter truncated mid-block by the validator: `type` landed in
+  the validator's "body" and the file failed with a hard E002
+  (`frontmatter 'type' is missing`), even though `Bundle.load`, search, and
+  the CLI all treated it as perfectly valid. All frontmatter-dependent
+  warnings were likewise computed on the truncated frontmatter. The
+  validator now delegates to the loader's own `_closing_fence` rule, so both
+  agree; a document with no column-0 closing fence still yields E001, as
+  before. Three regression tests pin the split parity, the no-E002 case,
+  and the still-E001 case.
+
 ## [0.7.8] - 2026-10-10
 
 ### Fixed

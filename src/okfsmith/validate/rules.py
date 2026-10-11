@@ -25,6 +25,7 @@ from typing import NamedTuple
 import yaml
 
 from okfsmith.core import temporal as _temporal
+from okfsmith.core.frontmatter import _closing_fence as _column0_fence
 from okfsmith.core.frontmatter import lenient_safe_load as _yaml_load
 from okfsmith.links import extract_link_targets, resolve_link  # shared link resolution (W001)
 from okfsmith.validate import Finding
@@ -41,14 +42,22 @@ def _split_frontmatter(raw: str) -> tuple[str | None, str]:
 
     Returns ``(None, raw)`` when there is no frontmatter block: the file does
     not start with a ``---`` line, or the closing ``---`` line is missing.
+
+    The closing fence must sit at column 0 — the same rule the bundle loader
+    enforces (see :func:`okfsmith.core.frontmatter._closing_fence`, rule
+    M24): an indented ``---`` line can only be the content of an indented
+    YAML block scalar, so it must not terminate the frontmatter block
+    early. (Before 0.7.9 this splitter closed on any ``---``-ish line, so a
+    valid concept with an indented ``---`` inside a block scalar had its
+    frontmatter truncated mid-block here and failed with a spurious E002.)
     """
     lines = raw.splitlines(keepends=True)
     if not lines or lines[0].strip() != _DELIMITER:
         return None, raw
-    for i in range(1, len(lines)):
-        if lines[i].strip() == _DELIMITER:
-            return "".join(lines[1:i]), "".join(lines[i + 1 :])
-    return None, raw
+    closing = _column0_fence(lines)
+    if closing is None:
+        return None, raw
+    return "".join(lines[1:closing]), "".join(lines[closing + 1 :])
 
 
 def _safe_yaml(text: str) -> tuple[bool, object]:
