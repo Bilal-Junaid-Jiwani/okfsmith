@@ -5,6 +5,25 @@ follow SemVer.
 
 ## [Unreleased]
 
+## [0.7.10] - 2026-10-12
+
+### Fixed
+- **W017 no longer warns on valid same-day afternoon windows:** the
+  validator's empty-window check compared `parse_temporal(valid_until)`'s
+  midnight with `parse_temporal(valid_from)`, while the retrieval engine
+  evaluates a date-only `valid_until` with inclusive end-of-day semantics
+  (`_parse_window_end`: the whole day through 23:59:59.999999 UTC). A concept
+  with `valid_from: 2026-03-31T12:00:00` and `valid_until: 2026-03-31` is
+  window-valid all afternoon at runtime (retrieval reports `current`), yet
+  the validator warned "`valid_until` … is before `valid_from`; the concept
+  is never window-valid". W017 now delegates to the retrieval engine's own
+  `_parse_window_end` rule for `valid_until`, so validator and retrieval
+  agree — the same parity pattern as the 0.7.9 frontmatter-fence fix.
+  Truly inverted windows (e.g. `valid_from: 2026-04-01`,
+  `valid_until: 2026-03-31`) still warn, and the W016 malformedness checks
+  are unchanged. Three regression tests pin the no-warning case, the
+  validator/retrieval agreement, and the still-warns case.
+
 ## [0.7.9] - 2026-10-11
 
 ### Fixed

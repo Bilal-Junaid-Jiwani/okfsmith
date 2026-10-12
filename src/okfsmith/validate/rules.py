@@ -27,6 +27,7 @@ import yaml
 from okfsmith.core import temporal as _temporal
 from okfsmith.core.frontmatter import _closing_fence as _column0_fence
 from okfsmith.core.frontmatter import lenient_safe_load as _yaml_load
+from okfsmith.core.temporal import _parse_window_end as _inclusive_window_end
 from okfsmith.links import extract_link_targets, resolve_link  # shared link resolution (W001)
 from okfsmith.validate import Finding
 
@@ -770,10 +771,21 @@ def _warn_temporal_malformed(doc: _Doc) -> list[Finding]:
 
 
 def _warn_temporal_window(doc: _Doc) -> list[Finding]:
-    """W017 — ``valid_until`` is before ``valid_from`` (empty validity window)."""
+    """W017 — ``valid_until`` is before ``valid_from`` (empty validity window).
+
+    ``valid_until`` is compared with the same inclusive end-of-day semantics
+    the retrieval engine uses (see
+    :func:`okfsmith.core.temporal._parse_window_end`): a date-only
+    ``valid_until`` covers the whole calendar day through 23:59:59 UTC, so a
+    concept valid from ``2026-03-31T12:00:00`` until ``2026-03-31`` is
+    window-valid all afternoon and must not warn. (Before 0.7.10 the
+    comparison used ``parse_temporal``'s midnight, so that concept got a
+    spurious "never window-valid" W017 while retrieval treated it as
+    ``current``.)
+    """
     assert doc.fm is not None
     valid_from = _temporal.parse_temporal(doc.fm.get("valid_from"))
-    valid_until = _temporal.parse_temporal(doc.fm.get("valid_until"))
+    valid_until = _inclusive_window_end(doc.fm.get("valid_until"))
     if valid_from is not None and valid_until is not None and valid_until < valid_from:
         return [
             Finding(

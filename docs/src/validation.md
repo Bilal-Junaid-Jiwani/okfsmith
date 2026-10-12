@@ -67,7 +67,7 @@ temporal-model advisories (`valid_from` / `valid_until` / `supersedes` /
 | `W014` | `status` is not one of `draft` / `stable` / `deprecated` | §5.4 |
 | `W015` | Duplicate `sources[].id` within one concept | §5.1 |
 | `W016` | Malformed temporal field (`valid_from` / `valid_until` / `last_verified` not ISO-8601), or malformed/overlong `supersedes` (max 100 entries) | temporal |
-| `W017` | `valid_until` is before `valid_from` | temporal |
+| `W017` | `valid_until` is before `valid_from` (a date-only `valid_until` covers the whole day through 23:59:59 UTC, same as retrieval) | temporal |
 | `W018` | `supersedes` names a concept id that does not exist in the bundle | temporal |
 | `W019` | `supersedes` forms a cycle (retrieval treats the cycle as unresolved) | temporal |
 | `W020` | `last_verified` is in the future | temporal |

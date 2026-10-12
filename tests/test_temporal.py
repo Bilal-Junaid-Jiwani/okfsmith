@@ -298,6 +298,52 @@ class TestValidatorTemporal:
         assert len(w017) == 1
         assert "never window-valid" in w017[0].message
 
+    def test_w017_no_false_positive_on_same_day_afternoon_window(self, tmp_path):
+        # A date-only valid_until covers the whole calendar day (inclusive
+        # end-of-day, exactly like retrieval): valid_from noon with
+        # valid_until the same date is window-valid all afternoon, so no
+        # W017. Before 0.7.10 this warned "never window-valid" while
+        # retrieval reported the concept as `current`.
+        bundle = _bundle(
+            tmp_path,
+            {
+                "a": {
+                    "type": "Note",
+                    "title": "A",
+                    "valid_from": "2026-03-31T12:00:00",
+                    "valid_until": "2026-03-31",
+                },
+            },
+        )
+        report = check(bundle.root)
+        assert _codes(report, "W017") == []
+        assert _codes(report, "W016") == []
+        # Validator and retrieval now agree the window covers that afternoon.
+        idx = T.SupersessionIndex(bundle.iter_concepts())
+        assert idx.window_valid("a", _dt(2026, 3, 31, 12, 0))
+        assert idx.window_valid("a", _dt(2026, 3, 31, 15, 0))
+        assert not idx.window_valid("a", _dt(2026, 3, 31, 11, 59))
+
+    def test_w017_still_fires_on_truly_empty_window(self, tmp_path):
+        # End-of-day semantics do not rescue an actually inverted window:
+        # valid_until's date ends at 23:59:59, which is still before
+        # valid_from, so W017 must still fire.
+        bundle = _bundle(
+            tmp_path,
+            {
+                "a": {
+                    "type": "Note",
+                    "title": "A",
+                    "valid_from": "2026-04-01",
+                    "valid_until": "2026-03-31",
+                },
+            },
+        )
+        report = check(bundle.root)
+        w017 = _codes(report, "W017")
+        assert len(w017) == 1
+        assert "never window-valid" in w017[0].message
+
     def test_w018_dangling_supersedes(self, tmp_path):
         bundle = _bundle(
             tmp_path,
