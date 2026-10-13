@@ -5,6 +5,24 @@ follow SemVer.
 
 ## [Unreleased]
 
+## [0.7.11] - 2026-10-13
+
+### Fixed
+- **Validator no longer fails BOM-prefixed concepts with E001:** the
+  frontmatter splitter (`_split_frontmatter`) saw a leading UTF-8 BOM
+  (`"\ufeff---"`) as the first line and — because `str.strip()` does not
+  remove U+FEFF — concluded the file had no frontmatter block, emitting a
+  hard E001 ("no parseable YAML frontmatter block found"), while the bundle
+  loader (`parse_frontmatter`, rule L22) has always stripped the BOM and
+  loaded the concept fine. Windows editors commonly save files with a BOM,
+  so a perfectly valid concept was rejected by validation but accepted
+  everywhere else. The splitter now strips the BOM first, delegating to the
+  loader's own `_BOM` constant, so validator and loader agree — the same
+  parity pattern as the 0.7.9 closing-fence and 0.7.10 W017 fixes. A
+  BOM-prefixed root `index.md` frontmatter block gets the same treatment
+  (it shares the splitter). Two regression tests pin the no-E001 case and
+  the validator/loader split agreement.
+
 ## [0.7.10] - 2026-10-12
 
 ### Fixed

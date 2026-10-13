@@ -12,6 +12,7 @@ ENV/
 dist/
 build/
 *.egg-info/
+**/*.egg-info/
 
 # Test & coverage
 .pytest_cache/

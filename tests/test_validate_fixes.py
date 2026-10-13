@@ -337,3 +337,43 @@ def test_validator_indented_only_fence_still_e001(tmp_path: Path):
     report = check(bundle_path=bundle)
     assert {f.code for f in report.errors} == {"E001"}
     assert report.errors[0].message == "no parseable YAML frontmatter block found"
+
+
+# ---------------------------------------------------------------------------
+# 0.7.11 — validator frontmatter split must strip the leading UTF-8 BOM (L22),
+# like the bundle loader
+# ---------------------------------------------------------------------------
+
+
+_BOM_CONCEPT = (
+    "\ufeff---\n"
+    "type: Concept\n"
+    "title: BOM doc\n"
+    "---\n"
+    "Body after BOM.\n"
+)
+
+
+def test_validator_split_strips_bom_like_loader():
+    # Same raw doc through both splitters: the validator must see exactly
+    # the frontmatter/body the bundle loader sees (L22).
+    from okfsmith.core.frontmatter import parse_frontmatter
+
+    fm_text, body = rules_mod._split_frontmatter(_BOM_CONCEPT)
+    data, loader_body = parse_frontmatter(_BOM_CONCEPT)
+    assert fm_text is not None
+    assert data["type"] == "Concept"
+    assert body == loader_body == "Body after BOM.\n"
+    assert "type: Concept" in fm_text
+
+
+def test_validator_no_e001_for_bom_prefixed_concept(tmp_path: Path):
+    # End-to-end: a BOM-prefixed concept that Bundle.load treats as valid
+    # must not fail validation with a spurious E001.
+    bundle = _fence_bundle(tmp_path, _BOM_CONCEPT)
+    loaded = Bundle.load(bundle)
+    assert loaded.get("fence").frontmatter["type"] == "Concept"
+    assert loaded.get("fence").body == "Body after BOM.\n"
+    report = check(bundle_path=bundle)
+    assert report.is_conformant
+    assert not [f for f in report.errors if f.code in ("E001", "E002")]

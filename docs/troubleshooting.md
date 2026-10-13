@@ -25,7 +25,8 @@ Check with `--dry-run` to see what would be created.
 
 The concept file's frontmatter is missing or malformed. It must start with
 `---` on the first line, contain valid YAML with a `type` key, and end with
-`---`.
+`---`. A leading UTF-8 BOM (as some Windows editors save) is tolerated and
+does not trigger E001.
 
 ## `W001: broken link target`
 

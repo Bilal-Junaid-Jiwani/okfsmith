@@ -25,6 +25,7 @@ from typing import NamedTuple
 import yaml
 
 from okfsmith.core import temporal as _temporal
+from okfsmith.core.frontmatter import _BOM as _LEADING_BOM
 from okfsmith.core.frontmatter import _closing_fence as _column0_fence
 from okfsmith.core.frontmatter import lenient_safe_load as _yaml_load
 from okfsmith.core.temporal import _parse_window_end as _inclusive_window_end
@@ -51,7 +52,14 @@ def _split_frontmatter(raw: str) -> tuple[str | None, str]:
     early. (Before 0.7.9 this splitter closed on any ``---``-ish line, so a
     valid concept with an indented ``---`` inside a block scalar had its
     frontmatter truncated mid-block here and failed with a spurious E002.)
+    The leading UTF-8 BOM is stripped first — the same rule the bundle
+    loader applies (see :func:`okfsmith.core.frontmatter.parse_frontmatter`,
+    L22): Windows editors happily save a ``---`` file with a BOM prefix, and
+    the loader treats it as valid, so the validator must not emit a spurious
+    E001 for it. (Before 0.7.11 the splitter saw ``"\ufeff---"`` as the first
+    line, ``strip()`` did not remove the BOM, and the file failed with E001.)
     """
+    raw = raw.removeprefix(_LEADING_BOM)
     lines = raw.splitlines(keepends=True)
     if not lines or lines[0].strip() != _DELIMITER:
         return None, raw
