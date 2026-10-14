@@ -23,6 +23,7 @@ configured LLM endpoint. No other host is ever contacted.
 from __future__ import annotations
 
 import atexit
+import contextvars
 import logging
 import os
 import time
@@ -92,6 +93,48 @@ LEGACY_BASE_ENV_VAR = "OKFSMITH_BASE_URL"
 #: honored as the key for an explicit ``--provider anthropic`` /
 #: ``OKFSMITH_PROVIDER=anthropic``.
 ANTHROPIC_KEY_ENV_VAR = "ANTHROPIC_API_KEY"
+
+#: Job-scoped environment overlay for background workers.
+#:
+#: The dashboard captures an immutable settings snapshot at job-submit time
+#: and installs it here (via :func:`job_env_overlay`) for the duration of
+#: the worker call. :func:`_env_get` consults the overlay before
+#: :data:`os.environ`, so a settings change made while a job is running can
+#: never flip the job's LLM endpoint or key mid-flight. ``None`` (the
+#: default, e.g. plain CLI use) means "read :data:`os.environ` directly".
+_job_env: contextvars.ContextVar[dict[str, str] | None] = (
+    contextvars.ContextVar("okfsmith_job_env", default=None)
+)
+
+
+def job_env_overlay(snapshot: dict[str, str]):
+    """Return a context manager installing *snapshot* as the env overlay.
+
+    *snapshot* should be a complete environment mapping (e.g.
+    ``{**os.environ, **settings_overrides}``) captured at job-submit time.
+    The overlay is reverted when the context exits. Not thread-safe across
+    threads by itself — install it inside the worker thread.
+    """
+    from contextlib import contextmanager
+
+    @contextmanager
+    def _overlay():
+        token = _job_env.set(dict(snapshot))
+        try:
+            yield
+        finally:
+            _job_env.reset(token)
+
+    return _overlay()
+
+
+def _env_get(name: str) -> str | None:
+    """Read an env var, preferring the job-scoped overlay when installed."""
+    snap = _job_env.get()
+    if snap is not None and name in snap:
+        return snap[name]
+    return os.environ.get(name)
+
 
 #: Named provider presets: name -> canonical base URL. The backend
 #: appends ``/chat/completions`` to the base verbatim, so each entry is
@@ -298,6 +341,18 @@ class LLMBackend:
         return f"{type(self).__name__}(name={self.name!r}, model={self.model!r})"
 
 
+_LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
+
+
+def _is_local_url(url: str) -> bool:
+    """Whether *url* targets this machine (loopback) or has no network host."""
+    try:
+        host = (urlsplit(url).hostname or "").lower().strip("[]")
+    except Exception:
+        return False
+    return host in _LOCAL_HOSTS or host == ""
+
+
 class OpenAICompatibleBackend(LLMBackend):
     """Any OpenAI-compatible ``.../chat/completions`` endpoint (incl. Ollama).
 
@@ -329,6 +384,13 @@ class OpenAICompatibleBackend(LLMBackend):
         super().__init__(model)
         self.base_url = base_url.rstrip("/")
         self._api_key = api_key  # never logged; never serialized
+        if self._api_key and not _is_local_url(self.base_url):
+            if urlsplit(self.base_url).scheme.lower() == "http":
+                raise LLMError(
+                    "Refusing to send an API key over cleartext http:// to "
+                    f"{urlsplit(self.base_url).hostname!r}. Use https://, "
+                    "a localhost endpoint, or omit the key."
+                )
         self._client = client  # injected: owned by the caller, never closed here
         self._owned_client: httpx.Client | None = None  # lazily created, reused
         self._timeout = timeout
@@ -718,7 +780,7 @@ def resolve_llm_config(
     No network is touched. Raises :class:`LLMError` for an unknown provider
     name (the message lists the valid names).
     """
-    provider_name = (provider or os.environ.get(PROVIDER_ENV_VAR) or "").strip().lower() or None
+    provider_name = (provider or _env_get(PROVIDER_ENV_VAR) or "").strip().lower() or None
     if provider_name and provider_name not in PROVIDER_PRESETS:
         valid = ", ".join(sorted(PROVIDER_PRESETS))
         raise LLMError(
@@ -728,11 +790,11 @@ def resolve_llm_config(
 
     custom_base = (
         api_base
-        or os.environ.get(API_BASE_ENV_VAR)
-        or os.environ.get(LEGACY_BASE_ENV_VAR)
-        or os.environ.get(OPENAI_BASE_ENV_VAR)
+        or _env_get(API_BASE_ENV_VAR)
+        or _env_get(LEGACY_BASE_ENV_VAR)
+        or _env_get(OPENAI_BASE_ENV_VAR)
     )
-    if not provider_name and not custom_base and os.environ.get(ANTHROPIC_KEY_ENV_VAR):
+    if not provider_name and not custom_base and _env_get(ANTHROPIC_KEY_ENV_VAR):
         # No explicit provider or base, but an Anthropic key is configured:
         # speak the native Messages API directly (no proxy needed).
         provider_name = "anthropic"
@@ -770,25 +832,28 @@ def resolve_llm_config(
     key_source: str
     if api_key is not None:
         key, key_source = api_key, "flag --api-key"
-    elif os.environ.get(API_KEY_ENV_VAR):
-        key, key_source = os.environ[API_KEY_ENV_VAR], API_KEY_ENV_VAR
-    elif label == "agentrouter" and os.environ.get(AGENTROUTER_KEY_ENV_VAR):
+    elif _env_get(API_KEY_ENV_VAR):
+        key, key_source = _env_get(API_KEY_ENV_VAR), API_KEY_ENV_VAR
+    elif label == "agentrouter" and _env_get(AGENTROUTER_KEY_ENV_VAR):
         # Provider-scoped on purpose: a generic key must never be silently
         # overridden for other providers by a router-specific one.
-        key, key_source = os.environ[AGENTROUTER_KEY_ENV_VAR], AGENTROUTER_KEY_ENV_VAR
-    elif label == "anthropic" and os.environ.get(ANTHROPIC_KEY_ENV_VAR):
+        key, key_source = _env_get(AGENTROUTER_KEY_ENV_VAR), AGENTROUTER_KEY_ENV_VAR
+    elif label == "anthropic" and _env_get(ANTHROPIC_KEY_ENV_VAR):
         # Provider-scoped, same rationale: ANTHROPIC_API_KEY is the native
         # credential for the anthropic provider only.
-        key, key_source = os.environ[ANTHROPIC_KEY_ENV_VAR], ANTHROPIC_KEY_ENV_VAR
-    elif os.environ.get(OPENAI_KEY_ENV_VAR):
-        key, key_source = os.environ[OPENAI_KEY_ENV_VAR], OPENAI_KEY_ENV_VAR
+        key, key_source = _env_get(ANTHROPIC_KEY_ENV_VAR), ANTHROPIC_KEY_ENV_VAR
+    elif label == "openai" and _env_get(OPENAI_KEY_ENV_VAR):
+        # Legacy key, provider-scoped like ANTHROPIC_API_KEY: it must never
+        # leak into another provider's requests (e.g. a third-party
+        # --api-base proxy) just because it happens to be set in the shell.
+        key, key_source = _env_get(OPENAI_KEY_ENV_VAR), OPENAI_KEY_ENV_VAR
     else:
         key, key_source = None, "none"
 
     default_model = (
         DEFAULT_ANTHROPIC_MODEL if label == "anthropic" else DEFAULT_MODEL
     )
-    resolved_model = model or os.environ.get(MODEL_ENV_VAR) or default_model
+    resolved_model = model or _env_get(MODEL_ENV_VAR) or default_model
 
     return LLMConfig(
         provider=label,

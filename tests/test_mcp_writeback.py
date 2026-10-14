@@ -226,6 +226,35 @@ def test_update_downgrade_trust_removes_verified_and_records(tmp_path: Path) -> 
     assert entry["previous_trust"] == HUMAN_REVIEWED
     assert entry["removed_verified_by"] == ["human:alice"]
     assert "Downgrade:" in out
+def test_update_downgrade_rejected_when_server_disallows(tmp_path: Path) -> None:
+    """Security: agent-passed downgrade_trust=true is rejected unless the
+    operator started the server with --allow-trust-downgrade."""
+    root = tmp_path / "kb"
+    doc = _reviewed_doc()
+    tools = BundleTools(
+        _write_bundle(root, {"reviewed.md": doc}),
+        allow_trust_downgrade=False,
+    )
+    out = tools.update_concept("reviewed", body="Agent rewrite.", downgrade_trust=True)
+    assert out.startswith("Error:")
+    assert "--allow-trust-downgrade" in out
+    # file untouched, badge intact
+    assert (root / "reviewed.md").read_text(encoding="utf-8") == doc
+    assert trust_tier(_parse(root / "reviewed.md")[0]) == HUMAN_REVIEWED
+    assert _audit_entries(root) == []
+
+
+def test_update_downgrade_allowed_when_server_permits(tmp_path: Path) -> None:
+    """Opt-in: --allow-trust-downgrade restores the documented behavior."""
+    root = tmp_path / "kb"
+    tools = BundleTools(
+        _write_bundle(root, {"reviewed.md": _reviewed_doc()}),
+        allow_trust_downgrade=True,
+    )
+    out = tools.update_concept("reviewed", body="Agent rewrite.", downgrade_trust=True)
+    assert "Concept updated" in out
+
+
 def test_update_appends_provenance_history(tmp_path: Path) -> None:
     root = tmp_path / "kb"
     tools = BundleTools(Bundle.load(root))

@@ -1145,6 +1145,70 @@ def test_sync_lock_stale_is_reclaimed(tmp_path):
     assert not lock_path.exists()
 
 
+def test_sync_lock_live_pid_never_reclaimed(tmp_path):
+    """Security: a lock naming a live PID is never stale, whatever its age.
+
+    Regression: the old blind `>10 min` rule let a second sync steal the
+    lock of a long-running LLM sync and corrupt the bundle.
+    """
+    import time
+
+    target = Bundle(tmp_path / "kb")
+    (tmp_path / "kb").mkdir()
+    lock_path = core_sync.sync_lock_path(target)
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    # Live PID (our own) + ancient mtime: must NOT be reclaimed.
+    lock_path.write_text(f"{os.getpid()}\n", encoding="utf-8")
+    old = time.time() - 7200
+    os.utime(lock_path, (old, old))
+    assert not core_sync._lock_is_stale(lock_path)
+    with pytest.raises(core_sync.SyncLockedError):
+        core_sync.acquire_sync_lock(target)
+    assert lock_path.exists()  # still ours
+
+
+def test_sync_lock_dead_pid_old_is_reclaimed(tmp_path):
+    import time
+
+    target = Bundle(tmp_path / "kb")
+    (tmp_path / "kb").mkdir()
+    lock_path = core_sync.sync_lock_path(target)
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path.write_text("2147483647\n", encoding="utf-8")  # dead PID
+    old = time.time() - 7200
+    os.utime(lock_path, (old, old))
+    assert core_sync._lock_is_stale(lock_path)
+    release = core_sync.acquire_sync_lock(target)
+    release()
+
+
+def test_sync_lock_dead_pid_fresh_is_not_reclaimed(tmp_path):
+    """A dead PID with a fresh mtime is not (yet) stale — avoids races."""
+    target = Bundle(tmp_path / "kb")
+    (tmp_path / "kb").mkdir()
+    lock_path = core_sync.sync_lock_path(target)
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path.write_text("2147483647\n", encoding="utf-8")  # dead PID
+    assert not core_sync._lock_is_stale(lock_path)
+
+
+def test_touch_sync_lock_heartbeat(tmp_path):
+    import time
+
+    target = Bundle(tmp_path / "kb")
+    (tmp_path / "kb").mkdir()
+    release = core_sync.acquire_sync_lock(target)
+    try:
+        lock_path = core_sync.sync_lock_path(target)
+        old = time.time() - 500
+        os.utime(lock_path, (old, old))
+        before = lock_path.stat().st_mtime
+        core_sync.touch_sync_lock(target)
+        assert lock_path.stat().st_mtime > before
+    finally:
+        release()
+
+
 def test_sync_second_concurrent_sync_is_clean_error(tmp_path):
     bundle = tmp_path / "kb"
     src = tmp_path / "src"

@@ -29,12 +29,15 @@ import base64
 import binascii
 import difflib
 import hashlib
+import hmac
 import json
 import os
 import re
+import secrets
 import time
 import uuid
 from collections.abc import Mapping
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
@@ -1232,8 +1235,14 @@ class BundleTools:
     clean error.
     """
 
-    def __init__(self, bundle: Bundle) -> None:
+    def __init__(self, bundle: Bundle, *, allow_trust_downgrade: bool = True) -> None:
         self.bundle = bundle
+        # When False (the `build_server` default), `update_concept` rejects
+        # `downgrade_trust=true` even if an agent caller passes it: trust
+        # downgrades of human-reviewed concepts require an explicit
+        # `--allow-trust-downgrade` server flag, never an agent-controlled
+        # boolean parameter.
+        self._allow_trust_downgrade = bool(allow_trust_downgrade)
         # Sweep orphaned preview temp files from crashed sessions so they
         # can never load as phantom concepts (QA L5).
         _sweep_stale_preview_files(bundle.root)
@@ -2780,6 +2789,15 @@ class BundleTools:
         tier = _trust_tier_safe(concept.frontmatter)
         downgrade = _coerce_bool(downgrade_trust)
         verifiers = _verifier_names(concept.frontmatter)
+        if downgrade and not self._allow_trust_downgrade:
+            return (
+                "Error: `downgrade_trust=true` was passed, but this server "
+                "was started without `--allow-trust-downgrade`. Trust "
+                "downgrades of human-reviewed concepts are operator-gated, "
+                "not agent-controlled: restart the server with "
+                "`okfsmith mcp --allow-writes --allow-trust-downgrade` to "
+                "permit them."
+            )
         if tier == HUMAN_REVIEWED and not downgrade:
             who = (
                 f" (verified by {', '.join(verifiers)})" if verifiers else ""
@@ -3021,7 +3039,24 @@ class BundleTools:
         return "\n".join(lines)
 
 
-def build_server(bundle_path: str | Path):
+#: Tool names that never mutate the bundle.
+_READ_TOOL_NAMES = (
+    "index", "list", "search", "get",
+    "neighbors", "traverse", "provenance", "diff",
+)
+
+#: Tool names that can mutate the bundle (gated by ``allow_writes``).
+_WRITE_TOOL_NAMES = (
+    "preview_write_concept", "write_concept", "update_concept", "audit_log",
+)
+
+
+def build_server(
+    bundle_path: str | Path,
+    *,
+    allow_writes: bool = False,
+    allow_trust_downgrade: bool = False,
+):
     """Build (but do not start) the MCP server for the bundle at *bundle_path*.
 
     The bundle is loaded **once**, right here at startup — every tool call
@@ -3031,11 +3066,16 @@ def build_server(bundle_path: str | Path):
     :class:`ValueError` if *bundle_path* is empty, and
     :class:`NotADirectoryError` if *bundle_path* is not a directory.
 
-    The returned server is a FastMCP instance with the twelve tools
-    registered: the eight read-only tools (``index``, ``list``, ``search``,
-    ``get``, ``neighbors``, ``traverse``, ``provenance``, ``diff``) plus the
-    four governed write-back tools (``preview_write_concept``,
-    ``write_concept``, ``update_concept``, ``audit_log``).
+    Security defaults: the server is **read-only** unless
+    ``allow_writes=True`` — only the eight read-only tools (``index``,
+    ``list``, ``search``, ``get``, ``neighbors``, ``traverse``,
+    ``provenance``, ``diff``) are registered. Pass ``allow_writes=True`` to
+    also register the four governed write-back tools
+    (``preview_write_concept``, ``write_concept``, ``update_concept``,
+    ``audit_log``). Even with writes allowed, ``update_concept`` rejects an
+    agent-passed ``downgrade_trust=true`` unless
+    ``allow_trust_downgrade=True``: trust downgrades of human-reviewed
+    concepts are operator-gated, never agent-controlled.
     """
     if str(bundle_path).strip() == "":
         raise ValueError("bundle_path must not be empty")
@@ -3052,28 +3092,132 @@ def build_server(bundle_path: str | Path):
     bundle = Bundle.load(root)
     FastMCP = _require_fastmcp()
     server = FastMCP("okfsmith")
-    tools = BundleTools(bundle)
-    server.tool(tools.index)
-    server.tool(tools.list)
-    server.tool(tools.search)
-    server.tool(tools.get)
-    server.tool(tools.neighbors)
-    server.tool(tools.traverse)
-    server.tool(tools.provenance)
-    server.tool(tools.diff)
-    server.tool(tools.preview_write_concept)
-    server.tool(tools.write_concept)
-    server.tool(tools.update_concept)
-    server.tool(tools.audit_log)
+    tools = BundleTools(bundle, allow_trust_downgrade=allow_trust_downgrade)
+    for name in _READ_TOOL_NAMES:
+        server.tool(getattr(tools, name))
+    if allow_writes:
+        for name in _WRITE_TOOL_NAMES:
+            server.tool(getattr(tools, name))
     return server
 
 
-def serve(bundle_path: str | Path, transport: str = "stdio") -> None:
+#: Environment variable overriding the MCP network-transport bearer token.
+MCP_TOKEN_ENV_VAR = "OKFSMITH_MCP_TOKEN"
+
+#: Transports that listen on a network socket (and therefore require auth).
+_NETWORK_TRANSPORTS = ("sse", "streamable-http")
+
+
+class _BearerAuthMiddleware:
+    """Pure-ASGI middleware enforcing ``Authorization: Bearer <token>``.
+
+    Every HTTP request without a valid bearer token gets a 401 JSON
+    response; non-HTTP scopes (lifespan) pass through untouched.
+    """
+
+    def __init__(self, app: Any, token: str) -> None:
+        self._app = app
+        self._expected = f"Bearer {token}".encode("latin-1")
+
+    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+        if scope["type"] == "http":
+            headers = dict(scope.get("headers") or ())
+            got = headers.get(b"authorization", b"")
+            if not hmac.compare_digest(got, self._expected):
+                body = (
+                    b'{"error":"unauthorized","message":'
+                    b'"Missing or invalid MCP bearer token."}'
+                )
+                await send(
+                    {
+                        "type": "http.response.start",
+                        "status": 401,
+                        "headers": [
+                            (b"content-type", b"application/json"),
+                            (b"content-length", str(len(body)).encode("latin-1")),
+                            (b"www-authenticate", b"Bearer"),
+                        ],
+                    }
+                )
+                await send({"type": "http.response.body", "body": body})
+                return
+        await self._app(scope, receive, send)
+
+
+def _resolve_mcp_token(auth_token: str | None) -> tuple[str, str]:
+    """Resolve the bearer token for network transports.
+
+    Precedence: explicit ``--auth-token`` → ``OKFSMITH_MCP_TOKEN`` →
+    a per-launch random token. Returns ``(token, source)`` where source
+    is one of ``"flag"``, ``"env"``, ``"generated"``.
+    """
+    if auth_token:
+        return auth_token, "flag"
+    env_token = os.environ.get(MCP_TOKEN_ENV_VAR)
+    if env_token:
+        return env_token, "env"
+    return secrets.token_urlsafe(32), "generated"
+
+
+def _serve_http(
+    server: Any,
+    transport: str,
+    *,
+    host: str,
+    port: int,
+    auth_token: str | None,
+) -> None:
+    """Serve *server* over SSE / streamable-HTTP with mandatory bearer auth."""
+    import uvicorn
+
+    token, source = _resolve_mcp_token(auth_token)
+    app = server.http_app(transport=transport)  # type: ignore[arg-type]
+    wrapped = _BearerAuthMiddleware(app, token)
+    if source == "generated":
+        # Printed exactly once: the operator must copy it into their MCP
+        # client config as `Authorization: Bearer <token>`.
+        print(f"okfsmith MCP bearer token (keep secret): {token}")
+    else:
+        where = "--auth-token" if source == "flag" else MCP_TOKEN_ENV_VAR
+        print(f"okfsmith MCP: bearer auth enforced (token from {where})")
+    print(f"okfsmith MCP ({transport}) listening on http://{host}:{port}")
+    uvicorn.run(wrapped, host=host, port=port, log_level="info")
+
+
+def serve(
+    bundle_path: str | Path,
+    transport: str = "stdio",
+    *,
+    allow_writes: bool = False,
+    allow_trust_downgrade: bool = False,
+    auth_token: str | None = None,
+    host: str = "127.0.0.1",
+    port: int = 8000,
+) -> None:
     """Serve the bundle at *bundle_path* over the given MCP transport.
 
     ``transport`` defaults to ``"stdio"`` (the standard way MCP clients
     launch servers). Other FastMCP transports such as ``"sse"`` or
     ``"streamable-http"`` may be passed through.
+
+    The server is read-only by default; see :func:`build_server` for the
+    ``allow_writes`` / ``allow_trust_downgrade`` security flags.
+
+    Network transports (``"sse"``, ``"streamable-http"``) require bearer
+    auth: the token is taken from ``auth_token`` (``--auth-token``), then
+    the ``OKFSMITH_MCP_TOKEN`` env var, else a per-launch random token is
+    generated and printed once. Every HTTP request without a valid
+    ``Authorization: Bearer`` header gets a 401. ``stdio`` needs no auth.
     """
-    server = build_server(bundle_path)
+    server = build_server(
+        bundle_path,
+        allow_writes=allow_writes,
+        allow_trust_downgrade=allow_trust_downgrade,
+    )
+    name = transport.value if isinstance(transport, Enum) else str(transport)
+    if name in _NETWORK_TRANSPORTS:
+        _serve_http(
+            server, name, host=host, port=port, auth_token=auth_token
+        )
+        return
     server.run(transport=transport)

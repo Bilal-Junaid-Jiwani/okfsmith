@@ -124,7 +124,8 @@ def test_serve_no_open_prints_token_url_and_binds_loopback(
     dash_server.serve(tmp_path, port=port, no_open=True)
     out = capsys.readouterr().out
     assert f"http://{HOST}:{port}/" in out
-    assert "?token=" in out  # operator needs the single-use URL
+    assert "#token=" in out  # operator needs the single-use URL (fragment)
+    assert "?token=" not in out  # fragment, never a query param
     assert opened == []  # --no-open must never open a browser
     assert len(_stub_uvicorn) == 1
     call = _stub_uvicorn[0]
@@ -144,7 +145,8 @@ def test_serve_opens_browser_with_token_url(
     dash_server.serve(tmp_path, port=_free_port(), no_open=False)
     assert len(opened) == 1
     assert opened[0].startswith(f"http://{HOST}:")
-    assert "?token=" in opened[0]
+    assert "#token=" in opened[0]
+    assert "?token=" not in opened[0]
 
 
 def test_serve_survives_browser_failure(
@@ -160,7 +162,7 @@ def test_serve_survives_browser_failure(
     dash_server.serve(tmp_path, port=_free_port(), no_open=False)
     out = capsys.readouterr().out
     assert "could not open browser" in out
-    assert "?token=" in out  # manual URL printed as fallback
+    assert "#token=" in out  # manual URL printed as fallback
     assert len(_stub_uvicorn) == 1  # server still started
 
 

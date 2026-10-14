@@ -259,7 +259,10 @@ def test_explicit_api_base_beats_provider_preset() -> None:
 def test_key_source_precedence(monkeypatch) -> None:
     assert resolve_llm_config().key_source == "none"
     monkeypatch.setenv("OPENAI_API_KEY", "legacy-key")
-    assert resolve_llm_config().key_source == "OPENAI_API_KEY"
+    # Security: OPENAI_API_KEY is provider-scoped to openai only — it must
+    # not leak into other providers' requests (e.g. the default ollama).
+    assert resolve_llm_config().key_source == "none"
+    assert resolve_llm_config(provider="openai").key_source == "OPENAI_API_KEY"
     monkeypatch.setenv("OKFSMITH_API_KEY", "new-key")
     cfg = resolve_llm_config()
     assert cfg.key_source == "OKFSMITH_API_KEY"

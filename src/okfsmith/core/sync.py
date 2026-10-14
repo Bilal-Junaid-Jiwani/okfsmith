@@ -128,8 +128,12 @@ def concept_owners(state: dict[str, Any], concept_id: str) -> list[str]:
 def _lock_is_stale(path: Path) -> bool:
     """Whether an existing lock file may be reclaimed.
 
-    Stale = the owning PID is dead, or the lock is older than
-    ``_LOCK_STALE_SECONDS``. Unreadable locks fall back to the age check.
+    Security rule: a lock naming a **live** PID is never stale, regardless
+    of age. Long LLM syncs (2-pass extraction over many files) routinely
+    exceed ``_LOCK_STALE_SECONDS``; the old blind age check let a second
+    sync steal the lock mid-run and corrupt the bundle. Only reclaim when
+    the owning PID is dead (or the lock is unreadable) *and* the lock is
+    older than ``_LOCK_STALE_SECONDS``.
     """
     try:
         age = time.time() - path.stat().st_mtime
@@ -144,10 +148,10 @@ def _lock_is_stale(path: Path) -> bool:
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
-        return True
+        return age > _LOCK_STALE_SECONDS  # dead PID: reclaim only if old
     except OSError:
         return age > _LOCK_STALE_SECONDS  # cannot signal: age decides
-    return age > _LOCK_STALE_SECONDS
+    return False  # PID alive: never steal, whatever the age
 
 
 def acquire_sync_lock(bundle: Bundle) -> Callable[[], None]:
@@ -155,9 +159,11 @@ def acquire_sync_lock(bundle: Bundle) -> Callable[[], None]:
 
     The lock file is created with ``O_CREAT | O_EXCL`` (stdlib only, no new
     dependencies), so two concurrent syncs cannot both hold it — the loser
-    gets :class:`SyncLockedError`. Stale locks (dead PID or older than 10
-    minutes) are reclaimed. The releaser only removes the lock when it still
-    names our own PID, and never raises.
+    gets :class:`SyncLockedError`. Stale locks (dead PID and older than 10
+    minutes) are reclaimed; a lock naming a live PID is never reclaimed.
+    The releaser only removes the lock when it still names our own PID,
+    and never raises. Long syncs should call :func:`touch_sync_lock`
+    periodically as a heartbeat.
 
     Raises :class:`SyncStateSymlinkError` when the state dir is a symlink
     (same C1 refusal as the state write itself).
@@ -207,6 +213,26 @@ def acquire_sync_lock(bundle: Bundle) -> Callable[[], None]:
                 path.unlink()
 
     return release
+
+
+def touch_sync_lock(bundle: Bundle) -> None:
+    """Heartbeat: refresh the sync lock's mtime.
+
+    Call periodically during long syncs (the CLI calls this once per file
+    processed). A live holder keeps its mtime fresh; combined with the
+    live-PID rule in :func:`_lock_is_stale`, a second sync can never steal
+    an active lock, while a truly dead holder's lock still ages out.
+    Only touches the lock when it still names our own PID; never raises.
+    """
+    path = sync_lock_path(bundle)
+    try:
+        tag = path.read_text(encoding="utf-8").strip().split()[0]
+    except (OSError, ValueError, IndexError):
+        return
+    if tag != str(os.getpid()):
+        return
+    with contextlib.suppress(OSError):
+        os.utime(path, None)
 
 
 def _blank_state() -> dict[str, Any]:
@@ -527,6 +553,7 @@ __all__ = [
     "SyncLockedError",
     "SyncStateSymlinkError",
     "acquire_sync_lock",
+    "touch_sync_lock",
     "concept_owners",
     "concepts_from_source",
     "load_sync_state",

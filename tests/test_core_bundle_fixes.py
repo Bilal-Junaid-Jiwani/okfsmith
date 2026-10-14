@@ -270,3 +270,76 @@ def test_load_skips_reserved_case_insensitive(tmp_path):
     assert bundle.get("LOG") is None
     assert bundle.get("log") is None
     assert [c.id for c in bundle.iter_concepts()] == ["real"]
+
+
+def test_duplicate_write_stamps_supersedes(tmp_path):
+    """Fix 8: a -2/-3 suffixed duplicate auto-supersedes the displaced id.
+
+    write_concept() itself appends -2/-3 when a *different* requested id
+    slugifies to a taken path.
+    """
+    from okfsmith.core import Bundle
+
+    bundle = Bundle(tmp_path / "kb")
+    first = bundle.write_concept("My Concept", {"title": "My Concept"}, "v1 body")
+    assert first.id == "my-concept"
+    assert "supersedes" not in first.frontmatter
+
+    second = bundle.write_concept("my concept!", {"title": "My Concept"}, "v2 body")
+    assert second.id == "my-concept-2"
+    assert second.frontmatter["supersedes"] == ["my-concept"]
+
+    third = bundle.write_concept("MY CONCEPT", {"title": "My Concept"}, "v3 body")
+    assert third.id == "my-concept-3"
+    assert third.frontmatter["supersedes"] == ["my-concept"]
+
+    # The original is untouched.
+    assert bundle.get("my-concept").frontmatter.get("supersedes") is None
+
+
+def test_duplicate_write_merges_existing_supersedes(tmp_path):
+    from okfsmith.core import Bundle
+
+    bundle = Bundle(tmp_path / "kb")
+    bundle.write_concept("My Concept", {}, "v1")
+    dup = bundle.write_concept("my concept!", {"supersedes": ["legacy-id"]}, "v2")
+    assert dup.id == "my-concept-2"
+    assert dup.frontmatter["supersedes"] == ["legacy-id", "my-concept"]
+    # Rewriting the duplicate in place (exact id) with its own frontmatter
+    # carried over does not double-stamp.
+    fm = dict(bundle.get("my-concept-2").frontmatter)
+    again = bundle.write_concept("my-concept-2", fm, "v2b")
+    assert again.id == "my-concept-2"
+    assert again.frontmatter["supersedes"] == ["legacy-id", "my-concept"]
+
+
+def test_same_id_rewrite_does_not_supersede(tmp_path):
+    """In-place rewrites (same id) must not gain a supersedes edge."""
+    from okfsmith.core import Bundle
+
+    bundle = Bundle(tmp_path / "kb")
+    bundle.write_concept("widget", {}, "v1")
+    same = bundle.write_concept("widget", {}, "v1-updated")
+    assert same.id == "widget"
+    assert "supersedes" not in same.frontmatter
+
+
+def test_ingest_no_llm_duplicate_stamps_supersedes(tmp_path):
+    """Fix 8 (ingest path): ingesting the same source twice stamps supersedes."""
+    from okfsmith.core import Bundle
+    from okfsmith.parsers import ingest_no_llm as _ingest_mod
+    from okfsmith.parsers import parse_file
+
+    src = tmp_path / "doc.md"
+    src.write_text("# Overview\n\n" + ("Ingest me. " * 100) + "\n", encoding="utf-8")
+    bundle = Bundle(tmp_path / "kb")
+
+    first_ids = _ingest_mod.ingest_no_llm(bundle, parse_file(src), str(src))
+    assert len(first_ids) == 1
+    assert "supersedes" not in bundle.get(first_ids[0]).frontmatter
+
+    second_ids = _ingest_mod.ingest_no_llm(bundle, parse_file(src), str(src))
+    assert len(second_ids) == 1
+    assert second_ids[0] != first_ids[0]
+    assert second_ids[0].endswith("-2")
+    assert bundle.get(second_ids[0]).frontmatter["supersedes"] == [first_ids[0]]

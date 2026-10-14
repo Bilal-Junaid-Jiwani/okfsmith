@@ -870,6 +870,9 @@ def _apply_plan(
 ) -> list[FileResult]:
     results: list[FileResult] = []
     for change in plan:
+        # Heartbeat: a long LLM sync must never look abandoned — refresh the
+        # lock mtime per file so a second sync cannot reclaim it.
+        _state.touch_sync_lock(target)
         if change.change == "unchanged":
             results.append(
                 FileResult(

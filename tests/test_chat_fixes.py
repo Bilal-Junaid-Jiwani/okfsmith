@@ -270,3 +270,57 @@ def test_search_engine_empty_query_returns_empty(bundle_dir: Path) -> None:
     bundle = Bundle.load(bundle_dir)
     assert _search_bundle(bundle, "   ", 5) == []
     assert _search_bundle(bundle, "", 5) == []
+
+
+def test_history_dir_and_file_are_private(tmp_path, monkeypatch):
+    """Fix 10: ~/.okfsmith is 0700, the history file is 0600 (real code paths)."""
+    import os
+    import stat
+
+    from okfsmith.cli import chat as chat_mod
+
+    histdir = tmp_path / ".okfsmith"
+    histfile = histdir / "history"
+    monkeypatch.setenv("OKFSMITH_HISTORY_FILE", str(histfile))
+
+    written = {}
+
+    class FakeReadline:
+        @staticmethod
+        def read_history_file(path):
+            pass
+
+        @staticmethod
+        def write_history_file(path):
+            Path(path).write_text("fake-cmd\n", encoding="utf-8")
+            written["path"] = path
+
+        @staticmethod
+        def set_history_length(n):
+            pass
+
+        @staticmethod
+        def set_completer(fn):
+            pass
+
+        @staticmethod
+        def parse_and_bind(s):
+            pass
+
+    monkeypatch.setattr(chat_mod, "readline", FakeReadline)
+
+    session = chat_mod.ChatSession.__new__(chat_mod.ChatSession)
+    session._setup_readline()
+    assert stat.S_IMODE(os.stat(histdir).st_mode) == 0o700
+
+    session._save_history()
+    assert written["path"] == str(histfile)
+    assert stat.S_IMODE(os.stat(histfile).st_mode) == 0o600
+
+
+def test_version_comes_from_installed_metadata():
+    """Fix 10: __version__ tracks the installed distribution."""
+    import okfsmith
+
+    assert okfsmith.__version__
+    assert okfsmith.__version__.count(".") >= 1

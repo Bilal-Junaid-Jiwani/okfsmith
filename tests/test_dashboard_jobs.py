@@ -311,3 +311,40 @@ def test_queue_starts_empty_and_unbounded():
     assert isinstance(job._queue, queue.Queue)
     with pytest.raises(queue.Empty):
         job._queue.get_nowait()
+
+
+def test_job_env_overlay_isolates_worker_from_later_changes():
+    """The LLM env overlay pins a job's view of settings at submit time."""
+    import os
+
+    from okfsmith.extract import llm as _llm
+
+    assert _llm._env_get("OKFSMITH_TEST_ISOLATION_XYZ") is None
+    snap = dict(os.environ)
+    snap["OKFSMITH_TEST_ISOLATION_XYZ"] = "snapshot-value"
+    seen = {}
+    with _llm.job_env_overlay(snap):
+        seen["inside"] = _llm._env_get("OKFSMITH_TEST_ISOLATION_XYZ")
+        # A change to the real environ mid-"job" must not leak through.
+        os.environ["OKFSMITH_TEST_ISOLATION_XYZ"] = "mutated"
+        seen["after_mutation"] = _llm._env_get("OKFSMITH_TEST_ISOLATION_XYZ")
+    os.environ.pop("OKFSMITH_TEST_ISOLATION_XYZ", None)
+    assert seen["inside"] == "snapshot-value"
+    assert seen["after_mutation"] == "snapshot-value"
+    assert _llm._env_get("OKFSMITH_TEST_ISOLATION_XYZ") is None
+
+
+def test_resolve_llm_config_honors_job_overlay():
+    """resolve_llm_config prefers the job overlay over process env."""
+    import os
+
+    from okfsmith.extract import llm as _llm
+
+    os.environ.pop("OKFSMITH_PROVIDER", None)
+    snap = dict(os.environ)
+    snap["OKFSMITH_PROVIDER"] = "groq"
+    with _llm.job_env_overlay(snap):
+        cfg = _llm.resolve_llm_config()
+        assert cfg.provider == "groq"
+    # Outside the overlay, no provider leaked in.
+    assert "OKFSMITH_PROVIDER" not in os.environ

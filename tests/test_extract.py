@@ -405,6 +405,35 @@ def test_retroactive_backlinks(tmp_path, fake_llm):
     assert "## See also" in overview.body
 
 
+def test_retroactive_backlinks_skip_human_reviewed(tmp_path, fake_llm):
+    """Security: _inject_backlinks must not mutate human-reviewed bodies.
+
+    A human-reviewed concept keeps both its badge and its bytes: appending
+    LLM-generated backlink text would mix unverified content into a concept
+    whose trust tier claims human review.
+    """
+    import json as _json
+
+    bundle = Bundle(tmp_path)
+    bundle.write_concept(
+        "notes/overview",
+        {
+            "type": "note",
+            "title": "Overview",
+            "verified": [{"by": "human:ada", "at": "2026-10-01T00:00:00+00:00"}],
+        },
+        "This overview covers the Nightly Revenue Rollup and other jobs.\n",
+    )
+    assert trust_tier(bundle.get("notes/overview").frontmatter) == "human-reviewed"
+    fake_llm([_chat_payload(_json.dumps(CONCEPT_JSON)), _chat_payload(_json.dumps(CRITIC_PASS))])
+    (new_id,) = run(bundle, [_section()], model="fake-model", verify=True)
+
+    overview = bundle.get("notes/overview")
+    assert f"](/{new_id})" not in overview.body
+    assert "## See also" not in overview.body
+    assert trust_tier(overview.frontmatter) == "human-reviewed"
+
+
 # ---------------------------------------------------------------------------
 # Human review
 # ---------------------------------------------------------------------------
@@ -495,7 +524,7 @@ def test_redact_key_and_error_hygiene():
         return httpx.Response(500, text="internal boom")
 
     backend = OpenAICompatibleBackend(
-        base_url="http://fake/v1",
+        base_url="https://fake/v1",
         model="m",
         api_key="sk-super-secret-123",
         client=httpx.Client(transport=httpx.MockTransport(handler)),
@@ -514,3 +543,50 @@ def test_prompts_demand_strict_json():
     assert "Q3 Report" in messages[1]["content"]
     critic = prompts.build_critic_messages("section text", {"title": "T"})
     assert critic[0]["role"] == "system" and "verdict" in critic[0]["content"]
+
+
+def test_cleartext_http_with_key_is_refused():
+    """Security: never send an API key over cleartext http:// to a remote host."""
+    from okfsmith.extract.llm import LLMError, OpenAICompatibleBackend
+
+    with pytest.raises(LLMError) as excinfo:
+        OpenAICompatibleBackend(
+            base_url="http://some-proxy.example/v1",
+            model="m",
+            api_key="<redacted>",
+        )
+    assert "cleartext" in str(excinfo.value)
+
+
+def test_localhost_http_with_key_is_allowed():
+    """Local dev endpoints (Ollama etc.) may use http:// with a key."""
+    from okfsmith.extract.llm import OpenAICompatibleBackend
+
+    for base in ("http://localhost:11434/v1", "http://127.0.0.1:11434/v1",
+                 "http://[::1]:11434/v1"):
+        b = OpenAICompatibleBackend(base_url=base, model="m", api_key="<redacted>")
+        assert b.has_key
+        b.close()
+
+
+def test_https_remote_with_key_is_allowed():
+    from okfsmith.extract.llm import OpenAICompatibleBackend
+
+    b = OpenAICompatibleBackend(
+        base_url="https://api.example.com/v1", model="m", api_key="<redacted>")
+    assert b.has_key
+    b.close()
+
+
+def test_openai_key_scoped_to_openai_provider(monkeypatch):
+    """Security: OPENAI_API_KEY must not leak into other providers' requests."""
+    from okfsmith.extract import llm as llm_module
+
+    monkeypatch.setenv("OPENAI_API_KEY", "<redacted>")
+    for var in ("OKFSMITH_API_KEY", "ANTHROPIC_API_KEY", "AGENTROUTER_API_KEY",
+                "OKFSMITH_PROVIDER", "OKFSMITH_API_BASE"):
+        monkeypatch.delenv(var, raising=False)
+    cfg = llm_module.resolve_llm_config(provider="groq")
+    assert cfg.key_source != "OPENAI_API_KEY", cfg.key_source
+    cfg = llm_module.resolve_llm_config(provider="openai")
+    assert cfg.key_source == "OPENAI_API_KEY", cfg.key_source

@@ -33,8 +33,8 @@ import re
 from dataclasses import dataclass, field
 
 from okfsmith.core import indexlog
-from okfsmith.core.bundle import Bundle, Concept, slugify
-from okfsmith.core.spec import utc_now_iso
+from okfsmith.core.bundle import Bundle, Concept, slugify, stamp_supersedes
+from okfsmith.core.spec import HUMAN_REVIEWED, trust_tier, utc_now_iso
 from okfsmith.search import tokenize as _search_tokenize
 
 from . import llm as _llm
@@ -275,14 +275,19 @@ def _build_body(concept: dict, section: SectionInput) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
-def _concept_id_for(bundle: Bundle, title: str) -> str:
-    """Allocate a fresh concept id under ``extracted/`` for *title*."""
+def _concept_id_for(bundle: Bundle, title: str) -> tuple[str, str | None]:
+    """Allocate a fresh concept id under ``extracted/`` for *title*.
+
+    Returns ``(concept_id, superseded_id)``: when a ``-2``/``-3`` suffix was
+    needed because the base id already exists, ``superseded_id`` is that
+    base id (so the caller can stamp ``supersedes``); otherwise ``None``.
+    """
     base = f"{EXTRACT_DIR}/{slugify(title)}"
     candidate, n = base, 1
     while bundle.get(candidate) is not None:
         n += 1
         candidate = f"{base}-{n}"
-    return candidate
+    return candidate, (base if n > 1 else None)
 
 
 def _already_ingested(bundle: Bundle, digest: str) -> Concept | None:
@@ -724,6 +729,12 @@ def _inject_backlinks(bundle: Bundle, new_ids: list[str]) -> int:
         for existing in bundle.iter_concepts():
             if existing.id == target_id:
                 continue
+            # Security: never mutate a human-reviewed concept's body file.
+            # Appending backlinks would mix unverified LLM-generated text into
+            # a concept whose trust tier claims human review. Such concepts
+            # keep their badge and their bytes.
+            if trust_tier(existing.frontmatter) == HUMAN_REVIEWED:
+                continue
             if f"](/{target_id})" in existing.body:
                 continue  # already linked (backlink-pass format)
             if slug_link in existing.body:
@@ -834,7 +845,11 @@ def run(
             written.append(merged.id)
             drafts[merged.id] = (concept, section, used_fallback)
         else:
-            concept_id = _concept_id_for(bundle, concept["title"])
+            concept_id, superseded_id = _concept_id_for(bundle, concept["title"])
+            if superseded_id is not None:
+                # Duplicate of an existing concept: record whom this replaces
+                # so the temporal model demotes the stale version.
+                frontmatter = stamp_supersedes(frontmatter, superseded_id)
             created = bundle.write_concept(concept_id, frontmatter, body)
             indexlog.append_log(
                 bundle, "", "Creation", f'extracted "{created.id}" from "{section.source_path}"'

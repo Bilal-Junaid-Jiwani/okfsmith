@@ -13,6 +13,7 @@ a terminal.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import re
 from collections.abc import Callable
@@ -346,6 +347,10 @@ class ChatSession:
         try:
             hist = _history_file()
             hist.parent.mkdir(parents=True, exist_ok=True)
+            # Private by default: history may contain sensitive prompts.
+            # Best-effort (non-POSIX platforms raise OSError: ignored).
+            with contextlib.suppress(OSError):
+                os.chmod(hist.parent, 0o700)
             if hist.exists():
                 readline.read_history_file(str(hist))
             readline.set_history_length(500)
@@ -358,7 +363,11 @@ class ChatSession:
         if readline is None:  # pragma: no cover
             return
         try:
-            readline.write_history_file(str(_history_file()))
+            hist = _history_file()
+            readline.write_history_file(str(hist))
+            # Private by default (best-effort; ignored on non-POSIX).
+            with contextlib.suppress(OSError):
+                os.chmod(hist, 0o600)
         except OSError:
             pass
 

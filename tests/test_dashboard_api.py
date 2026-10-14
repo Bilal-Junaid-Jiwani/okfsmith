@@ -544,43 +544,71 @@ class TestMcp:
 class TestSettings:
     def test_secrets_are_write_only(self, client):
         c, headers = client
-        secret_value = "sk-qa-secret-never-echoed-12345"
-        saved = dict(os.environ)
-        try:
-            r = c.put(
-                "/api/v1/settings",
-                json={"config": {}, "secrets": {"OKFSMITH_API_KEY": secret_value}},
-                headers=headers,
-            )
-            assert r.status_code == 200
-            assert r.json() == {"ok": True}
-            assert secret_value not in json.dumps(r.json())
-            settings = c.get("/api/v1/settings", headers=headers).json()
-            assert "OKFSMITH_API_KEY" in settings["secrets_set"]
-            assert secret_value not in json.dumps(settings), "secret must never be echoed"
-        finally:
-            os.environ.clear()
-            os.environ.update(saved)
+        secret_value = "<redacted>"
+        assert "OKFSMITH_API_KEY" not in os.environ
+        r = c.put(
+            "/api/v1/settings",
+            json={"config": {}, "secrets": {"OKFSMITH_API_KEY": secret_value}},
+            headers=headers,
+        )
+        assert r.status_code == 200
+        assert r.json() == {"ok": True}
+        assert secret_value not in json.dumps(r.json())
+        settings = c.get("/api/v1/settings", headers=headers).json()
+        assert "OKFSMITH_API_KEY" in settings["secrets_set"]
+        assert secret_value not in json.dumps(settings), "secret must never be echoed"
+
+    def test_put_does_not_mutate_process_environ(self, client):
+        # Security: PUT /api/v1/settings must never write to os.environ
+        # (process-global mutation raced with background job threads).
+        c, headers = client
+        before = dict(os.environ)
+        r = c.put(
+            "/api/v1/settings",
+            json={
+                "config": {"provider": "groq", "model": "test-model-x"},
+                "secrets": {"OKFSMITH_API_KEY": "<redacted>"},
+            },
+            headers=headers,
+        )
+        assert r.json() == {"ok": True}
+        assert dict(os.environ) == before, "PUT must not mutate os.environ"
+        settings = c.get("/api/v1/settings", headers=headers).json()
+        assert settings["config"]["provider"] == "groq"
+        assert settings["config"]["model"] == "test-model-x"
+        assert "OKFSMITH_API_KEY" in settings["secrets_set"]
+
+    def test_put_empty_value_clears_override(self, client):
+        c, headers = client
+        c.put(
+            "/api/v1/settings",
+            json={"config": {"provider": "groq"}, "secrets": {}},
+            headers=headers,
+        )
+        assert c.get("/api/v1/settings", headers=headers).json()["config"]["provider"] == "groq"
+        c.put(
+            "/api/v1/settings",
+            json={"config": {"provider": ""}, "secrets": {}},
+            headers=headers,
+        )
+        provider = c.get("/api/v1/settings", headers=headers).json()["config"]["provider"]
+        assert provider != "groq" or os.environ.get("OKFSMITH_PROVIDER") == "groq"
 
     def test_put_config_round_trip(self, client):
         c, headers = client
-        saved = dict(os.environ)
-        try:
-            os.environ.pop("OKFSMITH_PROVIDER", None)
-            r = c.put(
-                "/api/v1/settings",
-                json={"config": {"provider": "groq"}, "secrets": {}},
-                headers=headers,
-            )
-            assert r.json() == {"ok": True}
-            settings = c.get("/api/v1/settings", headers=headers).json()
-            assert settings["config"]["provider"] == "groq"
-            assert any(
-                p["id"] == "groq" and p["is_default"] for p in settings["providers"]
-            )
-        finally:
-            os.environ.clear()
-            os.environ.update(saved)
+        before = dict(os.environ)
+        r = c.put(
+            "/api/v1/settings",
+            json={"config": {"provider": "groq"}, "secrets": {}},
+            headers=headers,
+        )
+        assert r.json() == {"ok": True}
+        settings = c.get("/api/v1/settings", headers=headers).json()
+        assert settings["config"]["provider"] == "groq"
+        assert any(
+            p["id"] == "groq" and p["is_default"] for p in settings["providers"]
+        )
+        assert dict(os.environ) == before, "PUT must not mutate os.environ"
 
     def test_unknown_secret_key_rejected(self, client):
         c, headers = client

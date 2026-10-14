@@ -1710,22 +1710,72 @@ def mcp(
     transport: McpTransport = typer.Option(
         McpTransport.stdio, "--transport", help="MCP transport to use."
     ),
+    allow_writes: bool = typer.Option(
+        False,
+        "--allow-writes",
+        help="Register the write-back tools (preview_write_concept, "
+        "write_concept, update_concept, audit_log). Default is read-only.",
+    ),
+    allow_trust_downgrade: bool = typer.Option(
+        False,
+        "--allow-trust-downgrade",
+        help="Permit update_concept to honor an agent-passed "
+        "downgrade_trust=true on human-reviewed concepts. Without this "
+        "flag, trust downgrades are rejected even when writes are allowed.",
+    ),
+    auth_token: str | None = typer.Option(
+        None,
+        "--auth-token",
+        help="Bearer token required by the sse / streamable-http "
+        "transports. Defaults to OKFSMITH_MCP_TOKEN, else a per-launch "
+        "random token (printed once). Not used by stdio.",
+    ),
+    host: str = typer.Option(
+        "127.0.0.1",
+        "--host",
+        help="Interface for the sse / streamable-http transports.",
+    ),
+    port: int = typer.Option(
+        8000,
+        "--port",
+        help="Port for the sse / streamable-http transports.",
+    ),
 ) -> None:
     """Serve the bundle over MCP (Model Context Protocol).
+
+    The server is read-only by default. Pass --allow-writes to enable the
+    write-back tools, and --allow-trust-downgrade to additionally permit
+    trust downgrades of human-reviewed concepts.
+
+    Network transports (sse, streamable-http) require bearer auth: every
+    HTTP request must carry `Authorization: Bearer <token>`. The token
+    comes from --auth-token, OKFSMITH_MCP_TOKEN, or a per-launch random
+    value printed once at startup.
 
     \b
     Examples:
         okfsmith mcp ./kb
+        okfsmith mcp ./kb --allow-writes
+        okfsmith mcp ./kb --transport streamable-http
         uvx --with "okfsmith[mcp]" okfsmith mcp ./kb
     """
     try:
         _require_bundle_dir(bundle)
     except CliError as exc:
         _handle_cli_error(exc, False)
-    # serve(bundle_path, transport) -> None
+    # serve(bundle_path, transport, *, allow_writes, allow_trust_downgrade,
+    #       auth_token, host, port) -> None
     serve = _lazy_attr("okfsmith.mcp_server", "serve")
     try:
-        serve(bundle, transport)
+        serve(
+            bundle,
+            transport,
+            allow_writes=allow_writes,
+            allow_trust_downgrade=allow_trust_downgrade,
+            auth_token=auth_token,
+            host=host,
+            port=port,
+        )
     except RuntimeError as exc:
         # Missing 'mcp' extra (fastmcp not installed): surface the stable
         # error/hint contract, never a traceback.

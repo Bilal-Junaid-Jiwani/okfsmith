@@ -68,7 +68,7 @@ class TokenAuth:
                 "error": "unauthorized",
                 "message": "Missing or invalid dashboard token.",
                 "hint": "Open the dashboard via the URL printed by "
-                "'okfsmith dashboard' (it carries a one-time ?token=); the "
+                "'okfsmith dashboard' (it carries a one-time #token= fragment); the "
                 "app then sends Authorization: Bearer <token> headers.",
             },
             headers={"WWW-Authenticate": "Bearer"},

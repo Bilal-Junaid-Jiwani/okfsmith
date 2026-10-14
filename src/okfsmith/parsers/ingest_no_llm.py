@@ -61,7 +61,9 @@ def _stored_concept_id(bundle: Bundle, concept_id: str) -> str:
     )
 
 
-def _alloc_concept_id(bundle: Bundle, stem: str, slug: str, used: set[str]) -> str:
+def _alloc_concept_id(
+    bundle: Bundle, stem: str, slug: str, used: set[str]
+) -> tuple[str, str | None]:
     """Allocate a concept id for ``stem/slug`` that collides with nothing.
 
     Mirrors the LLM path's ``_concept_id_for`` (C3): the bundle is consulted
@@ -69,14 +71,21 @@ def _alloc_concept_id(bundle: Bundle, stem: str, slug: str, used: set[str]) -> s
     same-stem files in different directories can never silently overwrite
     each other's concepts. Appends ``-2``, ``-3``, … on collision and records
     the allocated (stored-form) id in ``used``.
+
+    Returns ``(concept_id, superseded_id)``: when a ``-2``/``-3`` suffix was
+    needed, ``superseded_id`` is the stored id of the displaced concept (so
+    the caller can stamp ``supersedes``); otherwise ``None``.
     """
-    candidate = f"{stem}/{slug}"
+    base = f"{stem}/{slug}"
+    base_stored = _stored_concept_id(bundle, base)
+    candidate = base
     n = 2
     while True:
         stored = _stored_concept_id(bundle, candidate)
         if stored not in used and bundle.get(stored) is None:
             used.add(stored)
-            return candidate
+            superseded = base_stored if candidate != base else None
+            return candidate, superseded
         candidate = f"{stem}/{slug}-{n}"
         n += 1
 
@@ -89,7 +98,7 @@ def ingest_no_llm(bundle: Bundle, parsed: ParsedDocument, source_id: str) -> lis
     no parseable sections left after OCR-flagged pages are excluded.
     """
     from okfsmith.core import indexlog
-    from okfsmith.core.bundle import slugify
+    from okfsmith.core.bundle import slugify, stamp_supersedes
     from okfsmith.core.spec import utc_now_iso
 
     from . import sectioning
@@ -142,7 +151,7 @@ def ingest_no_llm(bundle: Bundle, parsed: ParsedDocument, source_id: str) -> lis
         slug = base or f"section-{i}"
         # C3: cross-document collision check via bundle.get(); never silently
         # overwrite an existing concept from a different source file.
-        concept_id = _alloc_concept_id(bundle, stem, slug, used_ids)
+        concept_id, superseded_id = _alloc_concept_id(bundle, stem, slug, used_ids)
         frontmatter = {
             "type": "Draft",
             "title": sec.title or f"Section {i} of {Path(source_id).name}",
@@ -152,6 +161,10 @@ def ingest_no_llm(bundle: Bundle, parsed: ParsedDocument, source_id: str) -> lis
             "status": "draft",
             "tags": ["draft", "no-llm"],
         }
+        if superseded_id is not None and bundle.get(superseded_id) is not None:
+            # Duplicate of an existing concept: record whom this replaces so
+            # the temporal model demotes the stale version in retrieval.
+            frontmatter = stamp_supersedes(frontmatter, superseded_id)
         body = _truncate(sec.text)
         concept = bundle.write_concept(concept_id, frontmatter, body)
         created.append(concept.id)

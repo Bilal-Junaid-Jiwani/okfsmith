@@ -841,3 +841,76 @@ class TestReferenceSupport:
     def test_empty_expected_answer_no_warning(self, tmp_path):
         report = self._run(tmp_path, "")
         assert report.questions[0].warnings == []
+
+
+class TestGoldenSetCaps:
+    """Fix 9: load_golden_set enforces size and count caps."""
+
+    def _write(self, bdir, raw: bytes):
+        path = bdir / "eval" / "golden.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(raw)
+        return path
+
+    def test_oversize_file_rejected_before_read(self, tmp_path):
+        import json as _json
+
+        import okfsmith.eval as E
+
+        bdir = tmp_path / "kb"
+        bdir.mkdir()
+        # Valid JSON, but over the 5 MiB cap: must fail with golden-too-large
+        # without reading the whole file into memory.
+        big = _json.dumps(
+            [{"id": f"q{i}", "question": "What is x?", "expected_answer": "y" * 500}
+             for i in range(12000)]
+        ).encode()
+        assert len(big) > 5 * 1024 * 1024
+        self._write(bdir, big)
+        with pytest.raises(E.EvalError) as excinfo:
+            E.load_golden_set(bdir)
+        assert excinfo.value.code == "golden-too-large"
+
+    def test_too_many_questions_rejected(self, tmp_path):
+        import json as _json
+
+        import okfsmith.eval as E
+
+        bdir = tmp_path / "kb"
+        bdir.mkdir()
+        many = _json.dumps(
+            [{"id": f"q{i}", "question": "What is x?"} for i in range(1001)]
+        ).encode()
+        assert len(many) < 5 * 1024 * 1024  # under the size cap
+        self._write(bdir, many)
+        with pytest.raises(E.EvalError) as excinfo:
+            E.load_golden_set(bdir)
+        assert excinfo.value.code == "golden-too-many"
+
+    def test_at_cap_loads_fine(self, tmp_path):
+        import json as _json
+
+        import okfsmith.eval as E
+
+        bdir = tmp_path / "kb"
+        bdir.mkdir()
+        ok = _json.dumps(
+            [{"id": f"q{i}", "question": "What is x?"} for i in range(1000)]
+        ).encode()
+        self._write(bdir, ok)
+        assert len(E.load_golden_set(bdir)) == 1000
+
+    def test_oversize_reports_clean_cli_error(self, tmp_path):
+        import json as _json
+
+        bdir = tmp_path / "kb"
+        bdir.mkdir()
+        (bdir / "a.md").write_text(
+            _concept_md({"type": "Note"}, "hello\n"), encoding="utf-8"
+        )
+        big = _json.dumps([{"id": "q", "question": "What?", "pad": "x" * (6 * 1024 * 1024)}])
+        self._write(bdir, big.encode())
+        result = runner.invoke(app, ["eval", str(bdir), "--no-llm"], env=WIDE)
+        assert result.exit_code == 1
+        assert "error [golden-too-large]" in result.output
+        assert "Traceback" not in result.output

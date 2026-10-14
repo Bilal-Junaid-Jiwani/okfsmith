@@ -322,7 +322,37 @@ def create_app(workspace: Path, token: str) -> FastAPI:
     previews: dict[str, dict[str, Any]] = {}
     preview_lock = threading.Lock()
 
+    from okfsmith.dashboard.settings import DashboardSettings
+
+    # Dashboard-owned LLM settings. Written only by PUT /api/v1/settings;
+    # never mirrored into os.environ (process-global mutation raced with
+    # background job threads). Background jobs capture an immutable
+    # snapshot at submit time (see _submit_job below).
+    dashboard_settings = DashboardSettings()
+
     app = FastAPI(title="okfsmith dashboard", version=_pkg_version)
+    app.state.settings = dashboard_settings
+
+    def _submit_job(kind, bundle_id, fn, **kwargs):
+        """Submit a background job with an immutable settings snapshot.
+
+        The snapshot (full env at submit time + dashboard overrides) is
+        installed as the LLM env overlay for the worker thread's lifetime,
+        so a later PUT /api/v1/settings can never flip an in-flight job's
+        provider, endpoint, or key.
+        """
+        import os as _os
+
+        from okfsmith.extract import llm as _llm
+
+        snapshot = dict(_os.environ)
+        snapshot.update(dashboard_settings.snapshot())
+
+        def _runner(job):
+            with _llm.job_env_overlay(snapshot):
+                fn(job)
+
+        return job_manager.submit(kind, bundle_id, _runner, **kwargs)
 
     @app.middleware("http")
     async def auth_middleware(request: Request, call_next):
@@ -992,7 +1022,7 @@ def create_app(workspace: Path, token: str) -> FastAPI:
                 except OSError:
                     pass
                 return {"job_id": existing.job_id, "reused": True}
-        job = job_manager.submit(
+        job = _submit_job(
             "ingest",
             bid,
             lambda j: _ingest_worker(
@@ -1210,7 +1240,7 @@ def create_app(workspace: Path, token: str) -> FastAPI:
             if not sources:
                 raise err("no-sources", "This bundle has no synced sources yet.",
                           "Ingest sources first, or pass an explicit 'source'.", 422)
-        job = job_manager.submit(
+        job = _submit_job(
             "sync", bundle_id,
             lambda j: _sync_worker(j, root, sources),
             extra={"detail": ""},
@@ -1290,7 +1320,7 @@ def create_app(workspace: Path, token: str) -> FastAPI:
         if not bundle_id:
             raise err("bad-request", "'bundle_id' is required.", None, 400)
         _, root = _load_bundle_or_404(bundle_id)
-        job = job_manager.submit(
+        job = _submit_job(
             "validate", bundle_id, lambda j: _validate_worker(j, root)
         )
         return {"run_id": job.job_id}
@@ -1414,7 +1444,7 @@ def create_app(workspace: Path, token: str) -> FastAPI:
             raise err("bad-request", "'fail_under' must be a number 0-100.", None, 400) from None
         if not 0.0 <= fail_under <= 100.0:
             raise err("bad-request", "'fail_under' must be between 0 and 100.", None, 400)
-        job = job_manager.submit(
+        job = _submit_job(
             "eval", bundle_id, lambda j: _eval_worker(j, root, fail_under)
         )
         return {"run_id": job.job_id}
@@ -1875,8 +1905,20 @@ def create_app(workspace: Path, token: str) -> FastAPI:
     async def get_settings():
         from okfsmith.extract import llm as _llm
 
+        # Dashboard overrides win; None falls back to process env inside
+        # resolve_llm_config. os.environ itself is never mutated by the
+        # dashboard (see PUT /api/v1/settings).
+        snap = dashboard_settings.snapshot()
         try:
-            cfg = _llm.resolve_llm_config()
+            cfg = _llm.resolve_llm_config(
+                provider=snap.get("OKFSMITH_PROVIDER"),
+                api_base=snap.get("OKFSMITH_API_BASE"),
+                model=snap.get("OKFSMITH_MODEL"),
+                api_key=(snap.get("OKFSMITH_API_KEY")
+                         or snap.get("AGENTROUTER_API_KEY")
+                         or snap.get("OPENAI_API_KEY")
+                         or snap.get("ANTHROPIC_API_KEY")),
+            )
             config = {
                 "provider": cfg.provider,
                 "base_url": cfg.base_url,
@@ -1890,7 +1932,8 @@ def create_app(workspace: Path, token: str) -> FastAPI:
         providers = []
         for item in _provider_list():
             providers.append({**item, "is_default": item["id"] == default_provider})
-        secrets_set = [name for name in _SECRET_ENV if os.environ.get(name)]
+        secrets_set = [name for name in _SECRET_ENV
+                       if snap.get(name) or os.environ.get(name)]
         return {"config": config, "providers": providers, "secrets_set": secrets_set}
 
     @app.put(f"{API}/settings")
@@ -1916,36 +1959,38 @@ def create_app(workspace: Path, token: str) -> FastAPI:
         secrets = body.get("secrets") or {}
         if not isinstance(config, dict) or not isinstance(secrets, dict):
             raise err("bad-request", "'config' and 'secrets' must be objects.", None, 400)
+        # NOTE: settings live in the DashboardSettings store on app.state,
+        # never in os.environ. Mutating the process environment from request
+        # threads raced with background job threads (a mid-job settings
+        # change could flip the job's LLM endpoint/key). Jobs capture an
+        # immutable snapshot at submit time instead.
+        updates: dict[str, str | None] = {}
         if default_provider is not None:
             default_provider = str(default_provider).strip().lower()
             if default_provider not in PROVIDER_PRESETS:
                 raise err("invalid-provider", f"Unknown provider '{default_provider}'.",
                           "Pick one from GET /api/v1/chat/providers.", 422)
-            os.environ["OKFSMITH_PROVIDER"] = default_provider
+            updates["OKFSMITH_PROVIDER"] = default_provider
         for key, value in config.items():
             env_name = _SETTING_ENV.get(str(key))
             if env_name is None:
                 raise err("bad-request", f"Unknown config key '{key}'.",
                           f"Allowed: {', '.join(sorted(_SETTING_ENV))}.", 400)
             value = str(value or "").strip()
-            if key == "provider":
+            if key == "provider" and value:
                 value = value.lower()
                 if value not in PROVIDER_PRESETS:
                     raise err("invalid-provider", f"Unknown provider '{value}'.",
                               "Pick one from GET /api/v1/chat/providers.", 422)
-            if value:
-                os.environ[env_name] = value
-            else:
-                os.environ.pop(env_name, None)
+            # Empty string clears the dashboard override (falls back to env).
+            updates[env_name] = value or None
         for key, value in secrets.items():
             if str(key) not in _SECRET_ENV:
                 raise err("bad-request", f"Unknown secret key '{key}'.",
                           f"Allowed: {', '.join(_SECRET_ENV)}.", 400)
             value = str(value or "")
-            if value:
-                os.environ[str(key)] = value
-            else:
-                os.environ.pop(str(key), None)
+            updates[str(key)] = value or None
+        dashboard_settings.update(updates)
         # Secrets are write-only: the response never echoes them.
         return {"ok": True}
 

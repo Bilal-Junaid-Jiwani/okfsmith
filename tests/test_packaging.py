@@ -112,12 +112,19 @@ def _registered_mcp_tools() -> list[str]:
     """Tool names registered by ``build_server``, parsed from its source.
 
     Parsed as text (not imported) so this test also runs in the CI test
-    job, which installs only the ``test`` extra — no fastmcp.
+    job, which installs only the ``test`` extra — no fastmcp. Understands
+    both the direct ``server.tool(tools.<name>)`` form and the
+    ``_READ_TOOL_NAMES`` / ``_WRITE_TOOL_NAMES`` tuple + getattr loop form.
     """
     source = (WORKTREE / "src" / "okfsmith" / "mcp_server" / "server.py").read_text(
         encoding="utf-8"
     )
-    return re.findall(r"server\.tool\(tools\.(\w+)\)", source)
+    names = re.findall(r"server\.tool\(tools\.(\w+)\)", source)
+    for tuple_name in ("_READ_TOOL_NAMES", "_WRITE_TOOL_NAMES"):
+        m = re.search(tuple_name + r"\s*=\s*\((.*?)\)", source, re.DOTALL)
+        if m:
+            names.extend(re.findall(r'"(\w+)"', m.group(1)))
+    return names
 
 
 def test_mcp_docs_name_every_registered_tool():

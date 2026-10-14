@@ -5,6 +5,52 @@ follow SemVer.
 
 ## [Unreleased]
 
+## [0.7.13] - 2026-10-15
+
+### Security
+
+This release fixes 10 findings from an independent security audit of the
+0.7.12 codebase (trust-tier integrity, secrets handling, concurrency,
+authentication, and input validation).
+
+- **CRITICAL — `_inject_backlinks` no longer mutates `human-reviewed`
+  concepts:** retroactive backlink injection now skips concepts whose trust
+  tier is `human-reviewed`, so ingesting an untrusted document can no longer
+  append LLM-generated text to a human-verified concept while its badge
+  remains.
+- **MCP server is read-only by default:** `okfsmith mcp` now registers only
+  the 8 read tools unless `--allow-writes` is passed, and
+  `downgrade_trust=true` from an agent is rejected unless
+  `--allow-trust-downgrade` is given by the server operator.
+- **Dashboard settings no longer mutate process-global `os.environ`:**
+  `PUT /api/v1/settings` writes to a lock-protected in-memory store on
+  `app.state`; background jobs receive an immutable config snapshot, so a
+  settings change can no longer race a running ingest/sync/eval job.
+- **`OPENAI_API_KEY` is now provider-scoped and cleartext HTTP is blocked:**
+  the legacy key falls back only for `provider == "openai"`, and
+  `OpenAICompatibleBackend` raises `LLMError` instead of sending an API key
+  over non-loopback `http://`.
+- **`sync.lock` never steals a live lock:** a lock naming a live PID is no
+  longer treated as stale, whatever its age; reclamation now requires a dead
+  (or unreadable) PID *and* age > 10 minutes. Long syncs heartbeat the lock
+  via `touch_sync_lock()`.
+- **MCP network transports require a token:** `--transport sse` /
+  `streamable-http` now enforce a per-launch bearer token
+  (`--auth-token` / `OKFSMITH_MCP_TOKEN` / auto-generated and printed once).
+- **Dashboard bootstrap token moved to URL fragment:** the launch URL is now
+  `#token=...` instead of `?token=...`, so the token no longer appears in the
+  OS process table; the frontend sends it as an `Authorization` header.
+- **Re-ingest stamps `supersedes`:** when plain `ingest` creates a `-2`/`-3`
+  suffixed duplicate, the new concept's frontmatter records
+  `supersedes: [<old id>]` so the temporal model demotes the stale version in
+  search/RAG.
+- **`eval/golden.json` size caps:** `load_golden_set()` now refuses files
+  over 5 MiB (`golden-too-large`) and sets over 1,000 questions
+  (`golden-too-many`).
+- **History file permissions + single version source:** `~/.okfsmith` is
+  `0o700` and the history file `0o600`; `__version__` now comes from
+  `importlib.metadata` instead of a second hardcoded string.
+
 ## [0.7.12] - 2026-10-14
 
 ### Fixed

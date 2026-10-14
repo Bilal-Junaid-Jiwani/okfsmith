@@ -542,7 +542,7 @@ def test_search_output_unchanged_without_budgets() -> None:
 def test_build_server_registers_all_tools() -> None:
     import asyncio
 
-    server = build_server(FIXTURE_BUNDLE)
+    server = build_server(FIXTURE_BUNDLE, allow_writes=True)
     registered = asyncio.run(server._list_tools())
     tool_names = {t.name for t in registered}
     assert tool_names == {

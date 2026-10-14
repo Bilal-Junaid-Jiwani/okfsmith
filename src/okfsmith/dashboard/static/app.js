@@ -391,12 +391,15 @@ async function loadBundles() {
 }
 
 function boot() {
-  // Token: read ONCE from ?token=, stash in sessionStorage, scrub URL.
-  const params = new URLSearchParams(location.search);
-  const q = params.get('token');
+  // Token: read ONCE from the URL fragment (#token=...), stash in
+  // sessionStorage, scrub the URL. Fragments are never sent to the server
+  // and never appear on the browser's command line (unlike ?token=).
+  // A legacy ?token= query param is still honored once, for old bookmarks.
+  const frag = new URLSearchParams(location.hash.replace(/^#/, ''));
+  const q = frag.get('token') || new URLSearchParams(location.search).get('token');
   if (q) {
     sessionStorage.setItem('okf-token', q);
-    history.replaceState(null, '', location.pathname + location.hash);
+    history.replaceState(null, '', location.pathname);
   }
   state.token = sessionStorage.getItem('okf-token');
   if (!state.token) {

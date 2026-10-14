@@ -118,6 +118,7 @@ def test_index_returns_root_index(tools: BundleTools) -> None:
 def test_build_server_registers_tools() -> None:
     import asyncio
 
+    # Security default: read-only — only the eight read tools registered.
     server = build_server(FIXTURE_BUNDLE)
     registered = asyncio.run(server._list_tools())
     tool_names = {t.name for t in registered}
@@ -130,10 +131,6 @@ def test_build_server_registers_tools() -> None:
         "traverse",
         "provenance",
         "diff",
-        "preview_write_concept",
-        "write_concept",
-        "update_concept",
-        "audit_log",
     }
     # docstrings are the agent's UI — every tool must carry one
     for tool in registered:
@@ -143,3 +140,109 @@ def test_build_server_registers_tools() -> None:
 def test_build_server_missing_bundle() -> None:
     with pytest.raises(FileNotFoundError):
         build_server(FIXTURE_BUNDLE / "does-not-exist")
+
+
+class TestMcpNetworkAuth:
+    """Fix 7: sse / streamable-http require a bearer token; stdio does not."""
+
+    def test_token_precedence(self, monkeypatch):
+        from okfsmith.mcp_server import server as mcp_server
+
+        monkeypatch.delenv(mcp_server.MCP_TOKEN_ENV_VAR, raising=False)
+        token, source = mcp_server._resolve_mcp_token(None)
+        assert source == "generated" and len(token) >= 32
+
+        monkeypatch.setenv(mcp_server.MCP_TOKEN_ENV_VAR, "env-token")
+        token, source = mcp_server._resolve_mcp_token(None)
+        assert (token, source) == ("env-token", "env")
+
+        token, source = mcp_server._resolve_mcp_token("flag-token")
+        assert (token, source) == ("flag-token", "flag")
+
+    def test_generated_tokens_are_unique(self, monkeypatch):
+        from okfsmith.mcp_server import server as mcp_server
+
+        monkeypatch.delenv(mcp_server.MCP_TOKEN_ENV_VAR, raising=False)
+        t1, _ = mcp_server._resolve_mcp_token(None)
+        t2, _ = mcp_server._resolve_mcp_token(None)
+        assert t1 != t2
+
+    def test_bearer_middleware(self):
+        import anyio
+
+        from okfsmith.mcp_server import server as mcp_server
+
+        async def ok_app(scope, receive, send):
+            await send({"type": "http.response.start", "status": 200,
+                        "headers": [(b"content-type", b"text/plain")]})
+            await send({"type": "http.response.body", "body": b"ok"})
+
+        async def call(app, headers):
+            status = {}
+
+            async def receive():
+                return {"type": "http.request", "body": b"", "more_body": False}
+
+            async def send(msg):
+                if msg["type"] == "http.response.start":
+                    status["code"] = msg["status"]
+
+            scope = {"type": "http", "headers": headers}
+            await app(scope, receive, send)
+            return status["code"]
+
+        wrapped = mcp_server._BearerAuthMiddleware(ok_app, "s3cret")
+        assert anyio.run(call, wrapped, []) == 401
+        assert anyio.run(call, wrapped, [(b"authorization", b"Bearer wrong")]) == 401
+        assert anyio.run(
+            call, wrapped, [(b"authorization", b"Bearer s3cret")]) == 200
+
+    def test_bearer_middleware_lifespan_passthrough(self):
+        import anyio
+
+        from okfsmith.mcp_server import server as mcp_server
+
+        seen = {}
+
+        async def inner(scope, receive, send):
+            seen["type"] = scope["type"]
+
+        async def receive():
+            return {"type": "lifespan.startup"}
+
+        async def send(msg):
+            pass
+
+        wrapped = mcp_server._BearerAuthMiddleware(inner, "s3cret")
+        anyio.run(wrapped, {"type": "lifespan", "headers": []}, receive, send)
+        assert seen["type"] == "lifespan"
+
+    def test_serve_http_enforces_auth(self, monkeypatch, tmp_path):
+        """serve() with sse wraps the app in auth and never calls run()."""
+        from okfsmith.mcp_server import server as mcp_server
+
+        calls = {}
+        monkeypatch.setattr(
+            mcp_server, "_serve_http",
+            lambda server, transport, **kw: calls.update(kw) or calls.update(
+                {"transport": transport}),
+        )
+        mcp_server.serve(FIXTURE_BUNDLE, "sse", auth_token="t",
+                         host="127.0.0.1", port=8123)
+        assert calls["transport"] == "sse"
+        assert calls["auth_token"] == "t"
+
+    def test_serve_stdio_needs_no_auth(self, monkeypatch):
+        from okfsmith.mcp_server import server as mcp_server
+
+        def boom(*a, **k):
+            raise AssertionError("_serve_http must not run for stdio")
+
+        monkeypatch.setattr(mcp_server, "_serve_http", boom)
+        ran = {}
+        monkeypatch.setattr(
+            mcp_server, "build_server",
+            lambda *a, **k: type("S", (), {"run": lambda self, **kw: ran.update(kw)})(),
+        )
+        mcp_server.serve(FIXTURE_BUNDLE, "stdio")
+        assert ran.get("transport") == "stdio"

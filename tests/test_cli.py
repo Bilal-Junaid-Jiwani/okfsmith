@@ -247,8 +247,8 @@ def stub_mcp(monkeypatch):
     module = types.ModuleType("okfsmith.mcp_server")
     calls: list[tuple] = []
 
-    def serve(bundle_path, transport: str = "stdio") -> None:
-        calls.append((str(bundle_path), transport))
+    def serve(bundle_path, transport: str = "stdio", **kwargs) -> None:
+        calls.append((str(bundle_path), transport, kwargs))
 
     module.serve = serve
     module.calls = calls
@@ -695,7 +695,26 @@ def test_mcp_with_stub_server(stub_mcp, tmp_path):
         app, ["mcp", str(FIXTURES / "valid"), "--transport", "stdio"]
     )
     assert result.exit_code == 0, result.output
-    assert stub_mcp.calls == [(str(FIXTURES / "valid"), "stdio")]
+    assert stub_mcp.calls == [
+        (str(FIXTURES / "valid"), "stdio",
+         {"allow_writes": False, "allow_trust_downgrade": False,
+          "auth_token": None, "host": "127.0.0.1", "port": 8000})
+    ]
+
+
+def test_mcp_flags_forward_to_serve(stub_mcp, tmp_path):
+    result = runner.invoke(
+        app,
+        ["mcp", str(FIXTURES / "valid"), "--allow-writes",
+         "--allow-trust-downgrade", "--auth-token", "sekret",
+         "--host", "0.0.0.0", "--port", "9999"],
+    )
+    assert result.exit_code == 0, result.output
+    assert stub_mcp.calls == [
+        (str(FIXTURES / "valid"), "stdio",
+         {"allow_writes": True, "allow_trust_downgrade": True,
+          "auth_token": "sekret", "host": "0.0.0.0", "port": 9999})
+    ]
 
 
 def test_mcp_missing_bundle():
@@ -944,7 +963,7 @@ def test_mcp_missing_extra_no_traceback(monkeypatch, tmp_path):
 
     server_mod = types.ModuleType("okfsmith.mcp_server")
 
-    def serve(bundle, transport):
+    def serve(bundle, transport, **kwargs):
         raise RuntimeError(
             "The MCP server requires the 'mcp' extra: "
             'install it with `pip install "okfsmith[mcp]"`.'

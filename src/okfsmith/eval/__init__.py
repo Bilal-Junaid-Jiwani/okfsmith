@@ -60,6 +60,15 @@ METRICS = ("context_relevancy", "faithfulness", "answer_relevancy")
 #: Where a bundle's golden Q&A set lives.
 GOLDEN_FILENAME = "golden.json"
 
+#: Security cap: refuse to read a golden set larger than this (checked via
+#: stat before any bytes are read, so a hostile file cannot force a
+#: multi-gigabyte read into memory).
+_GOLDEN_MAX_BYTES = 5 * 1024 * 1024
+
+#: Security cap: refuse golden sets with more questions than this (checked
+#: after schema validation, so every rejected question was well-formed).
+_GOLDEN_MAX_QUESTIONS = 1000
+
 GOLDEN_SCHEMA_DOC = """\
 Golden sets are a JSON list of question records at <bundle>/eval/golden.json:
 
@@ -116,8 +125,13 @@ def load_golden_set(bundle_dir: Path) -> list[GoldenQuestion]:
     """Load and schema-validate ``<bundle_dir>/eval/golden.json``.
 
     Raises :class:`EvalError` with code ``golden-not-found``,
-    ``golden-invalid`` (bad JSON), or ``golden-schema`` (wrong shape) —
-    never a traceback.
+    ``golden-too-large`` (file over 5 MiB), ``golden-invalid`` (bad JSON),
+    ``golden-schema`` (wrong shape), or ``golden-too-many`` (over 1,000
+    questions) — never a traceback.
+
+    The size cap is checked *before* reading the file so a hostile golden
+    set cannot force multi-gigabyte reads; the count cap is checked after
+    schema validation so each question is still known-good.
     """
     path = golden_path(bundle_dir)
     if not path.is_file():
@@ -126,6 +140,16 @@ def load_golden_set(bundle_dir: Path) -> list[GoldenQuestion]:
             f"no golden set at '{path}'.",
             f"Run 'okfsmith eval {bundle_dir} --init-sample' to write a "
             "starter set, or add <bundle>/eval/golden.json manually.",
+        )
+    try:
+        size = path.stat().st_size
+    except OSError:
+        size = 0
+    if size > _GOLDEN_MAX_BYTES:
+        raise EvalError(
+            "golden-too-large",
+            f"'{path}' is {size:,} bytes (limit {_GOLDEN_MAX_BYTES:,} bytes).",
+            "Split the golden set or point the eval at a smaller file.",
         )
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
@@ -234,6 +258,12 @@ def _validate_golden(raw: Any, path: Path) -> list[GoldenQuestion]:
                 must_cite=list(must_cite),
                 tags=list(tags),
             )
+        )
+    if len(questions) > _GOLDEN_MAX_QUESTIONS:
+        raise EvalError(
+            "golden-too-many",
+            f"{where}: {len(questions):,} questions (limit {_GOLDEN_MAX_QUESTIONS:,}).",
+            "Split the golden set into smaller files and eval them separately.",
         )
     return questions
 

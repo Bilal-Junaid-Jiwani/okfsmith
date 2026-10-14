@@ -18,6 +18,21 @@ from pathlib import Path
 
 from okfsmith.core import frontmatter as _fm
 from okfsmith.core.spec import RESERVED_FILES
+from okfsmith.core.temporal import normalize_supersedes
+
+
+def stamp_supersedes(frontmatter: dict, superseded_id: str) -> dict:
+    """Return a copy of *frontmatter* with *superseded_id* in ``supersedes``.
+
+    Used when a ``-2``/``-3`` suffixed duplicate displaces an existing
+    concept: the new concept records whom it replaces so the temporal
+    model demotes the stale version in retrieval. Existing ``supersedes``
+    entries are preserved (deduped); the caller's dict is not mutated.
+    """
+    merged = normalize_supersedes(frontmatter.get("supersedes"))
+    if superseded_id not in merged:
+        merged.append(superseded_id)
+    return {**frontmatter, "supersedes": merged}
 
 _SUFFIX = ".md"
 # Per-component filename limit on common filesystems (bytes, incl. suffix).
@@ -191,7 +206,11 @@ class Bundle:
         If the slug-derived path is already taken by a *different* concept
         id, ``-2``, ``-3``, … is appended until the path is free, so an
         existing concept is never overwritten. Re-writing the exact same
-        concept id updates that concept in place.
+        concept id updates that concept in place. A suffixed duplicate
+        automatically gains ``supersedes: [<displaced id>]`` in its
+        frontmatter (merged with any existing ``supersedes``), so the
+        temporal model demotes the stale version in retrieval instead of
+        surfacing two live copies.
         """
         self.root.mkdir(parents=True, exist_ok=True)
         base_id = _slug_id(concept_id)
@@ -205,11 +224,16 @@ class Bundle:
                     "concepts may not be named 'index' or 'log' (any casing)"
                 )
         candidate_id = base_id
+        superseded_id: str | None = None
         if self._path_taken_by_other(candidate_id, concept_id):
+            occupant = self.get(base_id)
+            superseded_id = occupant.id if occupant is not None else None
             n = 2
             while self._path_taken_by_other(_suffixed_id(base_id, n), concept_id):
                 n += 1
             candidate_id = _suffixed_id(base_id, n)
+        if superseded_id is not None:
+            frontmatter = stamp_supersedes(frontmatter, superseded_id)
         path = concept_path_for(self.root, candidate_id)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(_fm.serialize_frontmatter(frontmatter, body), encoding="utf-8")

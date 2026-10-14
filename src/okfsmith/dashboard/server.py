@@ -61,14 +61,18 @@ def serve(workspace: Path, port: int = DEFAULT_PORT, no_open: bool = False) -> N
         print(f"(port {port} was taken; using {actual_port})")
     if no_open:
         # The operator needs the single-use token URL to get in at all.
-        print(f"single-use token URL: {base}?token={token}")
+        # The token rides in the URL *fragment* (#token=...): fragments are
+        # never sent to the server and never appear on a browser process's
+        # command line, unlike ?token=<redacted> did via webbrowser.open.
+        print(f"single-use token URL: {base}#token={token}")
     else:
         try:
-            webbrowser.open(f"{base}?token={token}")
+            webbrowser.open(f"{base}#token={token}")
         except Exception as exc:  # never fail launch on browser errors
             print(f"could not open browser: {exc}")
             print("open this single-use URL manually:")
-            print(f"{base}?token={token}")
-    # Access logging stays off: the browser bootstrap URL carries ?token=...,
-    # which must never land in a log file.
+            print(f"{base}#token={token}")
+    # Access logging stays off as defense-in-depth: the token now travels in
+    # the URL fragment (never sent to the server), but a pasted ?token=<redacted>
+    # must still never land in a log file.
     uvicorn.run(app, host=HOST, port=actual_port, log_level="info", access_log=False)
