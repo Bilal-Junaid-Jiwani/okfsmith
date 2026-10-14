@@ -26,6 +26,8 @@ import yaml
 
 from okfsmith.core import temporal as _temporal
 from okfsmith.core.frontmatter import _BOM as _LEADING_BOM
+from okfsmith.core.frontmatter import _MAX_FRONTMATTER_CHARS as _M28_MAX_CHARS
+from okfsmith.core.frontmatter import _MAX_FRONTMATTER_LINES as _M28_MAX_LINES
 from okfsmith.core.frontmatter import _closing_fence as _column0_fence
 from okfsmith.core.frontmatter import lenient_safe_load as _yaml_load
 from okfsmith.core.temporal import _parse_window_end as _inclusive_window_end
@@ -58,6 +60,14 @@ def _split_frontmatter(raw: str) -> tuple[str | None, str]:
     the loader treats it as valid, so the validator must not emit a spurious
     E001 for it. (Before 0.7.11 the splitter saw ``"\ufeff---"`` as the first
     line, ``strip()`` did not remove the BOM, and the file failed with E001.)
+    The M28 frontmatter size guard is honored too — the same rule the bundle
+    loader applies (see :func:`okfsmith.core.frontmatter.parse_frontmatter`):
+    a block larger than 20,000 lines or 1,000,000 characters is treated as
+    unparseable instead of being fed to the YAML parser unbounded. (Before
+    0.7.12 the splitter parsed such blocks anyway, so a concept the loader
+    refuses — metadata dropped entirely — validated cleanly, and the
+    ``validate`` command itself was the one entry point without the DoS
+    guard.)
     """
     raw = raw.removeprefix(_LEADING_BOM)
     lines = raw.splitlines(keepends=True)
@@ -66,7 +76,14 @@ def _split_frontmatter(raw: str) -> tuple[str | None, str]:
     closing = _column0_fence(lines)
     if closing is None:
         return None, raw
-    return "".join(lines[1:closing]), "".join(lines[closing + 1 :])
+    if closing - 1 > _M28_MAX_LINES:
+        # Absurdly large metadata block: the loader refuses to parse it
+        # (M28), so the validator treats it as unparseable as well.
+        return None, raw
+    block = "".join(lines[1:closing])
+    if len(block) > _M28_MAX_CHARS:
+        return None, raw
+    return block, "".join(lines[closing + 1 :])
 
 
 def _safe_yaml(text: str) -> tuple[bool, object]:

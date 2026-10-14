@@ -5,6 +5,25 @@ follow SemVer.
 
 ## [Unreleased]
 
+## [0.7.12] - 2026-10-14
+
+### Fixed
+- **Validator now honors the M28 frontmatter size guard like the bundle
+  loader:** a frontmatter block larger than 20,000 lines or 1,000,000
+  characters is treated as unparseable (E001) instead of being parsed
+  normally. The loader has always refused such blocks (`parse_frontmatter`
+  returns empty metadata and keeps the whole text as the body) to avoid
+  feeding unbounded input to the YAML parser, but the validator's splitter
+  parsed them anyway — so a concept whose metadata the runtime silently
+  drops could validate cleanly, and the `validate` command was the one entry
+  point without the DoS guard. The splitter now delegates to the loader's
+  own `_MAX_FRONTMATTER_LINES` / `_MAX_FRONTMATTER_CHARS` constants, so
+  validator and loader agree — the same parity pattern as the 0.7.9
+  closing-fence, 0.7.10 W017, and 0.7.11 BOM fixes. Four regression tests pin
+  both guard limits and the exact boundary (20,000 lines / 1,000,000 chars
+  still parse), plus the end-to-end E001 case and the validator/loader split
+  agreement.
+
 ## [0.7.11] - 2026-10-13
 
 ### Fixed

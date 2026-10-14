@@ -377,3 +377,77 @@ def test_validator_no_e001_for_bom_prefixed_concept(tmp_path: Path):
     report = check(bundle_path=bundle)
     assert report.is_conformant
     assert not [f for f in report.errors if f.code in ("E001", "E002")]
+
+
+# ---------------------------------------------------------------------------
+# 0.7.12 — validator frontmatter split must honor the M28 size guard (20,000
+# lines / 1,000,000 chars), like the bundle loader
+# ---------------------------------------------------------------------------
+
+
+def _oversized_by_lines(extra_lines: int) -> str:
+    body = "".join(f"k{i}: v\n" for i in range(extra_lines))
+    return "---\n" + body + "type: Concept\n---\nBody.\n"
+
+
+def test_validator_split_honors_m28_line_guard_like_loader():
+    # A block with more than 20,000 lines: the loader refuses it (M28) and
+    # the validator must see "no parseable frontmatter" too.
+    from okfsmith.core.frontmatter import parse_frontmatter
+
+    raw = _oversized_by_lines(20_001)
+    fm_text, body = rules_mod._split_frontmatter(raw)
+    data, loader_body = parse_frontmatter(raw)
+    assert data == {}
+    assert fm_text is None
+    assert body == loader_body == raw
+
+
+def test_validator_split_honors_m28_char_guard_like_loader():
+    # A block over 1,000,000 chars: refused by the loader, refused by the
+    # validator.
+    from okfsmith.core.frontmatter import parse_frontmatter
+
+    filler = "v" * 1_000_001
+    raw = "---\ntype: Concept\nkey: " + filler + "\n---\nBody.\n"
+    fm_text, body = rules_mod._split_frontmatter(raw)
+    data, loader_body = parse_frontmatter(raw)
+    assert data == {}
+    assert fm_text is None
+    assert body == loader_body == raw
+
+
+def test_validator_split_accepts_m28_boundary_like_loader():
+    # Exactly at the guard limits the loader still parses; so must the
+    # validator (the guard is strictly-greater-than).
+    from okfsmith.core.frontmatter import parse_frontmatter
+
+    raw = _oversized_by_lines(19_999)  # 19,999 + 1 type line = 20,000 lines
+    fm_text, body = rules_mod._split_frontmatter(raw)
+    data, loader_body = parse_frontmatter(raw)
+    assert fm_text is not None
+    assert data["type"] == "Concept"
+    assert body == loader_body == "Body.\n"
+
+    filler = "v" * (1_000_000 - len("type: Concept\nkey: \n"))
+    raw2 = "---\ntype: Concept\nkey: " + filler + "\n---\nBody.\n"
+    assert len("type: Concept\nkey: " + filler + "\n") == 1_000_000
+    fm_text2, body2 = rules_mod._split_frontmatter(raw2)
+    data2, loader_body2 = parse_frontmatter(raw2)
+    assert fm_text2 is not None
+    assert data2["type"] == "Concept"
+    assert body2 == loader_body2 == "Body.\n"
+
+
+def test_validator_e001_for_oversized_frontmatter_concept(tmp_path: Path):
+    # End-to-end: a concept whose frontmatter exceeds the M28 guard loads
+    # with empty metadata in the bundle loader, and the validator must
+    # report E001 (no parseable frontmatter) rather than validating the
+    # metadata the runtime will never see.
+    bundle = _fence_bundle(tmp_path, _oversized_by_lines(20_001))
+    loaded = Bundle.load(bundle)
+    assert loaded.get("fence").frontmatter == {}
+    report = check(bundle_path=bundle)
+    codes = [f.code for f in report.errors]
+    assert "E001" in codes
+    assert not report.is_conformant
