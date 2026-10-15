@@ -804,6 +804,36 @@ def _sweep_stale_preview_files(root: Path) -> None:
         pass
 
 
+def _bundle_snapshot(root: Path) -> tuple | None:
+    """Hashable fingerprint of the bundle's on-disk ``*.md`` files.
+
+    One entry per non-symlink regular file: ``(relative path, size,
+    mtime_ns)``. Any add / delete / content change flips the tuple, so
+    :meth:`BundleTools._ensure_fresh_bundle` knows the in-memory index
+    needs a re-parse. Symlinks are never followed (audit-3 finding 3),
+    and the scan mirrors :meth:`Bundle.load`'s file selection so the
+    snapshot covers exactly what a reload would read (including root
+    ``index.md`` / ``log.md``). Returns ``None`` when the directory
+    cannot be scanned — the caller then keeps serving the last good
+    in-memory bundle instead of failing. Never raises.
+    """
+    try:
+        entries = []
+        for md in root.rglob("*.md"):
+            if md.is_symlink() or not md.is_file():
+                continue
+            try:
+                st = md.stat()
+            except OSError:
+                continue
+            entries.append(
+                (md.relative_to(root).as_posix(), st.st_size, st.st_mtime_ns)
+            )
+        return tuple(sorted(entries))
+    except OSError:
+        return None
+
+
 #: Depth at which the recursive write-back sanitizers stop descending and
 #: collapse the subtree to an inert placeholder (QA final-pass L5). The
 #: tools refuse deeply-nested input up front via `_check_structure_size`;
@@ -1253,9 +1283,16 @@ class BundleTools:
         # are never real concepts, so dropping them from the index is
         # always safe (the on-disk temp file itself is untouched).
         _evict_preview_phantoms(bundle)
-        # Built once: the bundle is loaded once at server startup, so the
-        # supersession graph is stable for the server's lifetime.
+        # Built from the bundle loaded at server startup, and rebuilt on
+        # every in-memory reload (after write-back and on detected
+        # on-disk changes), so the supersession graph always matches the
+        # concepts the server is actually serving.
         self._sindex = _temporal.SupersessionIndex.from_bundle(bundle)
+        # Directory fingerprint taken at startup (and after every reload):
+        # `_ensure_fresh_bundle` re-scans it before each read-tool call so
+        # concepts added/edited/deleted by the CLI or any other process
+        # after startup become visible without a server restart.
+        self._bundle_snapshot = _bundle_snapshot(bundle.root)
 
     # -- shared rendering ----------------------------------------------------
     def _render_paged(
@@ -1401,6 +1438,7 @@ class BundleTools:
         Returns the raw index.md text; if the bundle has no index.md, says
         so and suggests `list` instead.
         """
+        self._ensure_fresh_bundle()
         if not self.bundle.index_text:
             return (
                 "This bundle has no root index.md. Use the `list` tool to see "
@@ -1443,6 +1481,7 @@ class BundleTools:
         Returns a markdown list ordered by concept id. For the full text of
         any concept, pass its id to `get`.
         """
+        self._ensure_fresh_bundle()
         concepts = list(self.bundle.iter_concepts())
         if filter_type:
             needle = str(filter_type).lower()
@@ -1529,6 +1568,7 @@ class BundleTools:
         full concept. A missing or blank query returns a clean error,
         never an exception.
         """
+        self._ensure_fresh_bundle()
         if not isinstance(query, str) or not query.split():
             return "Error: `query` is empty — provide a keyword to search for."
         limit = _coerce_limit(limit, 10)
@@ -1585,6 +1625,7 @@ class BundleTools:
         not exist, returns a clean "not found" error suggesting how to find
         valid ids.
         """
+        self._ensure_fresh_bundle()
         concept = self.bundle.get(concept_id) if isinstance(concept_id, str) else None
         if concept is None:
             return (
@@ -1629,6 +1670,7 @@ class BundleTools:
         Returns two sections, "Outgoing" and "Incoming". A missing concept
         returns a clean "not found" error.
         """
+        self._ensure_fresh_bundle()
         concept = self.bundle.get(concept_id) if isinstance(concept_id, str) else None
         if concept is None:
             return (
@@ -1729,6 +1771,7 @@ class BundleTools:
         concept plus the link text that led to it. A missing concept
         returns a clean "not found" error.
         """
+        self._ensure_fresh_bundle()
         concept = self.bundle.get(concept_id) if isinstance(concept_id, str) else None
         if concept is None:
             return (
@@ -1911,6 +1954,7 @@ class BundleTools:
         records (file/digest) → footnote references → definitions. A
         missing concept returns a clean "not found" error.
         """
+        self._ensure_fresh_bundle()
         concept = self.bundle.get(concept_id) if isinstance(concept_id, str) else None
         if concept is None:
             return (
@@ -2024,6 +2068,7 @@ class BundleTools:
         markdown concept files) so a filesystem root can never trigger a
         full-disk walk.
         """
+        self._ensure_fresh_bundle()
         if against is None:
             return self._diff_against_sync_state(
                 max_chunks, max_tokens, continuation_token
@@ -2286,8 +2331,28 @@ class BundleTools:
             self.bundle = Bundle.load(root)
             _evict_preview_phantoms(self.bundle)
             self._sindex = _temporal.SupersessionIndex.from_bundle(self.bundle)
+            self._bundle_snapshot = _bundle_snapshot(root)
         except Exception:
             pass
+
+    def _ensure_fresh_bundle(self) -> None:
+        """Reload the in-memory bundle when the files on disk changed.
+
+        The MCP server used to load the bundle once at startup, so
+        concepts added/edited/deleted by the CLI (or any other process)
+        stayed invisible to the read tools until the server restarted.
+        Each read tool calls this first: a cheap directory fingerprint
+        (path, size, mtime_ns per ``*.md`` file) decides whether the full
+        re-parse + supersession-index rebuild of :meth:`_reload_bundle`
+        is needed. Never raises: a fingerprint failure keeps serving the
+        last good in-memory state.
+        """
+        try:
+            snapshot = _bundle_snapshot(self.bundle.root)
+        except Exception:
+            return
+        if snapshot is not None and snapshot != self._bundle_snapshot:
+            self._reload_bundle()
 
     @staticmethod
     def _rollback_write(
@@ -3059,9 +3124,12 @@ def build_server(
 ):
     """Build (but do not start) the MCP server for the bundle at *bundle_path*.
 
-    The bundle is loaded **once**, right here at startup — every tool call
-    afterwards reads from the same in-memory :class:`Bundle`. Raises
-    ``RuntimeError`` with an install hint if the ``mcp`` extra is missing,
+    The bundle is loaded right here at startup — and every read-tool call
+    afterwards re-checks a cheap on-disk fingerprint first, re-loading the
+    bundle (and rebuilding the supersession index) whenever a concept file
+    was added, edited, or deleted by the CLI or another process. The MCP
+    view of the bundle therefore stays current without a server restart.
+    Raises ``RuntimeError`` with an install hint if the ``mcp`` extra is missing,
     :class:`FileNotFoundError` if *bundle_path* does not exist,
     :class:`ValueError` if *bundle_path* is empty, and
     :class:`NotADirectoryError` if *bundle_path* is not a directory.

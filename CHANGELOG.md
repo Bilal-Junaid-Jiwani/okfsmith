@@ -5,6 +5,21 @@ follow SemVer.
 
 ## [Unreleased]
 
+## [0.7.14] - 2026-10-15
+
+### Fixed
+
+- **MCP server no longer serves a stale index until restart:** every read
+  tool (`index`, `list`, `search`, `get`, `neighbors`, `traverse`,
+  `provenance`, `diff`) now re-checks a cheap on-disk fingerprint (file
+  path, size, mtime per `*.md`) before serving and reloads the bundle —
+  rebuilding the supersession index — whenever a concept was added, edited,
+  or deleted by the CLI or any other process after the server started. No
+  reload happens when nothing changed, and a fingerprint failure keeps
+  serving the last good in-memory state instead of raising. Regression
+  tests prove post-start adds/edits/deletes are visible without restarting
+  the server.
+
 ## [0.7.13] - 2026-10-15
 
 ### Security
