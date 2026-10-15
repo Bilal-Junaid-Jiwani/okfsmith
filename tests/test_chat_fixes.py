@@ -311,11 +311,17 @@ def test_history_dir_and_file_are_private(tmp_path, monkeypatch):
 
     session = chat_mod.ChatSession.__new__(chat_mod.ChatSession)
     session._setup_readline()
-    assert stat.S_IMODE(os.stat(histdir).st_mode) == 0o700
+    # Windows has no POSIX permission bits (os.chmod can only set the
+    # read-only flag), so 0700/0600 are unrepresentable there; the
+    # production code applies them best-effort and suppresses OSError.
+    # Assert the bits only where they are meaningful.
+    if os.name != "nt":
+        assert stat.S_IMODE(os.stat(histdir).st_mode) == 0o700
 
     session._save_history()
     assert written["path"] == str(histfile)
-    assert stat.S_IMODE(os.stat(histfile).st_mode) == 0o600
+    if os.name != "nt":
+        assert stat.S_IMODE(os.stat(histfile).st_mode) == 0o600
 
 
 def test_version_comes_from_installed_metadata():
