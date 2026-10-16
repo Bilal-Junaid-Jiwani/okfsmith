@@ -5,6 +5,27 @@ follow SemVer.
 
 ## [Unreleased]
 
+## [0.7.15] - 2026-10-16
+
+### Added
+
+- **Regression tests pinning the 0.7.13 security hardening:** the sync-lock
+  module's concurrency safety invariants now have dedicated coverage in
+  `tests/test_sync_lock_safety.py` (22 tests): a lock naming a live PID is
+  never reclaimed no matter its age (`acquire_sync_lock` raises
+  `SyncLockedError` instead of stealing it), a dead-PID lock is reclaimed
+  only once older than 10 minutes, the releaser removes the lock only when
+  it still names our own PID, the `touch_sync_lock` heartbeat refreshes only
+  our own lock, and the symlinked state-dir refusal. Corrupt-state recovery
+  branches and the atomic state-write error path are covered too.
+- **`tests/test_dashboard_settings.py` (6 tests)** for the lock-protected
+  `DashboardSettings` store: `update`/`get`/`snapshot`/`clear` contract,
+  snapshot-copy isolation, concurrent-update safety, and — the audit
+  invariant — `os.environ` is never mutated by settings overrides.
+
+  Together with the existing suite, `core/sync.py` is now at 96% line
+  coverage and `dashboard/settings.py` at 100%.
+
 ## [0.7.14] - 2026-10-15
 
 ### Fixed
