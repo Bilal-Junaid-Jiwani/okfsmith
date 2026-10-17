@@ -69,9 +69,24 @@ redacted from logs and error output; banners, `/model`, and
 `okfsmith doctor` only ever show `set (hidden)` / `not set`.
 
 `--model` combined with `--no-llm` is a usage error (exit 2) — as are
-`--provider`, `--api-base`, and `--api-key` with `--no-llm`. Passing
+`--provider`, `--api-base`, `--api-key`, and `--embeddings` with `--no-llm`. Passing
 `--api-key` on the command line prints a one-time warning: it lands in
 shell history, so `OKFSMITH_API_KEY` is preferred.
+
+### Embedding similarity for duplicate detection
+
+`okfsmith ingest --embeddings openai` (or another OpenAI-compatible
+provider preset, or `OKFSMITH_EMBEDDINGS`) enables an embedding-similarity
+branch in duplicate detection: each new concept's title+body is embedded
+via the provider's `/embeddings` endpoint and merged with the best
+existing concept at cosine ≥ 0.87 — catching paraphrases the offline
+title-similarity check misses. The embedding model defaults to
+`text-embedding-3-small` (`OKFSMITH_EMBEDDING_MODEL` overrides). Key
+resolution mirrors the chat backends: the ingest `--api-key` /
+`OKFSMITH_API_KEY` is reused for the embeddings endpoint, with legacy
+`OPENAI_API_KEY` honored for the `openai` provider only; keys are never
+sent over cleartext HTTP to non-loopback hosts. Without `--embeddings`,
+ingest stays fully offline.
 
 ## Trust tiers, again
 

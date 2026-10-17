@@ -24,6 +24,7 @@ import functools
 import importlib
 import inspect
 import json
+import os
 import sys
 from enum import Enum
 from pathlib import Path
@@ -571,6 +572,7 @@ def _ingest_llm_one(
     api_base: str | None = None,
     api_key: str | None = None,
     explicit: bool = False,
+    embedder: Any = None,
 ) -> tuple[str, int]:
     """Ingest one file via the LLM extraction pipeline. Returns (status, count)."""
     parsed = parse_file(path)
@@ -601,6 +603,7 @@ def _ingest_llm_one(
         provider=provider,
         base_url=api_base,
         api_key=api_key,
+        embedder=embedder,
     )
     return "ok", len(created)
 
@@ -659,6 +662,14 @@ def ingest(
         "--dry-run",
         help="Parse and plan only; write nothing to the bundle.",
     ),
+    embeddings: str | None = typer.Option(
+        None,
+        "--embeddings",
+        help="Duplicate detection via text embeddings: an OpenAI-compatible "
+        "provider preset (e.g. 'openai') catching paraphrases that "
+        "title-similarity misses (reuses --api-key / OKFSMITH_API_KEY; "
+        "or OKFSMITH_EMBEDDINGS).",
+    ),
 ) -> None:
     """Ingest documents into BUNDLE as draft concepts.
 
@@ -686,6 +697,7 @@ def ingest(
         ("--provider", provider),
         ("--api-base", api_base),
         ("--api-key", api_key),
+        ("--embeddings", embeddings),
     ):
         if flag_value is not None and no_llm:
             raise typer.BadParameter(
@@ -733,6 +745,9 @@ def ingest(
         parse_file = functools.partial(_parse_file, quiet=True)
     else:
         parse_file = _parse_file
+    # Embedding-similarity dedup (LLM path only); the --no-llm validation
+    # above already rejected an explicit --embeddings flag there.
+    embedder = None
     if no_llm:
         ingest_no_llm = _lazy_attr("okfsmith.parsers.ingest_no_llm", "ingest_no_llm")
         already_ingested = _lazy_attr("okfsmith.parsers.dedup", "already_ingested")
@@ -747,6 +762,31 @@ def ingest(
         run = _lazy_attr("okfsmith.extract", "run")
         LLMUnavailableError = _lazy_attr("okfsmith.extract", "LLMUnavailableError")
         mode = f"LLM extraction (model={model or 'default'})"
+        # Embedding-similarity dedup is resolved once, up front: a bad
+        # spec or missing key fails fast instead of per-file. The slice
+        # import is skipped entirely when neither the flag nor the env
+        # var (OKFSMITH_EMBEDDINGS, see okfsmith.extract.embeddings)
+        # requests it, keeping the default path dependency-free.
+        if embeddings is None and "OKFSMITH_EMBEDDINGS" not in os.environ:
+            embedder = None
+        else:
+            resolve_embedder = _lazy_attr(
+                "okfsmith.extract.embeddings", "resolve_embedder"
+            )
+            EmbeddingError = _lazy_attr(
+                "okfsmith.extract.embeddings", "EmbeddingError"
+            )
+            try:
+                embedder = resolve_embedder(embeddings, api_key=api_key)
+            except EmbeddingError as exc:
+                raise CliError(
+                    "embeddings-unavailable",
+                    f"Embeddings unavailable: {exc}",
+                    "Use a valid provider preset (e.g. --embeddings openai) "
+                    "with OKFSMITH_API_KEY set, or drop --embeddings.",
+                ) from None
+        if embedder is not None:
+            mode += f", embeddings={embedder.name}"
 
     digest_of = _lazy_attr("okfsmith.parsers.dedup", "sha256_of")
 
@@ -815,6 +855,7 @@ def ingest(
                             api_base=api_base,
                             api_key=api_key,
                             explicit=explicit,
+                            embedder=embedder,
                         )
                     except LLMUnavailableError as exc:
                         raise CliError(

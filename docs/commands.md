@@ -7,6 +7,7 @@ The bundle is always the **first positional argument**. Run any command with
 okfsmith init BUNDLE [--force] [--yes]
 okfsmith ingest BUNDLE SOURCE... [--recursive] [--no-llm] [--model NAME]
                                  [--provider NAME] [--api-base URL] [--api-key KEY]
+                                 [--embeddings PRESET]
                                  [--dry-run] [--quiet]
 okfsmith sync BUNDLE SOURCE... [--recursive] [--no-llm] [--model NAME]
                                [--provider NAME] [--api-base URL] [--api-key KEY]
@@ -52,7 +53,13 @@ okfsmith ingest ./kb paper.pdf --quiet       # one-line summary, no tables
   Without it, okfsmith uses an LLM (Ollama by default) for richer extraction —
   see [LLM & no-LLM](llm.md).
 - `--model` and `--no-llm` together are a usage error (exit 2) — as are
-  `--provider`, `--api-base`, and `--api-key` with `--no-llm`.
+  `--provider`, `--api-base`, `--api-key`, and `--embeddings` with `--no-llm`.
+- Duplicate detection during ingest runs exact normalized-title match, then
+  same-resource gating, then stemmed-token title similarity (offline). Add
+  `--embeddings openai` (or another OpenAI-compatible provider preset, or
+  `OKFSMITH_EMBEDDINGS`) for a final embedding-similarity branch that merges
+  paraphrases token overlap misses (cosine ≥ 0.87 on title+body). Needs an
+  API key (`OKFSMITH_API_KEY`); keys are never sent over cleartext HTTP.
 - Any hosted model works: `--provider openrouter --model
   anthropic/claude-sonnet-4` (one key, hundreds of models), or pick from
   the 15 presets (`groq`, `mistral`, `deepseek`, `together`, `fireworks`,

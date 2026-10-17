@@ -98,6 +98,7 @@ ingested 18 concept(s) from 1 file(s) into kb
 | `--quiet`, `-q` | Only warnings, errors, and the final summary line. |
 | `--recursive` | Recurse into subdirectories when a SOURCE is a directory. |
 | `--provider`, `--model`, `--api-base`, `--api-key` | LLM extraction settings (default path when `--no-llm` is *not* passed). See [Providers & API keys](providers.html). |
+| `--embeddings PRESET` | Opt-in embedding-similarity duplicate detection (e.g. `--embeddings openai`): merges paraphrases the offline title-similarity check misses. Reuses `--api-key` / `OKFSMITH_API_KEY`. |
 
 <details>
 <summary>Advanced</summary>

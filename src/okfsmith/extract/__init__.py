@@ -15,7 +15,18 @@ page_span, tables, source_id, source_path, doc_title, doc_summary)`` plus an
 optional ``section_path`` for the situating prefix.
 """
 
-from okfsmith.extract import human_review, llm, pipeline, prompts
+from okfsmith.extract import embeddings, human_review, llm, pipeline, prompts
+from okfsmith.extract.embeddings import (
+    DEFAULT_EMBEDDING_MODEL,
+    Embedder,
+    EmbeddingError,
+    EmbeddingResponseError,
+    EmbeddingUnavailableError,
+    OpenAIEmbedder,
+    cosine_similarity,
+    embed_text,
+    resolve_embedder,
+)
 from okfsmith.extract.human_review import mark_reviewed
 from okfsmith.extract.llm import (
     PROVIDER_PRESETS,
@@ -36,14 +47,23 @@ from okfsmith.extract.pipeline import SectionInput, run, situating_prefix
 
 __all__ = [
     "AnthropicBackend",
+    "DEFAULT_EMBEDDING_MODEL",
+    "Embedder",
+    "EmbeddingError",
+    "EmbeddingResponseError",
+    "EmbeddingUnavailableError",
     "LLMBackend",
     "LLMConfig",
     "LLMError",
     "LLMResponseError",
     "LLMUnavailableError",
     "OpenAICompatibleBackend",
+    "OpenAIEmbedder",
     "PROVIDER_PRESETS",
     "SectionInput",
+    "cosine_similarity",
+    "embed_text",
+    "embeddings",
     "human_review",
     "key_status",
     "llm",
@@ -52,6 +72,7 @@ __all__ = [
     "prompts",
     "redact_key",
     "resolve_backend",
+    "resolve_embedder",
     "resolve_llm_config",
     "resolve_model",
     "run",

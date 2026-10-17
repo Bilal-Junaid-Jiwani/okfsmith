@@ -39,6 +39,7 @@ from okfsmith.search import tokenize as _search_tokenize
 
 from . import llm as _llm
 from . import prompts as _prompts
+from .embeddings import Embedder, cosine_similarity, embed_text
 from .llm import retry_with_backoff
 
 logger = logging.getLogger(__name__)
@@ -299,9 +300,16 @@ def _already_ingested(bundle: Bundle, digest: str) -> Concept | None:
 
 
 def _find_duplicate(
-    bundle: Bundle, title: str, resource: str, *, exclude_id: str | None = None
+    bundle: Bundle,
+    title: str,
+    resource: str,
+    *,
+    exclude_id: str | None = None,
+    text: str = "",
+    embedder: Embedder | None = None,
 ) -> Concept | None:
-    """Entity resolution: normalized-title match, same ``resource``, or title similarity.
+    """Entity resolution: normalized-title match, same ``resource``, title
+    similarity, or — when *embedder* is given — embedding similarity.
 
     Branches run in precedence order:
 
@@ -312,9 +320,15 @@ def _find_duplicate(
        legitimately share ``resource`` (the source document path).
     3. Title similarity: Jaccard coefficient over stemmed title tokens
        (:func:`title_similarity`), merged when ``>= _MIN_TITLE_SIMILARITY``.
-       This is the dependency-free, deterministic stand-in for the embedding
-       similarity a future version may use — no model downloads, offline-safe,
-       and reproducible across processes.
+       This is the dependency-free, deterministic default — no model
+       downloads, offline-safe, and reproducible across processes. When an
+       embedder is configured (branch 4), hosted embedding similarity
+       runs instead for the cases this misses.
+    4. Embedding similarity (opt-in): when an *embedder* is configured
+       (``--embeddings``), the new concept's title+body is embedded and
+       compared against every existing concept; the best candidate merges
+       when its cosine similarity is ``>= embedder.merge_threshold``.
+       Catches paraphrases the token overlap misses.
 
     The SHA-256 ``source_digest`` remains the primary re-ingest guard.
     """
@@ -345,6 +359,62 @@ def _find_duplicate(
     if best is not None and best_sim >= _MIN_TITLE_SIMILARITY:
         logger.info(
             "Merging %r into %r via title similarity (%.2f)",
+            title,
+            best.frontmatter.get("title"),
+            best_sim,
+        )
+        return best
+    if embedder is not None and text.strip():
+        return _find_embedding_duplicate(
+            bundle, title, text, embedder, exclude_id=exclude_id
+        )
+    return None
+
+
+def _find_embedding_duplicate(
+    bundle: Bundle,
+    title: str,
+    text: str,
+    embedder: Embedder,
+    *,
+    exclude_id: str | None = None,
+) -> Concept | None:
+    """Branch 4 of :func:`_find_duplicate`: embedding-similarity dedup.
+
+    Embeds the new concept's title+body together with every existing
+    concept's title+body in a single batched call, then merges the best
+    candidate when its cosine similarity reaches
+    ``embedder.merge_threshold``. Deterministic tie-break mirrors the
+    title-similarity branch: higher similarity wins, then lower id.
+    """
+    new_text = embed_text(title, text)
+    candidates: list[Concept] = []
+    candidate_texts: list[str] = []
+    for concept in bundle.iter_concepts():
+        if concept.id == exclude_id:
+            continue
+        ctext = embed_text(
+            str(concept.frontmatter.get("title") or ""), concept.body or ""
+        )
+        if ctext:
+            candidates.append(concept)
+            candidate_texts.append(ctext)
+    if not candidates:
+        return None
+    vectors = embedder.embed([new_text] + candidate_texts)
+    new_vec = vectors[0]
+    best: Concept | None = None
+    best_sim = 0.0
+    for concept, vec in zip(candidates, vectors[1:], strict=True):
+        sim = cosine_similarity(new_vec, vec)
+        # Deterministic tie-break: higher similarity wins, then lower id.
+        if sim > best_sim or (
+            sim == best_sim and best is not None and concept.id < best.id
+        ):
+            best, best_sim = concept, sim
+    if best is not None and best_sim >= embedder.merge_threshold:
+        logger.info(
+            "Merging %r into %r via embedding similarity (%.2f)",
             title,
             best.frontmatter.get("title"),
             best_sim,
@@ -776,6 +846,7 @@ def run(
     base_url: str | None = None,
     api_key: str | None = None,
     verify: bool = True,
+    embedder: Embedder | None = None,
 ) -> list[str]:
     """Extract concepts from *sections* into *bundle* (2-pass LLM).
 
@@ -788,6 +859,10 @@ def run(
     - ``api_key``: key for the endpoint (``OKFSMITH_API_KEY`` /
       ``OPENAI_API_KEY`` env preferred; never logged or persisted).
     - ``verify``: run pass 2 (critic). ``False`` skips verification.
+    - ``embedder``: optional :class:`~okfsmith.extract.embeddings.Embedder`
+      enabling the embedding-similarity duplicate-detection branch
+      (``--embeddings`` / ``OKFSMITH_EMBEDDINGS``). ``None`` keeps the
+      offline title-similarity behavior.
 
     Returns the ids of newly written or merged concepts (dedup-skipped
     sections contribute nothing). Raises :class:`LLMUnavailableError` with
@@ -804,8 +879,14 @@ def run(
     )
     logger.debug(
         "Entity resolution: exact title, same-resource, then stemmed-token "
-        "title similarity (threshold %.2f)",
+        "title similarity (threshold %.2f)%s",
         _MIN_TITLE_SIMILARITY,
+        (
+            f", then embedding similarity via {embedder.name} "
+            f"(threshold {embedder.merge_threshold:.2f})"
+            if embedder is not None
+            else ""
+        ),
     )
 
     written: list[str] = []          # concept ids created/merged this run
@@ -838,7 +919,11 @@ def run(
             )
 
         duplicate = _find_duplicate(
-            bundle, concept["title"], section.source_path
+            bundle,
+            concept["title"],
+            section.source_path,
+            text=body,
+            embedder=embedder,
         )
         if duplicate is not None:
             merged = _merge_concepts(bundle, duplicate, frontmatter, body, section)

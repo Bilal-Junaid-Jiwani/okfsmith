@@ -620,6 +620,7 @@ def _slash_ingest(session: ChatSession, arg: str) -> None:
         recursive=recursive,
         quiet=False,
         dry_run=False,
+        embeddings=None,
     )
     if not ok:
         # Ingest already printed its own error [CODE]; don't claim a reload.

@@ -5,6 +5,32 @@ follow SemVer.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-17
+
+### Added
+
+- **Opt-in embedding-similarity duplicate detection for ingest**
+  (`okfsmith ingest --embeddings openai`, or `OKFSMITH_EMBEDDINGS`):
+  after the existing exact-title, same-resource, and stemmed-token
+  title-similarity checks, a new branch embeds each new concept's
+  title+body via any OpenAI-compatible `/embeddings` endpoint and merges
+  the best existing concept at cosine similarity ≥ 0.87 — catching
+  paraphrases the offline checks miss ("How to sync your vault" vs
+  "Vault synchronization guide"). New module
+  `okfsmith.extract.embeddings`: `Embedder` ABC, `OpenAIEmbedder`
+  (injectable `httpx.Client`, transient failures retried with backoff),
+  `cosine_similarity` / `embed_text` helpers, and `resolve_embedder`.
+  Key handling mirrors the chat backends: the ingest `--api-key` /
+  `OKFSMITH_API_KEY` is reused (legacy `OPENAI_API_KEY` only for the
+  `openai` provider), keys are never sent over cleartext HTTP to
+  non-loopback hosts, and `--embeddings` with `--no-llm` is a usage
+  error. Without the flag, ingest stays fully offline — default behavior
+  is unchanged. 35 new tests in `tests/test_embeddings.py` plus a CLI
+  validation test.
+- Docs: `docs/OVERVIEW.md` (Link step), `docs/commands.md` (ingest flags),
+  and `docs/llm.md` (new "Embedding similarity" section) describe the
+  feature truthfully; the old "v1 TODO, not yet implemented" note is gone.
+
 ## [0.7.15] - 2026-10-16
 
 ### Added

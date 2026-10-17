@@ -177,7 +177,8 @@ def stub_extract(monkeypatch):
 
     calls: list[dict] = []
 
-    def run(bundle, sections, *, model=None, provider=None, base_url=None, api_key=None, verify=True):
+    def run(bundle, sections, *, model=None, provider=None, base_url=None, api_key=None, verify=True,
+            embedder=None):
         calls.append(
             {
                 "n_sections": len(sections),
@@ -218,7 +219,8 @@ def stub_extract(monkeypatch):
 def stub_extract_unavailable(stub_extract, monkeypatch):
     """Same as stub_extract, but run() raises LLMUnavailableError."""
 
-    def run(bundle, sections, *, model=None, provider=None, base_url=None, api_key=None, verify=True):
+    def run(bundle, sections, *, model=None, provider=None, base_url=None, api_key=None, verify=True,
+            embedder=None):
         raise stub_extract.LLMUnavailableError(
             "no LLM endpoint reachable: start Ollama (`ollama serve`) "
             "or set OKFSMITH_MODEL / OPENAI_API_KEY"
@@ -529,6 +531,22 @@ def test_ingest_missing_source(tmp_path):
         app, ["ingest", str(tmp_path / "b"), str(tmp_path / "nope.txt")]
     )
     assert result.exit_code == 1
+
+
+def test_ingest_embeddings_rejected_with_no_llm(tmp_path):
+    result = runner.invoke(
+        app,
+        [
+            "ingest",
+            str(tmp_path / "b"),
+            str(tmp_path / "doc.txt"),
+            "--no-llm",
+            "--embeddings",
+            "openai",
+        ],
+    )
+    assert result.exit_code == 2
+    assert "--embeddings cannot be combined with --no-llm" in result.output
 
 
 def test_ingest_no_llm_without_slice_landed(monkeypatch, tmp_path):
