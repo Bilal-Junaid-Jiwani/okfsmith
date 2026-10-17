@@ -5,6 +5,17 @@ follow SemVer.
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-10-17
+
+### Fixed
+
+- **CI fix:** `test_ingest_embeddings_rejected_with_no_llm` asserted on the
+  `--embeddings`/`--no-llm` usage-error text, but rich wraps the error panel
+  to the terminal width — on CI's narrow non-tty the message wrapped
+  mid-phrase and the substring check failed on all 12 matrix jobs. The test
+  now runs with `COLUMNS=200` (the file's existing `WIDE` convention), so
+  the message stays on one line everywhere.
+
 ## [0.8.0] - 2026-10-17
 
 ### Added

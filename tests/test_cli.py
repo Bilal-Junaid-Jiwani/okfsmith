@@ -544,6 +544,7 @@ def test_ingest_embeddings_rejected_with_no_llm(tmp_path):
             "--embeddings",
             "openai",
         ],
+        env=WIDE,  # keep the rich error box from wrapping mid-message
     )
     assert result.exit_code == 2
     assert "--embeddings cannot be combined with --no-llm" in result.output
