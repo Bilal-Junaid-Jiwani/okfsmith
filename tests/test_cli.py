@@ -14,6 +14,7 @@ from __future__ import annotations
 import hashlib
 import importlib
 import json
+import re
 import sys
 import types
 from dataclasses import dataclass, field
@@ -544,10 +545,15 @@ def test_ingest_embeddings_rejected_with_no_llm(tmp_path):
             "--embeddings",
             "openai",
         ],
-        env=WIDE,  # keep the rich error box from wrapping mid-message
+        # Wide panel: the message never wraps mid-phrase, whatever the
+        # runner's terminal width.
+        env=WIDE,
     )
     assert result.exit_code == 2
-    assert "--embeddings cannot be combined with --no-llm" in result.output
+    # The rich error panel highlights option names with ANSI styles when
+    # color is enabled (as on CI): strip them before matching the message.
+    text = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
+    assert "--embeddings cannot be combined with --no-llm" in text
 
 
 def test_ingest_no_llm_without_slice_landed(monkeypatch, tmp_path):

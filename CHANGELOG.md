@@ -5,6 +5,19 @@ follow SemVer.
 
 ## [Unreleased]
 
+## [0.8.2] - 2026-10-17
+
+### Fixed
+
+- **CI fix (take 2):** the 0.8.1 fix for
+  `test_ingest_embeddings_rejected_with_no_llm` (wide panel via
+  `COLUMNS=200`) was not sufficient: when color is enabled — as on CI —
+  typer's rich error panel highlights option names with ANSI styles
+  *inside* the words (`--embeddings` renders as styled `-` +
+  `-embeddings`), so the plain-text substring never matches. The test now
+  strips ANSI escape sequences before matching, keeping the wide panel
+  against mid-phrase wrapping.
+
 ## [0.8.1] - 2026-10-17
 
 ### Fixed
