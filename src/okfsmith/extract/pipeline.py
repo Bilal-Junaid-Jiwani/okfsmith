@@ -307,6 +307,7 @@ def _find_duplicate(
     exclude_id: str | None = None,
     text: str = "",
     embedder: Embedder | None = None,
+    embedding_cache: dict[str, list[float]] | None = None,
 ) -> Concept | None:
     """Entity resolution: normalized-title match, same ``resource``, title
     similarity, or — when *embedder* is given — embedding similarity.
@@ -328,7 +329,9 @@ def _find_duplicate(
        (``--embeddings``), the new concept's title+body is embedded and
        compared against every existing concept; the best candidate merges
        when its cosine similarity is ``>= embedder.merge_threshold``.
-       Catches paraphrases the token overlap misses.
+       Catches paraphrases the token overlap misses. When
+       *embedding_cache* is given, existing concepts' vectors are reused
+       across calls (see :func:`_find_embedding_duplicate`).
 
     The SHA-256 ``source_digest`` remains the primary re-ingest guard.
     """
@@ -366,7 +369,8 @@ def _find_duplicate(
         return best
     if embedder is not None and text.strip():
         return _find_embedding_duplicate(
-            bundle, title, text, embedder, exclude_id=exclude_id
+            bundle, title, text, embedder,
+            exclude_id=exclude_id, embedding_cache=embedding_cache,
         )
     return None
 
@@ -378,6 +382,7 @@ def _find_embedding_duplicate(
     embedder: Embedder,
     *,
     exclude_id: str | None = None,
+    embedding_cache: dict[str, list[float]] | None = None,
 ) -> Concept | None:
     """Branch 4 of :func:`_find_duplicate`: embedding-similarity dedup.
 
@@ -386,27 +391,42 @@ def _find_embedding_duplicate(
     candidate when its cosine similarity reaches
     ``embedder.merge_threshold``. Deterministic tie-break mirrors the
     title-similarity branch: higher similarity wins, then lower id.
+
+    When *embedding_cache* is given, existing concepts' vectors are reused
+    across calls (keyed by concept id): an ingest run then embeds each
+    existing concept at most once instead of once per new section. The
+    caller must drop a concept's entry when its content changes (merge).
     """
     new_text = embed_text(title, text)
     candidates: list[Concept] = []
-    candidate_texts: list[str] = []
+    miss_texts: list[str] = []
+    miss_ids: list[str] = []
     for concept in bundle.iter_concepts():
         if concept.id == exclude_id:
             continue
         ctext = embed_text(
             str(concept.frontmatter.get("title") or ""), concept.body or ""
         )
-        if ctext:
-            candidates.append(concept)
-            candidate_texts.append(ctext)
+        if not ctext:
+            continue
+        candidates.append(concept)
+        if embedding_cache is None or concept.id not in embedding_cache:
+            miss_texts.append(ctext)
+            miss_ids.append(concept.id)
     if not candidates:
         return None
-    vectors = embedder.embed([new_text] + candidate_texts)
+    vectors = embedder.embed([new_text] + miss_texts)
     new_vec = vectors[0]
+    fresh = dict(zip(miss_ids, vectors[1:], strict=True))
+    if embedding_cache is not None:
+        embedding_cache.update(fresh)
+        vec_of = embedding_cache.__getitem__
+    else:
+        vec_of = fresh.__getitem__
     best: Concept | None = None
     best_sim = 0.0
-    for concept, vec in zip(candidates, vectors[1:], strict=True):
-        sim = cosine_similarity(new_vec, vec)
+    for concept in candidates:
+        sim = cosine_similarity(new_vec, vec_of(concept.id))
         # Deterministic tie-break: higher similarity wins, then lower id.
         if sim > best_sim or (
             sim == best_sim and best is not None and concept.id < best.id
@@ -891,6 +911,11 @@ def run(
 
     written: list[str] = []          # concept ids created/merged this run
     drafts: dict[str, tuple[dict, SectionInput, bool]] = {}  # id -> (concept, section, fallback)
+    # Embedding vectors of existing concepts, reused across sections so an
+    # ingest run embeds each existing concept at most once (branch 4).
+    embedding_cache: dict[str, list[float]] | None = (
+        {} if embedder is not None else None
+    )
 
     # ---- Pass 1: draft -----------------------------------------------------
     for section in sections:
@@ -924,9 +949,14 @@ def run(
             section.source_path,
             text=body,
             embedder=embedder,
+            embedding_cache=embedding_cache,
         )
         if duplicate is not None:
             merged = _merge_concepts(bundle, duplicate, frontmatter, body, section)
+            if embedding_cache is not None:
+                # The survivor's body may have changed — drop its cached
+                # vector so later sections re-embed the fresh content.
+                embedding_cache.pop(merged.id, None)
             written.append(merged.id)
             drafts[merged.id] = (concept, section, used_fallback)
         else:

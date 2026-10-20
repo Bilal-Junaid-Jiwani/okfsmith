@@ -86,7 +86,11 @@ resolution mirrors the chat backends: the ingest `--api-key` /
 `OKFSMITH_API_KEY` is reused for the embeddings endpoint, with legacy
 `OPENAI_API_KEY` honored for the `openai` provider only; keys are never
 sent over cleartext HTTP to non-loopback hosts. Without `--embeddings`,
-ingest stays fully offline.
+ingest stays fully offline. Existing concepts' embedding vectors are
+cached for the duration of one ingest run (each existing concept is
+embedded at most once, not once per new section); a concept's cached
+vector is dropped when a merge changes its body, so later sections always
+compare against fresh content.
 
 ## Trust tiers, again
 

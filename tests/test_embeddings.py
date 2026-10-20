@@ -205,6 +205,120 @@ def test_embedding_tie_break_prefers_lower_id(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# Embedding cache: existing-concept vectors reused across sections
+# ---------------------------------------------------------------------------
+
+
+def _no_merge_setup(tmp_path):
+    """One existing concept + two new titles; nothing reaches the merge
+    threshold, so the tests only count embedding calls."""
+    existing_title = "Vault synchronization guide"
+    existing_body = "The sync command keeps the bundle current."
+    bundle = _bundle_with_concept(tmp_path, existing_title, existing_body)
+    nt1, nb1 = "How to sync your vault", "Run sync to keep current."
+    nt2, nb2 = "Keeping the vault current", "Keep it current nightly."
+    new_text1, new_text2 = embed_text(nt1, nb1), embed_text(nt2, nb2)
+    cand_text = embed_text(existing_title, existing_body)
+    stub = StubEmbedder(
+        {
+            new_text1: [1.0, 0.0],
+            new_text2: [0.0, 1.0],
+            cand_text: [0.9, 0.435889894],
+        },
+        threshold=0.99,  # 0.9 < 0.99: nothing merges
+    )
+    return bundle, stub, (nt1, nb1, new_text1), (nt2, nb2, new_text2), cand_text
+
+
+def test_embedding_cache_embeds_existing_concepts_once(tmp_path):
+    bundle, stub, (nt1, nb1, _), (nt2, nb2, new_text2), cand_text = (
+        _no_merge_setup(tmp_path)
+    )
+    cache: dict[str, list[float]] = {}
+    assert (
+        _find_duplicate(
+            bundle, nt1, "a.md", text=nb1,
+            embedder=stub, embedding_cache=cache,
+        )
+        is None
+    )
+    assert (
+        _find_duplicate(
+            bundle, nt2, "b.md", text=nb2,
+            embedder=stub, embedding_cache=cache,
+        )
+        is None
+    )
+    # First call embeds new + existing; second call embeds only the new
+    # text — the existing concept's vector comes from the cache.
+    assert [len(c) for c in stub.calls] == [2, 1]
+    assert stub.calls[1] == [new_text2]
+    assert cand_text not in stub.calls[1]
+    assert "concept-0" in cache
+
+
+def test_embedding_no_cache_embeds_everything_each_call(tmp_path):
+    # cache=None preserves the old behavior: every call re-embeds all
+    # existing concepts.
+    bundle, stub, (nt1, nb1, _), (nt2, nb2, _), _ = _no_merge_setup(tmp_path)
+    assert _find_duplicate(bundle, nt1, "a.md", text=nb1, embedder=stub) is None
+    assert _find_duplicate(bundle, nt2, "b.md", text=nb2, embedder=stub) is None
+    assert [len(c) for c in stub.calls] == [2, 2]
+
+
+def test_embedding_cache_invalidated_after_merge(tmp_path):
+    """Simulates run()'s contract: when a merge changes a concept's body,
+    the caller pops its cache entry, so the next check re-embeds the
+    refreshed content instead of comparing against a stale vector."""
+    bundle = _bundle_with_concept(
+        tmp_path, "Vault synchronization guide", "Old body."
+    )
+    old_text = embed_text("Vault synchronization guide", "Old body.")
+    new_text = embed_text("How to sync your vault", "Run sync to keep current.")
+    stub = StubEmbedder(
+        {old_text: [0.9, 0.435889894], new_text: [1.0, 0.0]},
+        threshold=0.99,
+    )
+    cache: dict[str, list[float]] = {}
+    assert (
+        _find_duplicate(
+            bundle, "How to sync your vault", "a.md",
+            text="Run sync to keep current.",
+            embedder=stub, embedding_cache=cache,
+        )
+        is None
+    )
+    assert [len(c) for c in stub.calls] == [2]
+    # Merge replaces the body -> run() drops the stale cache entry.
+    bundle.write_concept(
+        "concept-0",
+        {"title": "Vault synchronization guide", "resource": "doc.md"},
+        "New richer body here.",
+    )
+    cache.pop("concept-0", None)
+    refreshed_text = embed_text(
+        "Vault synchronization guide", "New richer body here."
+    )
+    second_new_text = embed_text(
+        "Keeping the vault current", "Keep it current nightly."
+    )
+    stub._vectors[refreshed_text] = [0.9, 0.435889894]
+    stub._vectors[second_new_text] = [0.0, 1.0]
+    assert (
+        _find_duplicate(
+            bundle, "Keeping the vault current", "b.md",
+            text="Keep it current nightly.",
+            embedder=stub, embedding_cache=cache,
+        )
+        is None
+    )
+    second = stub.calls[1]
+    assert second[0] == second_new_text
+    assert refreshed_text in second  # re-embedded, not stale
+    assert old_text not in second
+
+
+# ---------------------------------------------------------------------------
 # OpenAIEmbedder: wire format + security rules
 # ---------------------------------------------------------------------------
 

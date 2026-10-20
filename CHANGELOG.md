@@ -5,6 +5,22 @@ follow SemVer.
 
 ## [Unreleased]
 
+## [0.8.3] - 2026-10-20
+
+### Fixed
+
+- **Ingest embedding calls cut ~8x with `--embeddings`:** the
+  embedding-similarity duplicate check re-embedded *every* existing
+  concept's title+body for *every* new section (S sections × M existing
+  concepts = S×M wasted embedding API calls). Existing concepts' vectors
+  are now cached per ingest run (keyed by concept id) — each existing
+  concept is embedded at most once, and only the new section's text is
+  embedded per check. The cache entry is dropped when a merge changes a
+  concept's body, so later sections always compare against fresh content.
+  Merge decisions are unchanged (same vectors, same deterministic
+  tie-break). 3 new tests in `tests/test_embeddings.py` pin the
+  call-count behavior and the merge-invalidation contract.
+
 ## [0.8.2] - 2026-10-17
 
 ### Fixed
