@@ -524,12 +524,15 @@ def _ingest_no_llm_one(
     record_ingested: Any,
     sectioning: Any,
     explicit: bool = False,
+    min_chars: int | None = None,
 ) -> tuple[str, int]:
     """Ingest one file via deterministic sectioning. Returns (status, count).
 
     *explicit* marks a source the user named directly (vs. one discovered by
     scanning a directory); explicit sources escalate missing-extra failures
-    instead of warn-and-skipping (M19).
+    instead of warn-and-skipping (M19). *min_chars* overrides the
+    stub-prevention threshold (``--min-chars``); None keeps the
+    ``sectioning.TOO_SMALL_CHARS`` default.
     """
     digest = sha256_of(path)
     if already_ingested(target, digest):
@@ -546,13 +549,30 @@ def _ingest_no_llm_one(
     # Say so explicitly instead of reporting a hollow "ok", and do not record
     # the digest — the file was not ingested, so a later retry must surface
     # the same reason instead of claiming "already ingested".
-    if sectioning.section(parsed).too_small:
+    effective_min = sectioning.TOO_SMALL_CHARS if min_chars is None else min_chars
+    if effective_min == sectioning.TOO_SMALL_CHARS:
+        sectioned = sectioning.section(parsed)
+    else:
+        sectioned = sectioning.section(parsed, min_chars=effective_min)
+    if sectioned.too_small:
         return (
-            f"skipped (below {sectioning.TOO_SMALL_CHARS}-char minimum; "
+            f"skipped (below {effective_min}-char minimum; "
             "stub prevention)",
             0,
         )
-    created = ingest_no_llm(target, parsed, str(path))
+    # Pass the digest / threshold through only when the callable accepts
+    # them (M27-style signature guard: older or stubbed ingest_no_llm
+    # implementations take just (bundle, parsed, source)).
+    extra: dict[str, Any] = {}
+    try:
+        params = inspect.signature(ingest_no_llm).parameters
+    except (TypeError, ValueError):
+        params = {}
+    if "digest" in params:
+        extra["digest"] = digest
+    if "min_chars" in params:
+        extra["min_chars"] = effective_min
+    created = ingest_no_llm(target, parsed, str(path), **extra)
     if not created:
         return "skipped (no concepts created)", 0
     record_ingested(target, digest, str(path))
@@ -646,6 +666,13 @@ def ingest(
         "--no-llm",
         help="Use deterministic sectioning (okfsmith.parsers) instead of an LLM.",
     ),
+    min_chars: int | None = typer.Option(
+        None,
+        "--min-chars",
+        help="Stub-prevention threshold for --no-llm: sources with fewer "
+        "total characters than this produce no concepts (default: 1000). "
+        "Lower it to ingest short notes; 0 disables the check.",
+    ),
     recursive: bool = typer.Option(
         False,
         "--recursive",
@@ -693,6 +720,13 @@ def ingest(
         raise typer.BadParameter(
             "--model cannot be combined with --no-llm: no LLM is used in that mode."
         )
+    if min_chars is not None and not no_llm:
+        raise typer.BadParameter(
+            "--min-chars only applies with --no-llm: the stub-prevention "
+            "threshold is a deterministic-sectioning setting."
+        )
+    if min_chars is not None and min_chars < 0:
+        raise typer.BadParameter("--min-chars must be 0 or greater.")
     for flag_name, flag_value in (
         ("--provider", provider),
         ("--api-base", api_base),
@@ -793,6 +827,7 @@ def ingest(
     if dry_run:
         _ingest_dry_run(bundle, files, no_llm=no_llm, parse_file=parse_file,
                         section=section if not no_llm else None, quiet=quiet,
+                        min_chars=min_chars,
                         # M18: the dry run consults the dedup manifest so it
                         # predicts "already ingested" like the real run does.
                         sha256_of=digest_of if no_llm else None,
@@ -840,6 +875,7 @@ def ingest(
                         record_ingested=record_ingested,
                         sectioning=sectioning,
                         explicit=explicit,
+                        min_chars=min_chars,
                     )
                 else:
                     try:
@@ -934,6 +970,7 @@ def _ingest_dry_run(
     parse_file: Any,
     section: Any,
     quiet: bool,
+    min_chars: int | None = None,
     sha256_of: Any = None,
     already_ingested: Any = None,
 ) -> None:
@@ -941,7 +978,8 @@ def _ingest_dry_run(
 
     When *sha256_of*/*already_ingested* are given (no-LLM mode), the dedup
     manifest is consulted so a dry run after a real ingest predicts
-    "already ingested" instead of phantom draft concepts (M18).
+    "already ingested" instead of phantom draft concepts (M18). *min_chars*
+    mirrors the real ingest's ``--min-chars`` threshold override.
     """
     typer.echo(f"dry run: would ingest {len(files)} file(s) into {bundle} (nothing written)")
     section_fn = section
@@ -949,7 +987,9 @@ def _ingest_dry_run(
     if no_llm:
         sectioning = importlib.import_module("okfsmith.parsers.sectioning")
         section_fn = sectioning.section
-        too_small_chars = sectioning.TOO_SMALL_CHARS
+        too_small_chars = sectioning.TOO_SMALL_CHARS if min_chars is None else min_chars
+        if too_small_chars != sectioning.TOO_SMALL_CHARS:
+            section_fn = functools.partial(sectioning.section, min_chars=too_small_chars)
     # Bundle() does no I/O — the manifest is read lazily, never written.
     manifest_bundle = (
         Bundle(bundle)
@@ -1013,6 +1053,12 @@ def sync(
         False,
         "--no-llm",
         help="Use deterministic sectioning (okfsmith.parsers) instead of an LLM.",
+    ),
+    min_chars: int | None = typer.Option(
+        None,
+        "--min-chars",
+        help="Stub-prevention threshold for --no-llm: sources with fewer "
+        "total characters than this produce no concepts (default: 1000).",
     ),
     model: str | None = typer.Option(
         None, "--model", help="Model to use for LLM extraction."
@@ -1099,6 +1145,13 @@ def sync(
         raise typer.BadParameter(
             "--model cannot be combined with --no-llm: no LLM is used in that mode."
         )
+    if min_chars is not None and not no_llm:
+        raise typer.BadParameter(
+            "--min-chars only applies with --no-llm: the stub-prevention "
+            "threshold is a deterministic-sectioning setting."
+        )
+    if min_chars is not None and min_chars < 0:
+        raise typer.BadParameter("--min-chars must be 0 or greater.")
     for flag_name, flag_value in (
         ("--provider", provider),
         ("--api-base", api_base),
@@ -1150,6 +1203,7 @@ def sync(
         provider=provider,
         api_base=api_base,
         api_key=api_key,
+        min_chars=min_chars,
     )
     bundle_path = bundle
     if watch:

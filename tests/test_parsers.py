@@ -296,7 +296,12 @@ def test_ingest_no_llm_draft_shape(tmp_path: Path):
     assert fm["type"] == "Draft"
     assert fm["status"] == "draft"
     assert fm["tags"] == ["draft", "no-llm"]
-    assert fm["description"] == DESCRIPTION
+    # 0.8.5: descriptions are derived from the section's own text (first
+    # sentence), not the old one-size-fits-all DESCRIPTION line.
+    assert fm["description"] == (
+        "Lorem ipsum dolor sit amet, consectetur adipiscing elit."
+    )
+    assert fm["description"] != DESCRIPTION
     assert fm["resource"] == "notes.docx"
     assert fm["generated"]["by"] == GENERATED_BY
     assert fm["generated"]["at"]  # ISO timestamp present

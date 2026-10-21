@@ -5,9 +5,10 @@ Splits parsed pages into a heading hierarchy (ATX ``#``-style headings;
 and tables attached to their section. Each section records the 1-based page
 span it came from.
 
-Sources whose total text is under 1000 characters are marked
-``too_small=True`` so downstream ingest defers entity creation instead of
-emitting stub concepts.
+Sources whose total text is under ``min_chars`` characters (default
+``TOO_SMALL_CHARS``; overridable via ``okfsmith ingest --min-chars``) are
+marked ``too_small=True`` so downstream ingest defers entity creation
+instead of emitting stub concepts.
 """
 
 from __future__ import annotations
@@ -60,8 +61,13 @@ def _flush(open_sec: _OpenSection | None, out: list[Section]) -> None:
     )
 
 
-def section(parsed) -> DocumentSections:
-    """Split a ParsedDocument into sections."""
+def section(parsed, min_chars: int = TOO_SMALL_CHARS) -> DocumentSections:
+    """Split a ParsedDocument into sections.
+
+    *min_chars* is the stub-prevention threshold: sources whose total text
+    is shorter are flagged ``too_small``. Callers expose it to users as
+    ``--min-chars``; the default preserves the historical 1000-char floor.
+    """
     pages = list(parsed.pages or [])
     total_chars = sum(len(p.text or "") for p in pages)
 
@@ -109,7 +115,7 @@ def section(parsed) -> DocumentSections:
 
     return DocumentSections(
         sections=sections,
-        too_small=total_chars < TOO_SMALL_CHARS,
+        too_small=total_chars < min_chars,
     )
 
 

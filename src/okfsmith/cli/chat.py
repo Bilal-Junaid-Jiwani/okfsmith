@@ -617,6 +617,7 @@ def _slash_ingest(session: ChatSession, arg: str) -> None:
         api_base=session.llm_api_base,
         api_key=session.llm_api_key,
         no_llm=session.backend is None,
+        min_chars=None,
         recursive=recursive,
         quiet=False,
         dry_run=False,

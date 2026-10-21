@@ -106,7 +106,8 @@ If you see `skipped (below 1000-char minimum; stub prevention)`, the
 file was under ~1,000 characters. In `--no-llm` mode tiny files produce
 meaningless one-line "concepts", so okfsmith refuses to ingest them
 rather than polluting your bundle with stubs. Combine small notes into a
-larger document, or use LLM extraction for short files.
+larger document, lower the threshold with `--min-chars N`, or use LLM
+extraction for short files.
 
 ## Where do I go when something breaks? {#help}
 

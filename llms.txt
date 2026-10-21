@@ -37,6 +37,6 @@ okfsmith doctor
 - A bundle is plain markdown + YAML frontmatter; concept id = path without `.md`.
 - Only `type` is required in frontmatter (OKF §11.2).
 - `validate` exit 0 = conformant; `--strict` turns warnings into failures.
-- Sources under 1000 chars are skipped on ingest (stub prevention).
+- Sources under 1000 chars are skipped on ingest (stub prevention; override with `--min-chars N` on `ingest`/`sync --no-llm`).
 - Repos: https://github.com/Bilal-Junaid-Jiwani/okfsmith · PyPI: https://pypi.org/project/okfsmith/
 - Spec: https://github.com/GoogleCloudPlatform/open-knowledge-format (OKF v0.2)

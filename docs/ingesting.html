@@ -190,7 +190,8 @@ okfsmith ingest ./kb docs/ --recursive --no-llm
   │ 5. WRITE — concepts land as &lt;bundle&gt;/&lt;source-slug&gt;/&lt;slug&gt;.md with
   │            YAML frontmatter: `type: Draft`, `title`, `description`,
   │            `resource` (source file), `generated` (by/at), `status: draft`,
-  │            tags `draft` / `no-llm` (the LLM path also records `sources[]`)
+  │            tags `draft` / `no-llm` (both paths record `sources[]`:
+  │            the source document, page-pinned where known)
   ▼
   │ 6. INDEX/LOG — index.md refreshed, log.md appended (provenance)
 </code></pre>
@@ -215,7 +216,10 @@ okfsmith ingest ./kb docs/ --recursive --no-llm
 <p>In <code>--no-llm</code> mode, files with <strong>under ~1000 characters</strong> are skipped:</p>
 <pre class="codeblock" data-lang=""><code>Status: skipped (below 1000-char minimum; stub prevention)
 </code></pre>
-<p>This is deliberate: tiny files would become "stub" concepts too thin to be useful. If a file is legitimately short, merge it into a larger document before ingesting.</p>
+<p>This is deliberate: tiny files would become "stub" concepts too thin to be useful. If a file is legitimately short, either merge it into a larger document before ingesting, or lower the threshold for that run:</p>
+<pre class="codeblock" data-lang="bash"><code>okfsmith ingest ./kb short-note.md --no-llm --min-chars 100
+</code></pre>
+<p><code>--min-chars 0</code> disables the check entirely. The same flag exists on <code>okfsmith sync</code>.</p>
 <h2 id="duplicate-headings-get--2--3-suffixes">Duplicate headings get <code>-2</code>, <code>-3</code> suffixes</h2>
 <p>Heading slugs must be unique within a file. If a document repeats a heading, later concepts get numeric suffixes:</p>
 <pre class="codeblock" data-lang=""><code>concept one        →  doc/concept-one

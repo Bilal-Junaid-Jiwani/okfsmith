@@ -80,7 +80,8 @@ source file
   │ 5. WRITE — concepts land as <bundle>/<source-slug>/<slug>.md with
   │            YAML frontmatter: `type: Draft`, `title`, `description`,
   │            `resource` (source file), `generated` (by/at), `status: draft`,
-  │            tags `draft` / `no-llm` (the LLM path also records `sources[]`)
+  │            tags `draft` / `no-llm` (both paths record `sources[]`:
+  │            the source document, page-pinned where known)
   ▼
   │ 6. INDEX/LOG — index.md refreshed, log.md appended (provenance)
 ```
@@ -118,7 +119,13 @@ In `--no-llm` mode, files with **under ~1000 characters** are skipped:
 Status: skipped (below 1000-char minimum; stub prevention)
 ```
 
-This is deliberate: tiny files would become "stub" concepts too thin to be useful. If a file is legitimately short, merge it into a larger document before ingesting.
+This is deliberate: tiny files would become "stub" concepts too thin to be useful. If a file is legitimately short, either merge it into a larger document before ingesting, or lower the threshold for that run:
+
+```bash
+okfsmith ingest ./kb short-note.md --no-llm --min-chars 100
+```
+
+`--min-chars 0` disables the check entirely. The same flag exists on `okfsmith sync`.
 
 ## Duplicate headings get `-2`, `-3` suffixes
 

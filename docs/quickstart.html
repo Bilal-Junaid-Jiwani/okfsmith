@@ -218,20 +218,31 @@ ingested 5 concept(s) from 1 file(s) into kb
 <pre class="codeblock" data-lang="text"><code>---
 type: Draft
 title: Trust tiers
-description: Draft concept extracted without LLM; needs review
+description: 'Every concept carries a trust tier: unverified, machine-confirmed, or
+  human-reviewed.'
 resource: guide.md
+sources:
+- id: source-1
+  resource: guide.md#page=1
+  title: guide.md
 generated:
-  by: okfsmith/0.2.0
-  at: '2026-09-26T12:19:30.999358+00:00'
+  by: okfsmith/0.8.5
+  at: '2026-10-21T05:02:16.937569+00:00'
 status: draft
 tags:
 - draft
 - no-llm
+source_digest: cb66949764dfa2e9367e26f26e3a37f4685518517d5403cdc8bee72b40ef86bc
 ---
 Every concept carries a trust tier: `unverified`, `machine-confirmed`,
 or `human-reviewed`. No-LLM ingests land at `unverified`, which tells
 every reader exactly how much trust to place in the content. Promote
 tiers as concepts get reviewed and confirmed.
+
+## See also
+
+- [Validation](validation) — next section of guide.md
+- [Installation](installation) — previous section of guide.md
 </code></pre>
 <aside class="admonition note"><span class="admon-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.75" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 7.25v3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="5" r="0.9" fill="currentColor"/></svg></span><div class="admon-body"><p class="admon-title">Note</p><p>Ingesting the same file twice is safe — okfsmith tracks each file's SHA-256 hash and skips files it has already ingested.</p></div></aside>
 <h2 id="step-4-validate">Step 4 — Validate the bundle</h2>

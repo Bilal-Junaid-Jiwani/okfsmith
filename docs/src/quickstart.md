@@ -140,20 +140,31 @@ okfsmith read ./kb guide/trust-tiers
 ---
 type: Draft
 title: Trust tiers
-description: Draft concept extracted without LLM; needs review
+description: 'Every concept carries a trust tier: unverified, machine-confirmed, or
+  human-reviewed.'
 resource: guide.md
+sources:
+- id: source-1
+  resource: guide.md#page=1
+  title: guide.md
 generated:
-  by: okfsmith/0.2.0
-  at: '2026-09-26T12:19:30.999358+00:00'
+  by: okfsmith/0.8.5
+  at: '2026-10-21T05:02:16.937569+00:00'
 status: draft
 tags:
 - draft
 - no-llm
+source_digest: cb66949764dfa2e9367e26f26e3a37f4685518517d5403cdc8bee72b40ef86bc
 ---
 Every concept carries a trust tier: `unverified`, `machine-confirmed`,
 or `human-reviewed`. No-LLM ingests land at `unverified`, which tells
 every reader exactly how much trust to place in the content. Promote
 tiers as concepts get reviewed and confirmed.
+
+## See also
+
+- [Validation](validation) — next section of guide.md
+- [Installation](installation) — previous section of guide.md
 ```
 
 > [!NOTE]

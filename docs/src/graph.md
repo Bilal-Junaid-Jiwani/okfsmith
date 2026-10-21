@@ -10,10 +10,10 @@ description: See how your concepts link together — okfsmith graph reports node
 okfsmith graph ./kb
 ```
 
-Real output for a fresh `--no-llm` bundle:
+Real output for a fresh `--no-llm` bundle (two short documents, eight sections):
 
 ```
-18 concept(s), 0 link(s), 0 dead link(s).
+8 concepts, 12 links, 0 dead links.
 
 Orphans (0):
   (none)
@@ -28,7 +28,7 @@ What each number means:
 - **links** — edges: a concept's body links to another concept in the bundle.
 - **dead links** — link targets that resolve to nothing in the bundle (matches `W001` from [Validation](validation.html)).
 
-A freshly ingested `--no-llm` bundle has 0 links — deterministic sectioning doesn't create inter-concept links, so every concept is standalone. That's normal, and it still validates.
+A freshly ingested `--no-llm` bundle already has links: deterministic sectioning links every section to its neighbours in the same document, and to any section its text mentions by title (the `## See also` block at the end of each concept). LLM extraction adds richer, claim-based links on top.
 
 ## Orphans and dead links
 

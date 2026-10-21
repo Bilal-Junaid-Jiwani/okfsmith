@@ -150,7 +150,8 @@ These are the rules `sync` never breaks:
   not set the `incomplete` flag, so there is no resume nag for them.
 - **Pre-flight on updates.** Before replacing a file's concepts, `sync`
   checks the new content would actually ingest. If it wouldn't (parse
-  error, below the ~1000-char minimum, sectioning failure), the old
+  error, below the ~1000-char minimum — overridable with `--min-chars`,
+  sectioning failure), the old
   concepts are kept and the file is reported `skipped` — updates never
   destroy knowledge.
 - **Shared content is reference-counted.** Two files with identical bytes

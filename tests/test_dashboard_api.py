@@ -166,8 +166,12 @@ class TestBundles:
     def test_concepts_query_filter(self, client):
         c, headers = client
         bid = _bundle_id(c, headers)
+        # Query a term from the Packing Section's own body text. (A title
+        # query like "packing" now also matches the sibling concept, whose
+        # body links to it via the no-LLM "See also" section — the filter
+        # searches bodies, and linked titles are body content.)
         payload = c.get(
-            f"/api/v1/bundles/{bid}/concepts", params={"q": "packing"},
+            f"/api/v1/bundles/{bid}/concepts", params={"q": "liquor"},
             headers=headers,
         ).json()
         assert payload["total"] == 1

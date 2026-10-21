@@ -127,8 +127,8 @@
         <h2 id="see-the-graph">See the graph</h2>
 <pre class="codeblock" data-lang="bash"><code>okfsmith graph ./kb
 </code></pre>
-<p>Real output for a fresh <code>--no-llm</code> bundle:</p>
-<pre class="codeblock" data-lang=""><code>18 concept(s), 0 link(s), 0 dead link(s).
+<p>Real output for a fresh <code>--no-llm</code> bundle (two short documents, eight sections):</p>
+<pre class="codeblock" data-lang=""><code>8 concepts, 12 links, 0 dead links.
 
 Orphans (0):
   (none)
@@ -145,7 +145,7 @@ Dead links (0):
 <li><strong>dead links</strong> — link targets that resolve to nothing in the bundle (matches <code>W001</code> from <a href="validation.html">Validation</a>).
 </li>
 </ul>
-<p>A freshly ingested <code>--no-llm</code> bundle has 0 links — deterministic sectioning doesn't create inter-concept links, so every concept is standalone. That's normal, and it still validates.</p>
+<p>A freshly ingested <code>--no-llm</code> bundle already has links: deterministic sectioning links every section to its neighbours in the same document, and to any section its text mentions by title (the <code>## See also</code> block at the end of each concept). LLM extraction adds richer, claim-based links on top.</p>
 <h2 id="orphans-and-dead-links">Orphans and dead links</h2>
 <ul>
 <li><strong>Orphans</strong> — concepts nothing links <em>to</em>. They're valid but isolated: readers can only reach them via <code>list</code> or search.

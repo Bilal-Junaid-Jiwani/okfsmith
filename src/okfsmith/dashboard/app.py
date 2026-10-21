@@ -848,11 +848,15 @@ def create_app(workspace: Path, token: str) -> FastAPI:
                         prev = _inm.BODY_MAX_CHARS
                         _inm.BODY_MAX_CHARS = chunk_size
                         try:
-                            created = _inm.ingest_no_llm(target, parsed, provenance)
+                            created = _inm.ingest_no_llm(
+                                target, parsed, provenance, digest=digest or None
+                            )
                         finally:
                             _inm.BODY_MAX_CHARS = prev
                 else:
-                    created = _inm.ingest_no_llm(target, parsed, provenance)
+                    created = _inm.ingest_no_llm(
+                        target, parsed, provenance, digest=digest or None
+                    )
                 if not created:
                     n_skipped += 1
                     notes.append(f"{label}: no concepts created")

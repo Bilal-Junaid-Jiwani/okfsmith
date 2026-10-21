@@ -94,6 +94,7 @@ ingested 18 concept(s) from 1 file(s) into kb
 | Flag | What it does |
 |---|---|
 | `--no-llm` | Deterministic sectioning, no LLM needed. Start here. |
+| `--min-chars N` | Stub-prevention threshold for `--no-llm` (default 1000): sources with fewer total characters than `N` produce no concepts. Lower it to ingest short notes; `0` disables the check. Also on `sync`. |
 | `--dry-run` | Parse and plan only — write nothing. |
 | `--quiet`, `-q` | Only warnings, errors, and the final summary line. |
 | `--recursive` | Recurse into subdirectories when a SOURCE is a directory. |
@@ -104,7 +105,7 @@ ingested 18 concept(s) from 1 file(s) into kb
 <summary>Advanced</summary>
 
 - Re-ingesting the same file is deduplicated via per-file SHA-256 (manifest-tracked).
-- `--no-llm` files below ~1000 characters are **skipped** with `skipped (below 1000-char minimum; stub prevention)` — tiny files are never ingested.
+- `--no-llm` files below ~1000 characters are **skipped** with `skipped (below 1000-char minimum; stub prevention)` — pass `--min-chars N` to lower the threshold for legitimately short files.
 - Without `--no-llm`, `ingest` calls an LLM; if none is reachable it **errors** — there is no silent fallback. See [Ingesting documents](ingesting.html) and [Troubleshooting](troubleshooting.html) (`llm-unavailable`).
 - `--model` cannot be combined with `--no-llm`.
 </details>
@@ -261,17 +262,28 @@ Real output (frontmatter, then body):
 ---
 type: Draft
 title: First Bundle
-description: Draft concept extracted without LLM; needs review
+description: Run okfsmith init ./kb to create a new bundle, then ingest documents.
+  A bundle is a plain directory of markdown files with YAML frontmatter, an index,
+  and a log. Nothing is hidden in a database, and…
 resource: big.md
+sources:
+- id: source-1
+  resource: big.md#page=1
+  title: big.md
 generated:
-  by: okfsmith/0.3.0
-  at: '2026-09-26T12:18:20.100846+00:00'
+  by: okfsmith/0.8.5
+  at: '2026-10-21T05:02:16.913909+00:00'
 status: draft
 tags:
 - draft
 - no-llm
+source_digest: 316d6bf978ca43b4b17a26e06d32b336e9ea203b9deeaafd116d63fee615b0b7
 ---
-Run `okfsmith init ./kb` to create a new bundle, then ingest documents.
+Run `okfsmith init ./kb` to create a new bundle, then ingest documents. A bundle is a plain directory of markdown files with YAML frontmatter, an index, and a log. Nothing is hidden in a database, and every file stays readable in any text editor or in Obsidian.
+
+## See also
+
+- [Second Bundle](second-bundle) — next section of big.md
 ```
 
 When a concept carries temporal frontmatter (or is superseded by another
@@ -438,7 +450,7 @@ Dead links (0):
 
 - Default HTML output lands at `<bundle>/viz.html`.
 - Mermaid output emits `flowchart LR` with one node per concept, e.g. `big_first_bundle["big/first-bundle — First Bundle"]`.
-- Deterministic (`--no-llm`) sectioning produces zero inter-concept links, so a fresh bundle reports 0 links — that still validates fine.
+- Deterministic (`--no-llm`) sectioning links each section to its neighbours in the same document (plus sections its text mentions by title), so a fresh bundle already has a link chain — richer extraction links come from the LLM path.
 </details>
 
 > [!TIP]

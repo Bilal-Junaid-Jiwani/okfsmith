@@ -90,6 +90,7 @@ class SyncConfig:
     provider: str | None = None
     api_base: str | None = None
     api_key: str | None = None
+    min_chars: int | None = None  # --min-chars (no-LLM stub threshold)
 
 
 @dataclass
@@ -420,6 +421,7 @@ def _ingest_source(
             record_ingested=wiring.record_ingested,
             sectioning=wiring.sectioning,
             explicit=explicit,
+            min_chars=config.min_chars,
         )
     try:
         return _ingest_llm_one(
@@ -494,10 +496,18 @@ def _preflight(
         return f"skipped ({error})"
     try:
         if config.no_llm:
-            sectioned = wiring.sectioning.section(parsed)
+            effective_min = (
+                wiring.sectioning.TOO_SMALL_CHARS
+                if config.min_chars is None
+                else config.min_chars
+            )
+            if effective_min == wiring.sectioning.TOO_SMALL_CHARS:
+                sectioned = wiring.sectioning.section(parsed)
+            else:
+                sectioned = wiring.sectioning.section(parsed, min_chars=effective_min)
             if sectioned.too_small:
                 return (
-                    f"skipped (below {wiring.sectioning.TOO_SMALL_CHARS}-char "
+                    f"skipped (below {effective_min}-char "
                     "minimum; stub prevention)"
                 )
         else:

@@ -175,7 +175,7 @@
 </ul>
 <p>These labels are the point: a reader (or an agent) can see at a glance exactly how much trust to place in each concept, instead of guessing.</p>
 <h2 id="why-skipped">Why was my file skipped during ingest?</h2>
-<p>If you see <code>skipped (below 1000-char minimum; stub prevention)</code>, the file was under ~1,000 characters. In <code>--no-llm</code> mode tiny files produce meaningless one-line "concepts", so okfsmith refuses to ingest them rather than polluting your bundle with stubs. Combine small notes into a larger document, or use LLM extraction for short files.</p>
+<p>If you see <code>skipped (below 1000-char minimum; stub prevention)</code>, the file was under ~1,000 characters. In <code>--no-llm</code> mode tiny files produce meaningless one-line "concepts", so okfsmith refuses to ingest them rather than polluting your bundle with stubs. Combine small notes into a larger document, lower the threshold with <code>--min-chars N</code>, or use LLM extraction for short files.</p>
 <h2 id="help">Where do I go when something breaks?</h2>
 <ol>
 <li>Run <code>okfsmith doctor</code> — it pinpoints missing extras, unreachable Ollama, and key configuration.

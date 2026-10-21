@@ -5,6 +5,64 @@ follow SemVer.
 
 ## [Unreleased]
 
+## [0.8.5] - 2026-10-21
+
+Six fixes from an external hands-on review of the offline (`--no-llm`)
+path — an independent tester installed the package and ran the pipeline
+in a sandbox; every finding below was reproduced against the code before
+being fixed.
+
+### Fixed
+
+- **Offline concepts were stamped with a stale version:**
+  `generated.by` on every `--no-llm` concept read `okfsmith/0.2.0`
+  (a hardcoded literal in `parsers/ingest_no_llm.py`) regardless of the
+  installed release. The stamp now derives from the installed
+  distribution version (`okfsmith/<version>`), the same single source of
+  truth as `okfsmith.__version__`.
+- **PDFs now split into sections:** the PDF parser rebuilds page text
+  from liteparse's font structure — lines set in a larger or bold font
+  become ATX headings, so sectioning splits a multi-section PDF into one
+  concept per section instead of a single document-wide concept.
+  Hard-wrapped prose lines are joined back into paragraphs (lines broken
+  mid-sentence no longer stay broken); list items, captions, and table
+  rows are not merged.
+- **Offline graph is no longer empty:** each `--no-llm` concept now ends
+  with a `## See also` section linking its sibling sections of the same
+  document — the previous/next section, plus any section whose title the
+  section's text mentions. Links are derived only from that document
+  structure and text, never invented.
+- **Offline descriptions are section-specific:** the frontmatter
+  `description` is derived from the section's own text (first meaningful
+  sentence, trimmed) instead of one identical line —
+  "Draft concept extracted without LLM; needs review" — on every
+  concept. That generic line remains only as the fallback for sections
+  with no body text (e.g. tables-only).
+
+### Added
+
+- **`--min-chars N` on `ingest` and `sync`:** the stub-prevention
+  threshold (sources under ~1000 total characters produce no concepts)
+  is now overridable. Lower it to ingest legitimately short notes; `0`
+  disables the check. Previously the threshold was fixed and short notes
+  were silently skipped with no remedy short of merging files.
+- **`sources[]` in offline concepts:** `--no-llm` concepts now emit the
+  same `sources[]` frontmatter the LLM pipeline produces — one entry
+  citing the source document, page-pinned from the section's page span —
+  plus `source_digest` with the source file's SHA-256 when the caller
+  computed one (CLI ingest and the dashboard do). The docs claimed every
+  concept carries `sources[]`; offline mode was the exception.
+
+### Tests
+
+- New `tests/test_offline_review_fixes.py` (21 tests) pins all six
+  fixes, including a multi-section styled-PDF fixture, `--min-chars`
+  CLI/dry-run/sync behaviour, validator cleanliness of offline bundles
+  (no W001/W005/W008/W015), and graph edges from offline links.
+- `test_ingest_no_llm_draft_shape` updated for derived descriptions; the
+  dashboard concepts-filter test now queries a body-only term (linked
+  titles are body content and legitimately match).
+
 ## [0.8.4] - 2026-10-21
 
 ### Fixed

@@ -212,12 +212,12 @@ okfsmith ingest ./kb ./docs --recursive --no-llm
 ingested 18 concept(s) from 1 file(s) into kb
 </code></pre>
 <h3 id="ingest-options">Common options</h3>
-<div class="table-wrap"><table><thead><tr><th>Flag</th><th>What it does</th></tr></thead><tbody><tr><td><code>--no-llm</code></td><td>Deterministic sectioning, no LLM needed. Start here.</td></tr><tr><td><code>--dry-run</code></td><td>Parse and plan only — write nothing.</td></tr><tr><td><code>--quiet</code>, <code>-q</code></td><td>Only warnings, errors, and the final summary line.</td></tr><tr><td><code>--recursive</code></td><td>Recurse into subdirectories when a SOURCE is a directory.</td></tr><tr><td><code>--provider</code>, <code>--model</code>, <code>--api-base</code>, <code>--api-key</code></td><td>LLM extraction settings (default path when <code>--no-llm</code> is <em>not</em> passed). See <a href="providers.html">Providers &amp; API keys</a>.</td></tr><tr><td><code>--embeddings PRESET</code></td><td>Opt-in embedding-similarity duplicate detection (e.g. <code>--embeddings openai</code>): merges paraphrases the offline title-similarity check misses. Reuses <code>--api-key</code> / <code>OKFSMITH_API_KEY</code>.</td></tr></tbody></table></div>
+<div class="table-wrap"><table><thead><tr><th>Flag</th><th>What it does</th></tr></thead><tbody><tr><td><code>--no-llm</code></td><td>Deterministic sectioning, no LLM needed. Start here.</td></tr><tr><td><code>--min-chars N</code></td><td>Stub-prevention threshold for <code>--no-llm</code> (default 1000): sources with fewer total characters than <code>N</code> produce no concepts. Lower it to ingest short notes; <code>0</code> disables the check. Also on <code>sync</code>.</td></tr><tr><td><code>--dry-run</code></td><td>Parse and plan only — write nothing.</td></tr><tr><td><code>--quiet</code>, <code>-q</code></td><td>Only warnings, errors, and the final summary line.</td></tr><tr><td><code>--recursive</code></td><td>Recurse into subdirectories when a SOURCE is a directory.</td></tr><tr><td><code>--provider</code>, <code>--model</code>, <code>--api-base</code>, <code>--api-key</code></td><td>LLM extraction settings (default path when <code>--no-llm</code> is <em>not</em> passed). See <a href="providers.html">Providers &amp; API keys</a>.</td></tr><tr><td><code>--embeddings PRESET</code></td><td>Opt-in embedding-similarity duplicate detection (e.g. <code>--embeddings openai</code>): merges paraphrases the offline title-similarity check misses. Reuses <code>--api-key</code> / <code>OKFSMITH_API_KEY</code>.</td></tr></tbody></table></div>
 <details>
 <summary>Advanced</summary>
 
 - Re-ingesting the same file is deduplicated via per-file SHA-256 (manifest-tracked).
-- `--no-llm` files below ~1000 characters are **skipped** with `skipped (below 1000-char minimum; stub prevention)` — tiny files are never ingested.
+- `--no-llm` files below ~1000 characters are **skipped** with `skipped (below 1000-char minimum; stub prevention)` — pass `--min-chars N` to lower the threshold for legitimately short files.
 - Without `--no-llm`, `ingest` calls an LLM; if none is reachable it **errors** — there is no silent fallback. See [Ingesting documents](ingesting.html) and [Troubleshooting](troubleshooting.html) (`llm-unavailable`).
 - `--model` cannot be combined with `--no-llm`.
 </details>
@@ -308,17 +308,28 @@ okfsmith read ./kb big/first-bundle --format json
 <pre class="codeblock" data-lang="yaml"><code>---
 type: Draft
 title: First Bundle
-description: Draft concept extracted without LLM; needs review
+description: Run okfsmith init ./kb to create a new bundle, then ingest documents.
+  A bundle is a plain directory of markdown files with YAML frontmatter, an index,
+  and a log. Nothing is hidden in a database, and…
 resource: big.md
+sources:
+- id: source-1
+  resource: big.md#page=1
+  title: big.md
 generated:
-  by: okfsmith/0.3.0
-  at: '2026-09-26T12:18:20.100846+00:00'
+  by: okfsmith/0.8.5
+  at: '2026-10-21T05:02:16.913909+00:00'
 status: draft
 tags:
 - draft
 - no-llm
+source_digest: 316d6bf978ca43b4b17a26e06d32b336e9ea203b9deeaafd116d63fee615b0b7
 ---
-Run `okfsmith init ./kb` to create a new bundle, then ingest documents.
+Run `okfsmith init ./kb` to create a new bundle, then ingest documents. A bundle is a plain directory of markdown files with YAML frontmatter, an index, and a log. Nothing is hidden in a database, and every file stays readable in any text editor or in Obsidian.
+
+## See also
+
+- [Second Bundle](second-bundle) — next section of big.md
 </code></pre>
 <p>When a concept carries temporal frontmatter (or is superseded by another concept), text output appends a one-line badge such as <code>[temporal: superseded by policy/refunds-v2]</code> or <code>[temporal: expired (valid_until 2025-06-30 has passed)]</code>; plain current concepts print exactly as before. JSON output adds <code>temporal_status</code>.</p>
 <h3 id="read-options">Common options</h3>
@@ -406,7 +417,7 @@ Dead links (0):
 
 - Default HTML output lands at `<bundle>/viz.html`.
 - Mermaid output emits `flowchart LR` with one node per concept, e.g. `big_first_bundle["big/first-bundle — First Bundle"]`.
-- Deterministic (`--no-llm`) sectioning produces zero inter-concept links, so a fresh bundle reports 0 links — that still validates fine.
+- Deterministic (`--no-llm`) sectioning links each section to its neighbours in the same document (plus sections its text mentions by title), so a fresh bundle already has a link chain — richer extraction links come from the LLM path.
 </details>
 <aside class="admonition tip"><span class="admon-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.75a4.5 4.5 0 0 0-2.6 8.15c.6.48 1.1 1.1 1.1 1.85V12h3v-.25c0-.75.5-1.37 1.1-1.85A4.5 4.5 0 0 0 8 1.75z" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M6.5 14h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></span><div class="admon-body"><p class="admon-title">Tip</p><p>Everything the <code>viz.html</code> viewer can do (search, keyboard access, trust-by-shape legend) is on <a href="graph.html">Visualizing the knowledge graph</a>.</p></div></aside>
 <hr>
