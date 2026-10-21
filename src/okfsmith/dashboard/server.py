@@ -1,7 +1,8 @@
 """Launch helpers for the dashboard server.
 
 Finds a free loopback port, mints the per-launch token, optionally opens the
-browser with the one-time ``?token=``, and runs uvicorn bound to 127.0.0.1
+browser with the one-time ``#token=`` fragment, and runs uvicorn bound to
+127.0.0.1
 only. The token value is never logged.
 """
 

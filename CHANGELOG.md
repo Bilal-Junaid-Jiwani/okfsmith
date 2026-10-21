@@ -5,6 +5,27 @@ follow SemVer.
 
 ## [Unreleased]
 
+## [0.8.4] - 2026-10-21
+
+### Fixed
+
+- **Dashboard launch-token docs corrected:** the launch flow moved from a
+  `?token=` query parameter to a `#token=` URL fragment (fragments are never
+  sent to the server and never land on a browser's command line), but the
+  module docstrings in `dashboard/server.py`, `cli/dashboard_cmd.py`, and
+  `dashboard/auth.py` still described the old query-parameter flow. They now
+  describe the fragment bootstrap, with the single-use `?token=` fallback
+  documented as legacy (old bookmarks) only.
+
+### Added
+
+- **Auth-contract unit tests:** new `tests/test_dashboard_auth.py` (9 tests)
+  pins `TokenAuth.check` edge cases the HTTP tests don't reach —
+  case-insensitive `Bearer` scheme, whitespace trimming, a failed
+  `?token=` attempt not burning the single use, the query burn not breaking
+  the bearer path, and the 401 response shape
+  (`WWW-Authenticate: Bearer`).
+
 ## [0.8.3] - 2026-10-20
 
 ### Fixed

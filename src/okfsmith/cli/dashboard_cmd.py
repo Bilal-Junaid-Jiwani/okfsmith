@@ -30,7 +30,7 @@ def dashboard(
 ) -> None:
     """Serve the local okfsmith web dashboard (loopback only).
 
-    Opens http://127.0.0.1:PORT/?token=... in your browser with a fresh
+    Opens http://127.0.0.1:PORT/#token=... in your browser with a fresh
     per-launch token. The server binds 127.0.0.1 only — it is never
     reachable from the network.
     """

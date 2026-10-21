@@ -5,10 +5,15 @@ under ``/api/v1`` (except ``/health``) require it as an
 ``Authorization: Bearer <token>`` header, compared with
 :func:`hmac.compare_digest`.
 
-The token is also accepted **once** via the ``?token=`` query parameter so
-the freshly opened browser tab can bootstrap; the frontend must then scrub
-it from the URL and switch to the header. After that single use the query
-form is burned. The token value is never logged.
+The token reaches the freshly opened browser tab in the URL *fragment*
+(``#token=...``): fragments are never sent to the server and never appear
+on a browser process's command line. The frontend reads it once, stashes it
+in sessionStorage, scrubs the URL, and sends
+``Authorization: Bearer <token>`` headers from then on.
+
+A legacy ``?token=`` query parameter is still honored **once** (for old
+bookmarks); after that single use it is burned. The token value is never
+logged.
 """
 
 from __future__ import annotations
