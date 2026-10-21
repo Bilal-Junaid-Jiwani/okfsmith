@@ -5,6 +5,19 @@ follow SemVer.
 
 ## [Unreleased]
 
+## [0.8.6] - 2026-10-21
+
+### Fixed
+
+- **CI-only test fix (no runtime changes):**
+  `test_cli_min_chars_requires_no_llm` asserted on the raw text of
+  Typer's rich error panel; on CI the panel is color-styled (ANSI) and
+  wrapped, so the exact phrase never matched and every matrix job went
+  red for 0.8.5. The test now uses the suite's established pattern
+  (wide `COLUMNS` + ANSI strip). The 0.8.5 package code was unaffected —
+  this release exists so the release commit is CI-green, following the
+  0.8.1/0.8.2 precedent.
+
 ## [0.8.5] - 2026-10-21
 
 Six fixes from an external hands-on review of the offline (`--no-llm`)

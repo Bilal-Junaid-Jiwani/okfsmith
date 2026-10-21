@@ -13,6 +13,7 @@ in a sandbox; six findings came back. Each test below pins one fix:
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -113,11 +114,16 @@ def test_cli_min_chars_dry_run_parity(tmp_path: Path):
 
 def test_cli_min_chars_requires_no_llm(tmp_path: Path):
     src = _write_short_note(tmp_path)
+    # Wide panel + ANSI strip: the rich error panel wraps and styles the
+    # message when color is enabled (as on CI) — same pattern as test_cli.py.
     result = runner.invoke(
-        app, ["ingest", str(tmp_path / "kb"), str(src), "--min-chars", "10"]
+        app,
+        ["ingest", str(tmp_path / "kb"), str(src), "--min-chars", "10"],
+        env={"COLUMNS": "200"},
     )
-    assert result.exit_code != 0
-    assert "--min-chars only applies with --no-llm" in result.output
+    assert result.exit_code == 2
+    text = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
+    assert "--min-chars only applies with --no-llm" in text
 
 
 def test_cli_min_chars_negative_rejected(tmp_path: Path):
