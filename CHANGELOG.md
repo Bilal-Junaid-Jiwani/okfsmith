@@ -5,6 +5,25 @@ follow SemVer.
 
 ## [Unreleased]
 
+## [0.8.7] - 2026-10-22
+
+### Fixed
+
+- **Dashboard `GET /api/v1/sync/sources` docstring drift:** the endpoint's
+  contract docstring promised a `never` source status that the code never
+  emits (only `ok`, `stale`, and `error` are possible). The docstring now
+  lists exactly what the endpoint returns.
+
+### Added
+
+- **`tests/test_dashboard_sync_sources.py`:** status-contract coverage for
+  `GET /api/v1/sync/sources` — previously only the empty-sources shape was
+  asserted. Real `okfsmith sync` runs now pin `ok` after sync, `stale`
+  after a source edit, `error` after a source delete, the permanent-failure
+  reason surfacing, the 404 for an unknown bundle id, and the per-file
+  behavior when a *directory* is synced (the engine expands directories into
+  per-file state records; a later edit of one file goes `stale`).
+
 ## [0.8.6] - 2026-10-21
 
 ### Fixed

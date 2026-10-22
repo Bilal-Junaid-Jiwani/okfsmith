@@ -1113,7 +1113,7 @@ def create_app(workspace: Path, token: str) -> FastAPI:
         """Sync sources for one bundle (``?bundle_id=``) or all bundles.
 
         Response matches the contract: ``{"sources": [{name, kind,
-        status: ok|stale|error|never, last_sync, detail}]}``. Staleness is
+        status: ok|stale|error, last_sync, detail}]}``. Staleness is
         computed from real backend state: the source record's stored sha256
         versus the current file hash.
         """
