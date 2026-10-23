@@ -246,3 +246,84 @@ class TestMcpNetworkAuth:
         )
         mcp_server.serve(FIXTURE_BUNDLE, "stdio")
         assert ran.get("transport") == "stdio"
+
+
+class TestSearchAsOf:
+    """MCP ``search`` temporal replay (``as_of``).
+
+    Parity with the ``okfsmith search --as-of`` CLI flag: an agent can ask
+    what the bundle said about a topic at a past (or future) instant. The
+    bundle below has ``policy-v1`` superseded by ``policy-v2``, whose
+    ``valid_from`` is 2026-10-20.
+    """
+
+    @pytest.fixture()
+    def temporal_tools(self, tmp_path: Path) -> BundleTools:
+        bundle = Bundle(tmp_path)
+        bundle.write_concept(
+            "policy-v1",
+            {"title": "Refund Policy v1", "type": "policy"},
+            "The old refund policy allows returns within 14 days of purchase.",
+        )
+        bundle.write_concept(
+            "policy-v2",
+            {
+                "title": "Refund Policy v2",
+                "type": "policy",
+                "supersedes": ["policy-v1"],
+                "valid_from": "2026-10-20",
+            },
+            "The new refund policy allows returns within 30 days of purchase.",
+        )
+        return BundleTools(bundle)
+
+    def test_default_search_hides_superseded(self, temporal_tools: BundleTools) -> None:
+        out = temporal_tools.search("refund")
+        assert "policy-v2" in out
+        assert "policy-v1" not in out
+        assert "1 superseded concept(s) hidden" in out
+
+    def test_as_of_replays_past_state(self, temporal_tools: BundleTools) -> None:
+        # Before policy-v2's valid_from, the old policy was the current one.
+        out = temporal_tools.search("refund", as_of="2026-10-01")
+        assert "policy-v1" in out
+        # current hits rank before demoted (not-yet-valid) ones
+        assert out.index("policy-v1") < out.index("policy-v2")
+        assert "superseded concept(s) hidden" not in out
+        # the replay instant is labeled honestly, like the CLI envelope
+        assert "as of 2026-10-01" in out
+
+    def test_as_of_future_keeps_supersession(
+        self, temporal_tools: BundleTools
+    ) -> None:
+        out = temporal_tools.search("refund", as_of="2027-01-01")
+        assert "policy-v2" in out
+        assert "policy-v1" not in out
+        assert "1 superseded concept(s) hidden" in out
+
+    def test_as_of_accepts_datetime(self, temporal_tools: BundleTools) -> None:
+        out = temporal_tools.search("refund", as_of="2026-10-01T12:00:00Z")
+        assert "policy-v1" in out
+
+    def test_as_of_invalid_value_returns_error_not_exception(
+        self, temporal_tools: BundleTools
+    ) -> None:
+        # the tools' "never an exception" contract covers as_of too
+        out = temporal_tools.search("refund", as_of="not-a-date")
+        assert out.startswith("Error:")
+        assert "ISO-8601" in out
+
+    def test_as_of_blank_is_ignored(self, temporal_tools: BundleTools) -> None:
+        out = temporal_tools.search("refund", as_of="  ")
+        assert "policy-v2" in out
+        assert "policy-v1" not in out
+
+    def test_as_of_combines_with_include_superseded(
+        self, temporal_tools: BundleTools
+    ) -> None:
+        out = temporal_tools.search(
+            "refund", as_of="2026-10-01", include_superseded=True
+        )
+        assert "policy-v1" in out
+        assert "policy-v2" in out
+        assert "superseded concept(s) hidden" not in out

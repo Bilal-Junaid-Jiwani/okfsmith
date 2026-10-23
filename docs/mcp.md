@@ -23,7 +23,7 @@ Anything else is a usage error (exit 2).
 |------|--------------|
 | `index` | bundle overview: concept count, types, trust tiers |
 | `list` | list concepts, optional type filter, paginated |
-| `search` | full-text search over id / title / body |
+| `search` | full-text search over id / title / body. Optional `as_of` (ISO-8601 date/datetime) replays validity and supersession at that instant — the MCP analogue of the CLI's `--as-of` flag. |
 | `get` | fetch one concept by id (frontmatter + body) |
 | `neighbors` | 1-hop linked concepts (outlinks and backlinks) |
 | `traverse` | breadth-first walk of the link graph from one concept |

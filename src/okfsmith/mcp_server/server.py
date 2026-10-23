@@ -37,6 +37,7 @@ import secrets
 import time
 import uuid
 from collections.abc import Mapping
+from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -1511,15 +1512,22 @@ class BundleTools:
 
     # -- keyword search ------------------------------------------------------
     def _search_hits(
-        self, query: str, limit: int, include_superseded: bool
+        self,
+        query: str,
+        limit: int,
+        include_superseded: bool,
+        as_of: datetime | None = None,
     ) -> tuple[list[tuple[float, Concept]], int]:
         """Ranked ``(score, concept)`` hits plus the superseded-hidden count.
 
         Currency-aware (P2): superseded concepts are hidden unless
         *include_superseded* — the same default the ``okfsmith search`` CLI
-        uses. Falls back to :func:`rank_concepts` when the BM25 engine is
-        unavailable or rejects malformed frontmatter, so the tools' "never
-        an exception" contract wins over ranking parity on hostile input.
+        uses. *as_of* replays validity and supersession at a past or future
+        instant (the ``okfsmith search --as-of`` flag). Falls back to
+        :func:`rank_concepts` when the BM25 engine is unavailable or rejects
+        malformed frontmatter, so the tools' "never an exception" contract
+        wins over ranking parity on hostile input — the fallback cannot
+        replay, so *as_of* is ignored on that path (C10).
         """
         try:
             from okfsmith.search import search_bundle_detailed
@@ -1530,6 +1538,7 @@ class BundleTools:
                 self.bundle,
                 query,
                 limit,
+                as_of=as_of,
                 include_superseded=bool(include_superseded),
             )
         except (TypeError, AttributeError):
@@ -1541,6 +1550,7 @@ class BundleTools:
         query: str,
         limit: int = 10,
         include_superseded: bool = False,
+        as_of: str | None = None,
         max_chunks: int = 10,
         max_tokens: int | None = None,
         continuation_token: str | None = None,
@@ -1556,7 +1566,11 @@ class BundleTools:
 
         Currency-aware (P2): superseded concepts are hidden by default and
         reported as a count; pass `include_superseded=True` to reveal them
-        (shown last). Evidence budgets: `max_chunks` caps the hits per
+        (shown last). `as_of` (ISO-8601 date or datetime, the MCP analogue
+        of the CLI's ``--as-of`` flag) replays validity and supersession
+        at that instant — e.g. ask what the bundle said about a topic on a
+        past date; an unparseable value returns a clean error, never an
+        exception. Evidence budgets: `max_chunks` caps the hits per
         response (default 10, hard cap 50 — the hidden-superseded note sits
         outside the budget), `max_tokens` is an approximate output budget
         (`None`/negative = unbounded; `0` = no content, marker only), and
@@ -1571,8 +1585,19 @@ class BundleTools:
         self._ensure_fresh_bundle()
         if not isinstance(query, str) or not query.split():
             return "Error: `query` is empty — provide a keyword to search for."
+        moment: datetime | None = None
+        if as_of is not None and str(as_of).strip():
+            from okfsmith.core import temporal as _temporal
+
+            moment = _temporal.parse_temporal(as_of)
+            if moment is None:
+                return (
+                    f"Error: `as_of` {as_of!r} is not an ISO-8601 date "
+                    "or datetime — pass e.g. `2025-06-01` or "
+                    "`2025-06-01T12:00:00Z`."
+                )
         limit = _coerce_limit(limit, 10)
-        hits, hidden = self._search_hits(query, limit, include_superseded)
+        hits, hidden = self._search_hits(query, limit, include_superseded, as_of=moment)
         if not hits:
             return f"No concepts match {query!r}. Try broader keywords or use `list`."
         units = [f"- {_concept_label(c)}\n  {_description(c)}" for _, c in hits]
@@ -1585,6 +1610,10 @@ class BundleTools:
             else []
         )
         title = f"Search: {query} ({len(units)} result(s))"
+        if moment is not None:
+            # Honest replay label: the instant the temporal partitioning was
+            # evaluated at, matching the CLI's JSON envelope `as_of`.
+            title += f", as of {moment.isoformat()}"
         whole = f"# {title}\n\n" + "\n".join(units)
         if notes:
             whole += "\n\n" + "\n".join(notes)

@@ -5,6 +5,27 @@ follow SemVer.
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-23
+
+### Added
+
+- **MCP `search` tool gains `as_of` temporal replay:** the MCP server's
+  `search` tool now accepts an `as_of` parameter (ISO-8601 date or
+  datetime) — the MCP analogue of the CLI's `--as-of` flag. Agents can ask
+  what the bundle said about a topic at a past or future instant:
+  validity windows and supersession are replayed at that instant through
+  the same shared BM25 engine (`search_bundle_detailed`), so `policy-v1`
+  surfaces again for a query run `as_of` before its replacement's
+  `valid_from`. The replay instant is labeled in the response title, like
+  the CLI's JSON envelope `as_of`. An unparseable value returns a clean
+  `Error:` string (the tools' "never an exception" contract holds);
+  blank is ignored. Docs (`docs/mcp.md`, `docs/src/mcp.md`) updated. Pinned
+  by seven new tests in `tests/test_mcp.py::TestSearchAsOf`: past instant
+  resurrects the superseded concept (ranked ahead of the not-yet-valid
+  replacement), future instant keeps supersession hiding, datetime form
+  accepted, garbage value returns `Error:` not an exception, blank value
+  ignored, and combination with `include_superseded`.
+
 ## [0.8.7] - 2026-10-22
 
 ### Fixed

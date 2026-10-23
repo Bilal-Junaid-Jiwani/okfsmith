@@ -50,7 +50,7 @@ reading UI. The intended flow is progressive disclosure: `index` → `search` �
 |---|---|
 | `index` | Return the bundle's root `index.md` — the map of the whole knowledge base. Read this first to orient. |
 | `list` | List every concept: id, type, trust tier, title. Optional `filter_type` narrows by concept type; `limit` caps rows. |
-| `search` | BM25-ranked keyword search over concept id, title, description, tags, and body. Title matches rank highest, body lowest; results carry excerpts. |
+| `search` | BM25-ranked keyword search over concept id, title, description, tags, and body. Title matches rank highest, body lowest; results carry excerpts. Optional `as_of` (ISO-8601 date/datetime) replays validity and supersession at that instant — the MCP analogue of the CLI's `--as-of` flag. |
 | `get` | Read one concept in full: YAML frontmatter followed by its markdown body. Unknown ids produce an error — never fabricated content. |
 | `neighbors` | Show a concept's link graph neighborhood: outgoing links and incoming backlinks, so agents can walk the knowledge graph. |
 | `traverse` | Breadth-first neighborhood expansion over markdown links (depth ≤ 3, cycle-safe), with an optional `relation_filter` and currency-aware ordering — superseded concepts hidden by default. |
