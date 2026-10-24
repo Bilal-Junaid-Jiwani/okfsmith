@@ -587,12 +587,37 @@ def create_app(workspace: Path, token: str) -> FastAPI:
         q: str = Query(...),
         bundle_id: str | None = Query(default=None),
         limit: int = Query(default=25, ge=1, le=100),
+        as_of: str | None = Query(
+            default=None,
+            description="ISO-8601 date/datetime: replay validity windows and "
+            "supersession at this instant (the dashboard analogue of "
+            "`okfsmith search --as-of`).",
+        ),
+        include_superseded: bool = Query(
+            default=False,
+            description="Show superseded concepts (demoted last) instead of "
+            "hiding them.",
+        ),
     ):
-        from okfsmith.search import search_bundle
+        from okfsmith.core import temporal as _temporal
+        from okfsmith.search import search_bundle_detailed
 
         query = (q or "").strip()
         if not query:
             raise err("bad-query", "Query 'q' must not be empty.", "Pass ?q=<keywords>.", 400)
+        moment = None
+        if as_of is not None and as_of.strip():
+            moment = _temporal.parse_temporal(as_of)
+            if moment is None:
+                raise err(
+                    "bad-as-of",
+                    f"Query 'as_of' {as_of!r} is not an ISO-8601 date or datetime.",
+                    "Pass e.g. ?as_of=2025-06-01 or ?as_of=2025-06-01T12:00:00Z.",
+                    400,
+                )
+        # One replay instant for every bundle: honest labeling in the
+        # envelope, and identical partitioning across the "all" sweep.
+        replay_at = moment if moment is not None else _temporal.utcnow()
         targets: list[tuple[str, Bundle]]
         if bundle_id is not None and bundle_id != "all":
             bundle, _ = _load_bundle_or_404(bundle_id)
@@ -607,13 +632,21 @@ def create_app(workspace: Path, token: str) -> FastAPI:
                 targets.append((bid, b))
         per = max(1, min(limit, 100))
         results = []
+        superseded_hidden = 0
         for bid, bundle in targets:
             try:
-                hits = search_bundle(bundle, query, per)
+                result = search_bundle_detailed(
+                    bundle,
+                    query,
+                    per,
+                    as_of=replay_at,
+                    include_superseded=include_superseded,
+                )
             except Exception as exc:
                 log.warning("search failed for %s: %s", bid, exc)
                 continue
-            for score, concept in hits:
+            superseded_hidden += result.superseded_hidden
+            for score, concept in result.hits:
                 body = concept.body or ""
                 fm = concept.frontmatter or {}
                 desc = str(fm.get("description") or "")
@@ -627,7 +660,11 @@ def create_app(workspace: Path, token: str) -> FastAPI:
                     }
                 )
         results.sort(key=lambda r: r["score"], reverse=True)
-        return {"results": results[:limit]}
+        return {
+            "results": results[:limit],
+            "as_of": replay_at.isoformat(),
+            "superseded_hidden": superseded_hidden,
+        }
 
     # ------------------------------------------------------------------
     # Ingest

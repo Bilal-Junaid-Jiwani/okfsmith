@@ -5,6 +5,29 @@ follow SemVer.
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-10-24
+
+### Added
+
+- **Dashboard `GET /api/v1/search` gains `as_of` temporal replay and
+  `include_superseded`:** the dashboard search endpoint now accepts the same
+  temporal query parameters as `okfsmith search --as-of` /
+  `--include-superseded` and the MCP `search` tool's `as_of` — completing
+  temporal-replay parity across all four interfaces (CLI, chat, MCP,
+  dashboard). `?as_of=<ISO-8601 date or datetime>` replays validity windows
+  and supersession at that instant (blank is ignored; an unparseable value
+  returns `400 bad-as-of`); `?include_superseded=true` shows superseded
+  concepts demoted last instead of hiding them. The response envelope now
+  always reports the `as_of` instant the partitioning was evaluated at and
+  `superseded_hidden` (summed across bundles on a `bundle_id=all` sweep);
+  individual hit rows are unchanged. Docs (`docs/temporality.md`,
+  `docs/src/temporality.md`) updated. Pinned by eight new tests in
+  `tests/test_dashboard_api.py::TestSearchTemporal`: past instant resurrects
+  the superseded concept (ranked ahead of the not-yet-valid replacement),
+  future instant keeps supersession hiding, datetime form accepted, garbage
+  value returns `400`, blank value ignored, `include_superseded` shows both,
+  and the two combined.
+
 ## [0.9.0] - 2026-10-23
 
 ### Added

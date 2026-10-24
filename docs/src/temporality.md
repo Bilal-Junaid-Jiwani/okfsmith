@@ -55,7 +55,6 @@ okfsmith search ./kb "refund policy" --as-of 2025-06-01 --format json
 ```
 
 The JSON envelope always reports the instant used and how many superseded results were hidden:
-
 ```json
 {
   "query": "refund policy",
@@ -66,6 +65,21 @@ The JSON envelope always reports the instant used and how many superseded result
 }
 ```
 
+The dashboard search endpoint offers the same replay over HTTP:
+
+```bash
+# What did the bundle say about refunds on 2025-06-01?
+curl "$DASH/api/v1/search?q=refund%20policy&as_of=2025-06-01" -H "Authorization: Bearer $TOKEN"
+
+# Show superseded concepts too (demoted last, never deleted)
+curl "$DASH/api/v1/search?q=refund%20policy&include_superseded=true" -H "Authorization: Bearer $TOKEN"
+```
+
+A blank `as_of` is ignored; an unparseable one returns `400 bad-as-of`.
+The response envelope always carries the `as_of` instant the partitioning
+was evaluated at and `superseded_hidden` (summed across bundles when the
+endpoint sweeps `bundle_id=all`).
+
 ## Where temporal status shows up
 
 | Command | Surface |
@@ -75,6 +89,7 @@ The JSON envelope always reports the instant used and how many superseded result
 | `read` | One-line `[temporal: …]` badge under the concept when it has temporal data or is superseded; JSON `temporal_status` |
 | `validate` | Advisory warnings W016–W020 (never affect conformance) |
 | chat / MCP | The shared search engine applies the same ranking — temporal behavior is identical everywhere |
+| dashboard | `GET /api/v1/search` accepts `?as_of=` (ISO-8601 date or datetime) and `?include_superseded=`; the JSON envelope reports the `as_of` instant used and `superseded_hidden`, like the CLI |
 
 ## Sync preserves temporal metadata
 

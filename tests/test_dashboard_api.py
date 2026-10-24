@@ -249,6 +249,160 @@ class TestBundles:
         _error_shape(r.json())
 
 
+def _write_search_temporal_pair(bundle_dir: Path) -> None:
+    """Supersession pair for the dashboard search temporal-replay tests.
+
+    ``policy-v1`` is superseded by ``policy-v2``, whose ``valid_from`` is
+    2026-10-20 — mirroring the CLI/MCP temporal fixtures.
+    """
+    bundle = Bundle(bundle_dir)
+    bundle.write_concept(
+        "policy-v1",
+        {"title": "Refund Policy v1", "type": "policy"},
+        "The old refund policy allows returns within 14 days of purchase.",
+    )
+    bundle.write_concept(
+        "policy-v2",
+        {
+            "title": "Refund Policy v2",
+            "type": "policy",
+            "supersedes": ["policy-v1"],
+            "valid_from": "2026-10-20",
+        },
+        "The new refund policy allows returns within 30 days of purchase.",
+    )
+
+
+# ------------------------------------------------------------------- search --
+class TestSearchTemporal:
+    """``GET /api/v1/search`` temporal replay (``as_of``, ``include_superseded``).
+
+    Dashboard parity with ``okfsmith search --as-of`` / the MCP ``search``
+    ``as_of`` parameter: every interface replays validity windows and
+    supersession at the same instant through the shared BM25 engine.
+    """
+
+    def test_default_search_hides_superseded(self, client, workspace):
+        _write_search_temporal_pair(workspace / "kb")
+        c, headers = client
+        bid = _bundle_id(c, headers)
+        payload = c.get(
+            "/api/v1/search",
+            params={"q": "refund", "bundle_id": bid},
+            headers=headers,
+        ).json()
+        assert set(payload) == {"results", "as_of", "superseded_hidden"}
+        ids = [hit["concept_id"] for hit in payload["results"]]
+        assert "policy-v2" in ids
+        assert "policy-v1" not in ids
+        assert payload["superseded_hidden"] == 1
+
+    def test_as_of_replays_past_state(self, client, workspace):
+        _write_search_temporal_pair(workspace / "kb")
+        c, headers = client
+        bid = _bundle_id(c, headers)
+        payload = c.get(
+            "/api/v1/search",
+            params={"q": "refund", "bundle_id": bid, "as_of": "2026-10-01"},
+            headers=headers,
+        ).json()
+        # Before policy-v2's valid_from, the old policy was the current one.
+        ids = [hit["concept_id"] for hit in payload["results"]]
+        assert "policy-v1" in ids
+        assert ids.index("policy-v1") < ids.index("policy-v2")
+        # The replay instant is labeled honestly in the envelope.
+        assert payload["as_of"].startswith("2026-10-01")
+        assert payload["superseded_hidden"] == 0
+
+    def test_as_of_accepts_datetime(self, client, workspace):
+        _write_search_temporal_pair(workspace / "kb")
+        c, headers = client
+        bid = _bundle_id(c, headers)
+        payload = c.get(
+            "/api/v1/search",
+            params={
+                "q": "refund", "bundle_id": bid,
+                "as_of": "2026-10-01T12:00:00Z",
+            },
+            headers=headers,
+        ).json()
+        ids = [hit["concept_id"] for hit in payload["results"]]
+        assert "policy-v1" in ids
+
+    def test_as_of_future_keeps_supersession(self, client, workspace):
+        _write_search_temporal_pair(workspace / "kb")
+        c, headers = client
+        bid = _bundle_id(c, headers)
+        payload = c.get(
+            "/api/v1/search",
+            params={"q": "refund", "bundle_id": bid, "as_of": "2027-01-01"},
+            headers=headers,
+        ).json()
+        ids = [hit["concept_id"] for hit in payload["results"]]
+        assert "policy-v2" in ids
+        assert "policy-v1" not in ids
+        assert payload["superseded_hidden"] == 1
+
+    def test_as_of_invalid_value_is_400(self, client, workspace):
+        _write_search_temporal_pair(workspace / "kb")
+        c, headers = client
+        bid = _bundle_id(c, headers)
+        r = c.get(
+            "/api/v1/search",
+            params={"q": "refund", "bundle_id": bid, "as_of": "not-a-date"},
+            headers=headers,
+        )
+        assert r.status_code == 400
+        _error_shape(r.json())
+        assert r.json()["error"] == "bad-as-of"
+
+    def test_as_of_blank_is_ignored(self, client, workspace):
+        _write_search_temporal_pair(workspace / "kb")
+        c, headers = client
+        bid = _bundle_id(c, headers)
+        payload = c.get(
+            "/api/v1/search",
+            params={"q": "refund", "bundle_id": bid, "as_of": "  "},
+            headers=headers,
+        ).json()
+        ids = [hit["concept_id"] for hit in payload["results"]]
+        assert "policy-v2" in ids
+        assert "policy-v1" not in ids
+
+    def test_include_superseded_shows_both(self, client, workspace):
+        _write_search_temporal_pair(workspace / "kb")
+        c, headers = client
+        bid = _bundle_id(c, headers)
+        payload = c.get(
+            "/api/v1/search",
+            params={
+                "q": "refund", "bundle_id": bid, "include_superseded": "true",
+            },
+            headers=headers,
+        ).json()
+        ids = [hit["concept_id"] for hit in payload["results"]]
+        assert "policy-v2" in ids
+        assert "policy-v1" in ids
+        assert payload["superseded_hidden"] == 0
+
+    def test_include_superseded_combines_with_as_of(self, client, workspace):
+        _write_search_temporal_pair(workspace / "kb")
+        c, headers = client
+        bid = _bundle_id(c, headers)
+        payload = c.get(
+            "/api/v1/search",
+            params={
+                "q": "refund", "bundle_id": bid,
+                "as_of": "2026-10-01", "include_superseded": "true",
+            },
+            headers=headers,
+        ).json()
+        ids = [hit["concept_id"] for hit in payload["results"]]
+        assert "policy-v1" in ids
+        assert "policy-v2" in ids
+        assert payload["superseded_hidden"] == 0
+
+
 # ------------------------------------------------------------------- ingest --
 class TestIngest:
     # Deliberately DIFFERENT bytes from the fixture source: identical bytes
