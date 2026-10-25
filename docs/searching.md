@@ -155,7 +155,11 @@ The BM25 engine lives in one place and is used in three:
   once at startup alongside `Bundle.load`.
 - **Chat REPL** — `/search` and the REPL's retrieval path use the same
   engine through the `rank_concepts` compatibility shim (its old
-  substring-scoring behavior is deprecated).
+  substring-scoring behavior is deprecated). `/search` accepts the same
+  temporal replay as the other interfaces: `/search refund --as-of
+  2026-10-01` replays validity and supersession at that instant, and
+  `/search refund --include-superseded` reveals superseded concepts
+  instead of hiding them.
 
 Given the same bundle and query, the CLI JSON order, the MCP `search`
 order, and the chat `/search` order are identical.

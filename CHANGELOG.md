@@ -5,6 +5,38 @@ follow SemVer.
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-10-25
+
+### Added
+
+- **Chat REPL `/search` gains temporal replay (`--as-of`,
+  `--include-superseded`):** the chat slash command now accepts the same
+  temporal query flags as `okfsmith search --as-of` /
+  `--include-superseded`, the MCP `search` tool's `as_of`, and the
+  dashboard `GET /api/v1/search` — completing temporal-replay parity
+  across all four search interfaces (the 0.10.0 notes claimed four-way
+  parity, but chat's `/search` never actually accepted the flags).
+  `/search refund --as-of 2026-10-01` replays validity windows and
+  supersession at that instant (a superseded concept resurrects when the
+  replacement was not yet valid); `--include-superseded` shows superseded
+  concepts demoted last instead of hiding them. Flags may appear anywhere
+  in the argument (`--as-of=<value>` also works) and quoted phrases
+  survive. The flags forward to the MCP `search` tool through the shared
+  BM25 engine, so a garbage `--as-of` prints a clean `Error:` line and
+  the REPL stays alive, and the legacy "now" emptiness pre-check is
+  skipped on the temporal path (it would otherwise wrongly report "no
+  match" for a past instant that resurrects a concept). The plain
+  `/search <keywords>` path is byte-for-byte unchanged, including its
+  yellow no-match line. Docs (`docs/src/chat.md`, `docs/searching.md`)
+  updated. Pinned by thirteen new tests in
+  `tests/test_chat_temporal.py`: argument parsing (flags anywhere,
+  `--as-of=` form, quoted phrases, flags-only and missing-value
+  rejection) plus end-to-end REPL cases (past instant resurrects with
+  the `as of` replay label, future instant keeps supersession hiding,
+  `--include-superseded` shows both, default still hides superseded,
+  garbage `--as-of` is a clean error, missing value prints usage,
+  `/help` lists the flags).
+
 ## [0.10.0] - 2026-10-24
 
 ### Added

@@ -16,6 +16,7 @@ from __future__ import annotations
 import contextlib
 import os
 import re
+import shlex
 from collections.abc import Callable
 from pathlib import Path
 
@@ -657,19 +658,91 @@ def _slash_read(session: ChatSession, arg: str) -> None:
     )
 
 
+#: Usage line for ``/search`` (also printed by ``/help``).
+_SEARCH_USAGE = "/search <keywords> [--as-of <date>] [--include-superseded]"
+
+
+def _parse_search_arg(
+    arg: str,
+) -> tuple[str, str | None, bool] | tuple[None, None, None]:
+    """Split a ``/search`` argument into keywords plus temporal flags.
+
+    ``--as-of <ISO-8601 date or datetime>`` and ``--include-superseded``
+    may appear anywhere in the argument (``--as-of=<value>`` also works);
+    everything else is keywords, so quoted phrases survive via ``shlex``.
+    Returns ``(keywords, as_of, include_superseded)``, or ``(None, None,
+    None)`` when the argument is unusable (no keywords, or ``--as-of``
+    with no value) — the caller prints the usage line in that case.
+    """
+    try:
+        tokens = shlex.split(arg)
+    except ValueError:  # unbalanced quote — fall back to plain splitting
+        tokens = arg.split()
+    keywords: list[str] = []
+    as_of: str | None = None
+    include_superseded = False
+    i = 0
+    while i < len(tokens):
+        token = tokens[i]
+        if token == "--include-superseded":
+            include_superseded = True
+        elif token == "--as-of":
+            if i + 1 >= len(tokens):
+                return None, None, None
+            as_of = tokens[i + 1]
+            i += 1
+        elif token.startswith("--as-of="):
+            as_of = token[len("--as-of="):]
+            if not as_of:
+                return None, None, None
+        else:
+            keywords.append(token)
+        i += 1
+    if not keywords:
+        return None, None, None
+    return " ".join(keywords), as_of, include_superseded
+
+
 def _slash_search(session: ChatSession, arg: str) -> None:
-    if _needs_arg(session, arg, "/search <keywords>"):
+    if _needs_arg(session, arg, _SEARCH_USAGE):
         return
+    parsed = _parse_search_arg(arg)
+    if parsed[0] is None:
+        session.console.print(f"[yellow]Usage:[/yellow] {_SEARCH_USAGE}")
+        return
+    keywords, as_of, include_superseded = parsed
     from okfsmith.mcp_server.server import BundleTools
 
-    hits = _search_bundle(session.bundle, arg, 10)
-    if not hits:
-        session.console.print(
-            f"[yellow]No concepts match {escape(arg)!r}.[/yellow]"
-        )
-        return
     tools = BundleTools(session.bundle)
-    session.console.print(Markdown(tools.search(arg, limit=10)))
+    if as_of is None and not include_superseded:
+        # Unchanged legacy path: the raw argument goes through verbatim
+        # (so quoted phrases keep their BM25 meaning) and the BM25
+        # emptiness pre-check prints the yellow "No concepts match" line
+        # existing tests pin.
+        hits = _search_bundle(session.bundle, arg, 10)
+        if not hits:
+            session.console.print(
+                f"[yellow]No concepts match {escape(arg)!r}.[/yellow]"
+            )
+            return
+        session.console.print(Markdown(tools.search(arg, limit=10)))
+        return
+    # Temporal path: the legacy pre-check evaluates supersession at *now*,
+    # so it would wrongly report "no match" for a past instant that
+    # resurrects a superseded concept. ``tools.search`` already returns a
+    # clean no-match line and a clean ``Error:`` line for garbage
+    # ``--as-of`` values (the MCP tools' "never an exception" contract),
+    # so render it directly.
+    session.console.print(
+        Markdown(
+            tools.search(
+                keywords,
+                limit=10,
+                include_superseded=include_superseded,
+                as_of=as_of,
+            )
+        )
+    )
 
 
 def _slash_validate(session: ChatSession, _arg: str) -> None:
@@ -810,7 +883,7 @@ _SLASH_HELP: list[tuple[str, Callable, str]] = [
     ("ingest <path> [--recursive]", _slash_ingest, "Ingest a file or directory into the bundle."),
     ("list", _slash_list, "List concepts in the bundle."),
     ("read <id>", _slash_read, "Print a concept in full."),
-    ("search <keywords>", _slash_search, "Keyword-search concepts."),
+    ("search <keywords> [--as-of <date>] [--include-superseded]", _slash_search, "Keyword-search concepts, optionally replayed at a past/future instant."),
     ("validate", _slash_validate, "Validate the bundle against OKF v0.2."),
     ("graph", _slash_graph, "Show the concept link graph."),
     ("doctor", _slash_doctor, "Check the environment."),

@@ -107,7 +107,7 @@ Extractive mode: excerpts above, no generative summary. Use /read <id> for the f
 | `/ingest <path> [--recursive]` | Ingest a file or directory into the bundle. |
 | `/list` | List concepts in the bundle. |
 | `/read <id>` | Print a concept in full. |
-| `/search <keywords>` | Keyword-search concepts. |
+| `/search <keywords> [--as-of <date>] [--include-superseded]` | Keyword-search concepts, optionally replayed at a past/future instant (`--as-of`, ISO-8601 date or datetime) or with superseded concepts shown (`--include-superseded`) — the same temporal replay as `okfsmith search --as-of`, the MCP `search` tool, and the dashboard search. |
 | `/validate` | Validate the bundle against OKF v0.2. |
 | `/graph` | Show the concept link graph. |
 | `/doctor` | Check the environment. |
