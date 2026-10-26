@@ -46,6 +46,7 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 from okfsmith.core import temporal as _temporal
+from okfsmith.core.spec import trust_tier as _trust_tier
 
 if TYPE_CHECKING:
     from okfsmith.core.bundle import Bundle, Concept
@@ -352,6 +353,8 @@ def search_bundle(
     *,
     as_of: datetime | None = None,
     include_superseded: bool = False,
+    type_filter: str | None = None,
+    tier_filter: str | None = None,
 ) -> list[tuple[float, Concept]]:
     """Drop-in replacement for the old ``rank_concepts``.
 
@@ -362,9 +365,18 @@ def search_bundle(
     their validity window, then (only with ``include_superseded=True``)
     superseded concepts — demoted, never deleted. ``as_of`` replays the
     partitioning at a past or future instant (default: now, UTC).
+    ``type_filter`` / ``tier_filter`` (case-insensitive) narrow the
+    candidates *before* the ``limit`` cut, so a filtered search never
+    loses matches that ranked below the truncation point.
     """
     return search_bundle_detailed(
-        bundle, query, limit, as_of=as_of, include_superseded=include_superseded
+        bundle,
+        query,
+        limit,
+        as_of=as_of,
+        include_superseded=include_superseded,
+        type_filter=type_filter,
+        tier_filter=tier_filter,
     ).hits
 
 
@@ -389,12 +401,23 @@ def search_bundle_detailed(
     *,
     as_of: datetime | None = None,
     include_superseded: bool = False,
+    type_filter: str | None = None,
+    tier_filter: str | None = None,
 ) -> TemporalSearchResult:
     """Full temporal search: ranked hits plus demotion accounting.
 
     Same ranking as :func:`search_bundle`, but also returns the ``as_of``
     instant used and how many superseded hits were hidden, so callers can
     report the demotion honestly instead of silently dropping matches.
+
+    ``type_filter`` / ``tier_filter`` (case-insensitive, compared against
+    the concept's ``type`` frontmatter and its derived trust tier) are
+    applied to every partition group *before* the ``limit`` truncation —
+    filtering after truncation silently drops matches that ranked below
+    the cut (e.g. ``search --type guide -n 1`` returning nothing when the
+    only guide ranked second). ``superseded_hidden`` likewise counts only
+    superseded hits that pass the filters, so the count stays honest when
+    a filter is active.
     """
     moment = as_of if as_of is not None else _temporal.utcnow()
     if moment.tzinfo is None:
@@ -410,9 +433,21 @@ def search_bundle_detailed(
     raw = index.search(query, limit=max(1, len(index._concepts)))
     sindex = _temporal.SupersessionIndex.from_bundle(bundle)
     part = _temporal.partition_hits(raw, sindex, moment)
-    hits = part.current + part.windowed
-    hidden = len(part.superseded)
+
+    def _passes(concept: Concept) -> bool:
+        fm = concept.frontmatter or {}
+        if type_filter is not None and str(fm.get("type") or "").casefold() != type_filter.casefold():
+            return False
+        if tier_filter is not None and _trust_tier(fm).casefold() != tier_filter.casefold():
+            return False
+        return True
+
+    current = [hit for hit in part.current if _passes(hit[1])]
+    windowed = [hit for hit in part.windowed if _passes(hit[1])]
+    superseded = [hit for hit in part.superseded if _passes(hit[1])]
+    hits = current + windowed
+    hidden = len(superseded)
     if include_superseded:
-        hits.extend((score, concept) for score, concept, _ in part.superseded)
+        hits.extend((score, concept) for score, concept, _ in superseded)
         hidden = 0
     return TemporalSearchResult(hits[:limit], moment, hidden)

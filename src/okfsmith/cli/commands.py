@@ -1585,6 +1585,8 @@ def search(
         limit=limit,
         as_of=moment,
         include_superseded=include_superseded,
+        type_filter=type_filter,
+        tier_filter=tier_filter,
     )
     moment = result.as_of
     sindex = SupersessionIndex.from_bundle(bundle)
@@ -1592,10 +1594,6 @@ def search(
     for score, concept in result.hits:
         ctype = str(concept.frontmatter.get("type") or "")
         tier = _spec.trust_tier(concept.frontmatter)
-        if type_filter and ctype.casefold() != type_filter.casefold():
-            continue
-        if tier_filter and tier.casefold() != tier_filter.casefold():
-            continue
         status = sindex.status(concept, moment)
         # Current concepts show a blank Valid cell; demoted ones are marked.
         if status.name == "superseded":

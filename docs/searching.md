@@ -46,6 +46,10 @@ okfsmith search ./kb -n 5 --format json "billing -refunds"
 | `--as-of DATE\|DATETIME` | Replay the search at an ISO-8601 instant: validity windows and supersession chains are evaluated then, not now. |
 | `--include-superseded` | Also show superseded concepts (demoted, ranked last; never deleted). |
 
+`--type` and `--tier` filter the candidate set *before* the `--limit` cut,
+so `-n 1 --type guide` returns the best guide even when a higher-ranked
+concept of another type exists.
+
 ## Temporal ranking
 
 Search is conflict-aware. Results are grouped by currency, in this order —

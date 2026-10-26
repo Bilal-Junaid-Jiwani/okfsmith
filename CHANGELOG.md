@@ -5,6 +5,24 @@ follow SemVer.
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-10-26
+
+### Fixed
+
+- **`search --type` / `--tier` filters no longer lose matches below the
+  `--limit` cut:** the filters used to apply *after* results were
+  truncated to `--limit`, so `search ./kb refund --type guide -n 1`
+  returned nothing when the only guide ranked second. The filters now
+  live in `search_bundle_detailed` and apply to every partition group
+  *before* truncation (same for the `search_bundle` helper), and the
+  JSON `superseded_hidden` count now counts only superseded hits that
+  pass the active filters. Ranking without filters is unchanged. Pinned
+  by eleven new tests in `tests/test_search_filters.py` (engine-level
+  filter-before-limit cases for type, tier, and the hidden count, plus
+  CLI end-to-end cases); the `test_cli_search_fixes.py` search stub was
+  updated to mirror the new engine contract (it now applies the filters
+  itself instead of relying on CLI post-filtering).
+
 ## [0.11.0] - 2026-10-25
 
 ### Added

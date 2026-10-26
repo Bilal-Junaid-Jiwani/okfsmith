@@ -72,7 +72,8 @@ def _stub_search(monkeypatch, hits):
         calls.append({"bundle": bundle, "query": query, "limit": limit})
         return hits
 
-    def search_bundle_detailed(bundle, query, limit=10, *, as_of=None, include_superseded=False):
+    def search_bundle_detailed(bundle, query, limit=10, *, as_of=None, include_superseded=False,
+                               type_filter=None, tier_filter=None):
         calls.append(
             {
                 "bundle": bundle,
@@ -80,10 +81,29 @@ def _stub_search(monkeypatch, hits):
                 "limit": limit,
                 "as_of": as_of,
                 "include_superseded": include_superseded,
+                "type_filter": type_filter,
+                "tier_filter": tier_filter,
             }
         )
+        # Mirror the real engine contract: filters apply before any
+        # truncation, so the CLI must not post-filter the returned hits.
+        from okfsmith.core.spec import trust_tier as _trust_tier
+
+        kept = hits
+        if type_filter is not None:
+            kept = [
+                h for h in kept
+                if str((h[1].frontmatter or {}).get("type") or "").casefold()
+                == type_filter.casefold()
+            ]
+        if tier_filter is not None:
+            kept = [
+                h for h in kept
+                if _trust_tier(h[1].frontmatter or {}).casefold()
+                == tier_filter.casefold()
+            ]
         return SimpleNamespace(
-            hits=hits,
+            hits=kept,
             as_of=as_of or datetime.now(timezone.utc),
             superseded_hidden=0,
         )
