@@ -327,3 +327,110 @@ class TestSearchAsOf:
         assert "policy-v1" in out
         assert "policy-v2" in out
         assert "superseded concept(s) hidden" not in out
+
+
+class TestSearchFilters:
+    """``search`` type/tier filters: MCP parity with the CLI (0.12.0).
+
+    The CLI's ``--type`` / ``--tier`` flags filter before the ``limit`` cut
+    (0.11.1); the MCP tool had no such parameters, so agent callers could
+    not narrow a search at all. These tests pin the new ``type_filter`` /
+    ``tier_filter`` parameters, including the filter-before-limit case.
+    """
+
+    @pytest.fixture()
+    def filter_tools(self, tmp_path: Path) -> BundleTools:
+        bundle = Bundle(tmp_path)
+        bundle.write_concept(
+            "notes/alpha",
+            {"type": "Note", "title": "Alpha"},
+            "refund " * 10,
+        )
+        bundle.write_concept(
+            "guides/beta",
+            {
+                "type": "Guide",
+                "title": "Beta",
+                "verified": [{"by": "human:alice"}],
+            },
+            "refund policy note",
+        )
+        bundle.write_concept(
+            "notes/gamma",
+            {
+                "type": "Note",
+                "title": "Gamma",
+                "verified": [{"by": "process:nightly"}],
+            },
+            "refund",
+        )
+        return BundleTools(bundle)
+
+    def test_type_filter_narrows(self, filter_tools: BundleTools) -> None:
+        out = filter_tools.search("refund", type_filter="guide")
+        assert "guides/beta" in out
+        assert "notes/alpha" not in out
+        assert "notes/gamma" not in out
+
+    def test_type_filter_case_insensitive(
+        self, filter_tools: BundleTools
+    ) -> None:
+        out = filter_tools.search("refund", type_filter="GUIDE")
+        assert "guides/beta" in out
+        assert "notes/alpha" not in out
+
+    def test_tier_filter_human_reviewed(
+        self, filter_tools: BundleTools
+    ) -> None:
+        out = filter_tools.search("refund", tier_filter="human-reviewed")
+        assert "guides/beta" in out
+        assert "notes/alpha" not in out
+        assert "notes/gamma" not in out
+
+    def test_tier_filter_machine_confirmed(
+        self, filter_tools: BundleTools
+    ) -> None:
+        out = filter_tools.search("refund", tier_filter="machine-confirmed")
+        assert "notes/gamma" in out
+        assert "guides/beta" not in out
+
+    def test_filters_apply_before_limit(
+        self, filter_tools: BundleTools
+    ) -> None:
+        # Unfiltered, notes/alpha ranks first; the guide is found anyway
+        # when the filter is on, even with limit=1.
+        out = filter_tools.search("refund", limit=1)
+        assert "notes/alpha" in out
+        assert "guides/beta" not in out
+        out = filter_tools.search("refund", limit=1, type_filter="guide")
+        assert "guides/beta" in out
+
+    def test_both_filters_combine(
+        self, filter_tools: BundleTools
+    ) -> None:
+        out = filter_tools.search(
+            "refund", type_filter="note", tier_filter="machine-confirmed"
+        )
+        assert "notes/gamma" in out
+        assert "notes/alpha" not in out
+        assert "guides/beta" not in out
+
+    def test_unknown_tier_returns_error_not_exception(
+        self, filter_tools: BundleTools
+    ) -> None:
+        # the tools' "never an exception" contract covers tier_filter too
+        out = filter_tools.search("refund", tier_filter="bogus")
+        assert out.startswith("Error:")
+        assert "human-reviewed" in out
+
+    def test_blank_filters_ignored(
+        self, filter_tools: BundleTools
+    ) -> None:
+        out = filter_tools.search("refund", type_filter="  ", tier_filter="")
+        assert "notes/alpha" in out
+        assert "guides/beta" in out
+        assert "notes/gamma" in out
+
+    def test_filter_with_no_match(self, filter_tools: BundleTools) -> None:
+        out = filter_tools.search("refund", type_filter="table")
+        assert "No concepts match" in out

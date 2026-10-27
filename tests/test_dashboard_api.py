@@ -403,6 +403,106 @@ class TestSearchTemporal:
         assert payload["superseded_hidden"] == 0
 
 
+def _write_search_filter_trio(bundle_dir: Path) -> None:
+    """Three ``refund`` concepts of mixed type and trust tier.
+
+    Mirrors the CLI/MCP filter fixtures: ``notes/alpha`` (Note,
+    unverified) ranks first unfiltered, ``guides/beta`` (Guide,
+    human-reviewed) second, ``notes/gamma`` (Note, machine-confirmed)
+    third.
+    """
+    bundle = Bundle(bundle_dir)
+    bundle.write_concept(
+        "notes/alpha",
+        {"type": "Note", "title": "Alpha"},
+        "refund " * 10,
+    )
+    bundle.write_concept(
+        "guides/beta",
+        {
+            "type": "Guide",
+            "title": "Beta",
+            "verified": [{"by": "human:alice"}],
+        },
+        "refund policy note",
+    )
+    bundle.write_concept(
+        "notes/gamma",
+        {
+            "type": "Note",
+            "title": "Gamma",
+            "verified": [{"by": "process:nightly"}],
+        },
+        "refund",
+    )
+
+
+class TestSearchFilters:
+    """``GET /api/v1/search`` type/trust-tier filters (0.12.0).
+
+    Dashboard parity with ``okfsmith search --type`` / ``--tier`` and
+    the MCP ``search`` ``type_filter`` / ``tier_filter`` parameters: the
+    filters narrow the candidate set before the per-bundle ``limit`` cut
+    through the shared engine. The query parameter is ``trust_tier`` —
+    not ``tier`` — because this dashboard's ``/concepts`` listing already
+    uses ``tier`` for its own high/medium/low recency axis.
+    """
+
+    def _ids(self, client, workspace, **params):
+        _write_search_filter_trio(workspace / "kb")
+        c, headers = client
+        bid = _bundle_id(c, headers)
+        payload = c.get(
+            "/api/v1/search",
+            params={"q": "refund", "bundle_id": bid, **params},
+            headers=headers,
+        ).json()
+        return payload, [hit["concept_id"] for hit in payload["results"]]
+
+    def test_type_filter_narrows(self, client, workspace):
+        _, ids = self._ids(client, workspace, type="guide")
+        assert ids == ["guides/beta"]
+
+    def test_type_filter_case_insensitive(self, client, workspace):
+        _, ids = self._ids(client, workspace, type="GUIDE")
+        assert ids == ["guides/beta"]
+
+    def test_trust_tier_filter_narrows(self, client, workspace):
+        _, ids = self._ids(client, workspace, trust_tier="human-reviewed")
+        assert ids == ["guides/beta"]
+
+    def test_filters_apply_before_limit(self, client, workspace):
+        # Unfiltered with limit=1, notes/alpha wins; the guide is found
+        # anyway when the filter is on, even at limit=1.
+        _, ids = self._ids(client, workspace, limit=1)
+        assert ids == ["notes/alpha"]
+        _, ids = self._ids(client, workspace, limit=1, type="guide")
+        assert ids == ["guides/beta"]
+
+    def test_both_filters_combine(self, client, workspace):
+        _, ids = self._ids(
+            client, workspace, type="note", trust_tier="machine-confirmed"
+        )
+        assert ids == ["notes/gamma"]
+
+    def test_unknown_trust_tier_is_400(self, client, workspace):
+        _write_search_filter_trio(workspace / "kb")
+        c, headers = client
+        bid = _bundle_id(c, headers)
+        r = c.get(
+            "/api/v1/search",
+            params={"q": "refund", "bundle_id": bid, "trust_tier": "bogus"},
+            headers=headers,
+        )
+        assert r.status_code == 400
+        _error_shape(r.json())
+        assert r.json()["error"] == "bad-trust-tier"
+
+    def test_blank_filters_ignored(self, client, workspace):
+        _, ids = self._ids(client, workspace, type="  ", trust_tier="")
+        assert set(ids) == {"notes/alpha", "guides/beta", "notes/gamma"}
+
+
 # ------------------------------------------------------------------- ingest --
 class TestIngest:
     # Deliberately DIFFERENT bytes from the fixture source: identical bytes

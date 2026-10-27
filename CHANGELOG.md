@@ -5,6 +5,38 @@ follow SemVer.
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-10-27
+
+### Added
+
+- **Type/tier filter parity across all four search interfaces:** the
+  CLI's `search --type` / `--tier` flags (and their filter-before-limit
+  semantics from 0.11.1) now exist everywhere else too — the MCP `search`
+  tool gains `type_filter` / `tier_filter` parameters, the chat REPL's
+  `/search` gains `--type` / `--tier` flags (either form, anywhere in the
+  argument, like `--as-of`), and the dashboard `GET /api/v1/search`
+  gains `?type=` / `?trust_tier=` query parameters. The dashboard
+  parameter is named `trust_tier`, not `tier`, because the dashboard's
+  `/concepts` listing already uses `tier` for its own high/medium/low
+  recency axis. Matching is case-insensitive everywhere, blank values
+  are ignored, and an unknown trust tier is a clean error (MCP/chat) or
+  a `400 bad-trust-tier` (dashboard) — never a silent empty result. On
+  the MCP tool's degraded `rank_concepts` fallback path (engine
+  unavailable) the filters still apply, to the already-truncated hits,
+  so a filter is never silently ignored there either. Docs
+  (`docs/searching.md`, `docs/mcp.md`, `docs/src/chat.md`) updated.
+  Pinned by twenty-four new tests: MCP filter cases in
+  `tests/test_mcp.py::TestSearchFilters` (narrowing, case-insensitivity,
+  both filters combined, filter-before-limit at `limit=1`, unknown-tier
+  error, blank filters ignored, no-match), dashboard cases in
+  `tests/test_dashboard_api.py::TestSearchFilters` (same coverage plus
+  the `400 bad-trust-tier` shape), and chat cases in
+  `tests/test_chat_temporal.py` (parser shapes for `--type` / `--tier`
+  including `=` form and missing-value rejection, slash-command
+  narrowing, unchanged plain `/search`, garbage-tier error, `/help`
+  listing the flags); the pre-existing chat parser tests were updated
+  to the parser's new five-field return shape.
+
 ## [0.11.1] - 2026-10-26
 
 ### Fixed

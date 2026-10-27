@@ -70,18 +70,22 @@ class TestParseSearchArg:
             "refund policy",
             None,
             False,
+            None,
+            None,
         )
 
     def test_flags_anywhere(self) -> None:
         assert _parse_search_arg(
             "--as-of 2026-10-01 refund --include-superseded"
-        ) == ("refund", "2026-10-01", True)
+        ) == ("refund", "2026-10-01", True, None, None)
 
     def test_as_of_equals_form(self) -> None:
         assert _parse_search_arg("refund --as-of=2026-10-01") == (
             "refund",
             "2026-10-01",
             False,
+            None,
+            None,
         )
 
     def test_quoted_phrase_survives(self) -> None:
@@ -89,13 +93,61 @@ class TestParseSearchArg:
             "refund policy",
             "2026-10-01",
             False,
+            None,
+            None,
         )
 
     def test_flags_only_is_unusable(self) -> None:
-        assert _parse_search_arg("--as-of 2026-10-01") == (None, None, None)
+        assert _parse_search_arg("--as-of 2026-10-01") == (
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
 
     def test_as_of_without_value_is_unusable(self) -> None:
-        assert _parse_search_arg("refund --as-of") == (None, None, None)
+        assert _parse_search_arg("refund --as-of") == (
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+
+    def test_type_and_tier_flags(self) -> None:
+        assert _parse_search_arg("refund --type guide --tier human-reviewed") == (
+            "refund",
+            None,
+            False,
+            "guide",
+            "human-reviewed",
+        )
+
+    def test_filter_flags_anywhere_and_equals_form(self) -> None:
+        assert _parse_search_arg("--tier=Guide refund --type=policy") == (
+            "refund",
+            None,
+            False,
+            "policy",
+            "Guide",
+        )
+
+    def test_filter_flag_without_value_is_unusable(self) -> None:
+        assert _parse_search_arg("refund --type") == (
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        assert _parse_search_arg("refund --tier=") == (
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
 
 
 class TestSlashSearchTemporal:
@@ -144,3 +196,80 @@ class TestSlashSearchTemporal:
         session.handle_slash("/help")
         assert "--as-of" in _out(session)
         assert "--include-superseded" in _out(session)
+
+
+def _write_filter_trio(kb: Path) -> None:
+    """Three ``refund`` concepts of mixed type and trust tier.
+
+    Mirrors the CLI/MCP/dashboard filter fixtures.
+    """
+    bundle = Bundle(kb)
+    bundle.write_concept(
+        "notes/alpha",
+        {"type": "Note", "title": "Alpha"},
+        "refund " * 10,
+    )
+    bundle.write_concept(
+        "guides/beta",
+        {
+            "type": "Guide",
+            "title": "Beta",
+            "verified": [{"by": "human:alice"}],
+        },
+        "refund policy note",
+    )
+    bundle.write_concept(
+        "notes/gamma",
+        {
+            "type": "Note",
+            "title": "Gamma",
+            "verified": [{"by": "process:nightly"}],
+        },
+        "refund",
+    )
+
+
+@pytest.fixture()
+def filter_session(tmp_path: Path) -> ChatSession:
+    kb = tmp_path / "kb"
+    _write_filter_trio(kb)
+    console = Console(file=io.StringIO(), width=100)
+    return ChatSession(Bundle.load(kb), kb, backend=None, console=console)
+
+
+class TestSlashSearchFilters:
+    """``/search --type`` / ``--tier``: chat parity with the CLI (0.12.0)."""
+
+    def test_type_flag_narrows(self, filter_session: ChatSession) -> None:
+        filter_session.handle_slash("/search refund --type guide")
+        out = _out(filter_session)
+        assert "guides/beta" in out
+        assert "notes/alpha" not in out
+        assert "notes/gamma" not in out
+
+    def test_tier_flag_narrows(self, filter_session: ChatSession) -> None:
+        filter_session.handle_slash("/search refund --tier human-reviewed")
+        out = _out(filter_session)
+        assert "guides/beta" in out
+        assert "notes/alpha" not in out
+
+    def test_plain_search_unchanged(self, filter_session: ChatSession) -> None:
+        # No flags: the legacy path still lists every match.
+        filter_session.handle_slash("/search refund")
+        out = _out(filter_session)
+        assert "notes/alpha" in out
+        assert "guides/beta" in out
+        assert "notes/gamma" in out
+
+    def test_garbage_tier_is_clean_error_not_exception(
+        self, filter_session: ChatSession
+    ) -> None:
+        assert (
+            filter_session.handle_slash("/search refund --tier bogus") is None
+        )
+        assert "Error:" in _out(filter_session)
+
+    def test_help_lists_filter_flags(self, filter_session: ChatSession) -> None:
+        filter_session.handle_slash("/help")
+        assert "--type" in _out(filter_session)
+        assert "--tier" in _out(filter_session)

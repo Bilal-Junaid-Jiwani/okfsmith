@@ -598,6 +598,20 @@ def create_app(workspace: Path, token: str) -> FastAPI:
             description="Show superseded concepts (demoted last) instead of "
             "hiding them.",
         ),
+        type: str | None = Query(
+            default=None,
+            description="Only concepts of this `type` frontmatter value "
+            "(case-insensitive; the dashboard analogue of "
+            "`okfsmith search --type`).",
+        ),
+        trust_tier: str | None = Query(
+            default=None,
+            description="Only concepts with this trust tier (`unverified`, "
+            "`machine-confirmed`, `human-reviewed`; the dashboard analogue "
+            "of `okfsmith search --tier`). Named `trust_tier` — not `tier` — "
+            "because this dashboard's `/concepts` listing already uses "
+            "`tier` for its own high/medium/low recency axis.",
+        ),
     ):
         from okfsmith.core import temporal as _temporal
         from okfsmith.search import search_bundle_detailed
@@ -618,6 +632,25 @@ def create_app(workspace: Path, token: str) -> FastAPI:
         # One replay instant for every bundle: honest labeling in the
         # envelope, and identical partitioning across the "all" sweep.
         replay_at = moment if moment is not None else _temporal.utcnow()
+        # Filters mirror the CLI's --type / --tier (case-insensitive in the
+        # engine); blank values are ignored, an unknown trust tier is a 400
+        # like a bad as_of, never a silent empty result.
+        type_filter = type.strip() or None if type is not None else None
+        tier_filter = (
+            trust_tier.strip() or None if trust_tier is not None else None
+        )
+        if tier_filter is not None and tier_filter.casefold() not in (
+            "unverified",
+            "machine-confirmed",
+            "human-reviewed",
+        ):
+            raise err(
+                "bad-trust-tier",
+                f"Query 'trust_tier' {trust_tier!r} is not one of: "
+                "unverified, machine-confirmed, human-reviewed.",
+                "Pass e.g. ?trust_tier=human-reviewed.",
+                400,
+            )
         targets: list[tuple[str, Bundle]]
         if bundle_id is not None and bundle_id != "all":
             bundle, _ = _load_bundle_or_404(bundle_id)
@@ -641,6 +674,8 @@ def create_app(workspace: Path, token: str) -> FastAPI:
                     per,
                     as_of=replay_at,
                     include_superseded=include_superseded,
+                    type_filter=type_filter,
+                    tier_filter=tier_filter,
                 )
             except Exception as exc:
                 log.warning("search failed for %s: %s", bid, exc)

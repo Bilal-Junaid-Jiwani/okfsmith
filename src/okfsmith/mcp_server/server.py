@@ -1517,22 +1517,29 @@ class BundleTools:
         limit: int,
         include_superseded: bool,
         as_of: datetime | None = None,
+        type_filter: str | None = None,
+        tier_filter: str | None = None,
     ) -> tuple[list[tuple[float, Concept]], int]:
         """Ranked ``(score, concept)`` hits plus the superseded-hidden count.
 
         Currency-aware (P2): superseded concepts are hidden unless
         *include_superseded* — the same default the ``okfsmith search`` CLI
         uses. *as_of* replays validity and supersession at a past or future
-        instant (the ``okfsmith search --as-of`` flag). Falls back to
-        :func:`rank_concepts` when the BM25 engine is unavailable or rejects
-        malformed frontmatter, so the tools' "never an exception" contract
-        wins over ranking parity on hostile input — the fallback cannot
-        replay, so *as_of* is ignored on that path (C10).
+        instant (the ``okfsmith search --as-of`` flag). *type_filter* /
+        *tier_filter* narrow candidates by concept ``type`` frontmatter and
+        derived trust tier (case-insensitive, the CLI's ``--type`` /
+        ``--tier`` flags) — applied *before* the ``limit`` cut on the engine
+        path. Falls back to :func:`rank_concepts` when the BM25 engine is
+        unavailable or rejects malformed frontmatter, so the tools' "never
+        an exception" contract wins over ranking parity on hostile input —
+        the fallback cannot replay, so *as_of* is ignored on that path
+        (C10), and the filters apply to the already-truncated fallback hits
+        instead of before the cut.
         """
         try:
             from okfsmith.search import search_bundle_detailed
         except ImportError:
-            return rank_concepts(self.bundle, query, limit), 0
+            return self._filtered_fallback(query, limit, type_filter, tier_filter), 0
         try:
             result = search_bundle_detailed(
                 self.bundle,
@@ -1540,10 +1547,43 @@ class BundleTools:
                 limit,
                 as_of=as_of,
                 include_superseded=bool(include_superseded),
+                type_filter=type_filter,
+                tier_filter=tier_filter,
             )
         except (TypeError, AttributeError):
-            return rank_concepts(self.bundle, query, limit), 0
+            return self._filtered_fallback(query, limit, type_filter, tier_filter), 0
         return result.hits, result.superseded_hidden
+
+    def _filtered_fallback(
+        self,
+        query: str,
+        limit: int,
+        type_filter: str | None,
+        tier_filter: str | None,
+    ) -> list[tuple[float, Concept]]:
+        """Degraded-path search: ``rank_concepts`` hits with filters applied.
+
+        Only used when the BM25 engine is unavailable; the filters narrow
+        the already-truncated hits so a filter is never silently ignored,
+        even on this path.
+        """
+        hits = rank_concepts(self.bundle, query, limit)
+        if type_filter is None and tier_filter is None:
+            return hits
+        return [
+            (score, concept)
+            for score, concept in hits
+            if (
+                type_filter is None
+                or str(concept.frontmatter.get("type") or "").casefold()
+                == type_filter.casefold()
+            )
+            and (
+                tier_filter is None
+                or _trust_tier_safe(concept.frontmatter).casefold()
+                == tier_filter.casefold()
+            )
+        ]
 
     def search(
         self,
@@ -1551,6 +1591,8 @@ class BundleTools:
         limit: int = 10,
         include_superseded: bool = False,
         as_of: str | None = None,
+        type_filter: str | None = None,
+        tier_filter: str | None = None,
         max_chunks: int = 10,
         max_tokens: int | None = None,
         continuation_token: str | None = None,
@@ -1570,7 +1612,15 @@ class BundleTools:
         of the CLI's ``--as-of`` flag) replays validity and supersession
         at that instant — e.g. ask what the bundle said about a topic on a
         past date; an unparseable value returns a clean error, never an
-        exception. Evidence budgets: `max_chunks` caps the hits per
+        exception. `type_filter` / `tier_filter` (the MCP analogues of the
+        CLI's ``--type`` / ``--tier`` flags) narrow results to concepts of
+        one ``type`` frontmatter value or one trust tier (`unverified`,
+        `machine-confirmed`, `human-reviewed`); matching is
+        case-insensitive, blank values are ignored, and the filters apply
+        *before* the `limit` cut, so a filtered search never loses
+        matches that ranked below the truncation point. An unknown
+        `tier_filter` returns a clean error, never an exception.
+        Evidence budgets: `max_chunks` caps the hits per
         response (default 10, hard cap 50 — the hidden-superseded note sits
         outside the budget), `max_tokens` is an approximate output budget
         (`None`/negative = unbounded; `0` = no content, marker only), and
@@ -1596,8 +1646,34 @@ class BundleTools:
                     "or datetime — pass e.g. `2025-06-01` or "
                     "`2025-06-01T12:00:00Z`."
                 )
+        type_filter = (
+            type_filter.strip() or None
+            if isinstance(type_filter, str)
+            else type_filter
+        )
+        tier_filter = (
+            tier_filter.strip() or None
+            if isinstance(tier_filter, str)
+            else tier_filter
+        )
+        if tier_filter is not None and tier_filter.casefold() not in (
+            UNVERIFIED,
+            MACHINE_CONFIRMED,
+            HUMAN_REVIEWED,
+        ):
+            return (
+                f"Error: `tier_filter` {tier_filter!r} is not one of: "
+                f"{UNVERIFIED}, {MACHINE_CONFIRMED}, {HUMAN_REVIEWED}."
+            )
         limit = _coerce_limit(limit, 10)
-        hits, hidden = self._search_hits(query, limit, include_superseded, as_of=moment)
+        hits, hidden = self._search_hits(
+            query,
+            limit,
+            include_superseded,
+            as_of=moment,
+            type_filter=type_filter,
+            tier_filter=tier_filter,
+        )
         if not hits:
             return f"No concepts match {query!r}. Try broader keywords or use `list`."
         units = [f"- {_concept_label(c)}\n  {_description(c)}" for _, c in hits]

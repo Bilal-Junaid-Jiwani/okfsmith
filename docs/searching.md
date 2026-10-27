@@ -165,6 +165,16 @@ The BM25 engine lives in one place and is used in three:
   `/search refund --include-superseded` reveals superseded concepts
   instead of hiding them.
 
+Type/tier filters work the same everywhere: the CLI's `--type` / `--tier`
+above are the MCP `search` tool's `type_filter` / `tier_filter`
+parameters, the chat REPL's `/search --type` / `--tier` flags, and the
+dashboard's `GET /api/v1/search?type=…&trust_tier=…` query parameters
+(`trust_tier`, not `tier`, because the dashboard's `/concepts` listing
+already uses `tier` for its own high/medium/low axis). In every
+interface the filters apply before the limit cut, and an unknown trust
+tier is a clean error (MCP/chat) or a `400 bad-trust-tier` (dashboard),
+never a silent empty result.
+
 Given the same bundle and query, the CLI JSON order, the MCP `search`
 order, and the chat `/search` order are identical.
 
