@@ -5,6 +5,17 @@ follow SemVer.
 
 ## [Unreleased]
 
+## [0.12.1] - 2026-10-27
+
+### Fixed
+
+- **Man page and project website now state the current release:** the
+  0.12.0 release bumped `pyproject.toml` but left `man/okfsmith.1`
+  ("okfsmith 0.11.1") and `docs/site/index.html` ("Latest release
+  v0.11.1") stale, which the `test_packaging.py` version pins caught
+  as a CI failure on the 0.12.0 commit. Both now say 0.12.1. No
+  behavior change.
+
 ## [0.12.0] - 2026-10-27
 
 ### Added
