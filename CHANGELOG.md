@@ -5,6 +5,30 @@ follow SemVer.
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-10-28
+
+### Added
+
+- **Chat REPL `/search` gains `--limit` / `-n` (limit parity):** the chat
+  was the only one of the four search interfaces without a result cap —
+  the CLI has `-n` / `--limit`, the MCP `search` tool has `limit`, and
+  the dashboard search has `?limit=`, but chat hardcoded 10 results.
+  `/search refund --limit 2` (or `-n 2`, or `--limit=2`, anywhere in the
+  argument like the other `/search` flags) now returns at most that many
+  results; the default is still 10, and the raised limit actually shows
+  more results because the MCP tool's evidence budget (`max_chunks`) is
+  raised to match (its hard cap of 50 still applies above that). A
+  missing, non-numeric, or non-positive limit prints the `/search`
+  usage line, like the other value flags with no value. The `/help`
+  row lists the flag (in compact placeholder form so the help table's
+  no-wrap column does not truncate it), and `docs/src/chat.md` documents
+  it. Pinned by thirteen new tests in `tests/test_chat_temporal.py`
+  (parser shapes for the space, `=`, and `-n` forms, flag-anywhere
+  with other flags, unusable-value cases, slash-command capping,
+  `-n` alias, limit combined with `--type`, limit above the match
+  count, usage on a bad limit, `/help` listing); the pre-existing
+  parser tests were updated to the parser's new six-field return shape.
+
 ## [0.12.1] - 2026-10-27
 
 ### Fixed

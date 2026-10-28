@@ -72,18 +72,20 @@ class TestParseSearchArg:
             False,
             None,
             None,
+            None,
         )
 
     def test_flags_anywhere(self) -> None:
         assert _parse_search_arg(
             "--as-of 2026-10-01 refund --include-superseded"
-        ) == ("refund", "2026-10-01", True, None, None)
+        ) == ("refund", "2026-10-01", True, None, None, None)
 
     def test_as_of_equals_form(self) -> None:
         assert _parse_search_arg("refund --as-of=2026-10-01") == (
             "refund",
             "2026-10-01",
             False,
+            None,
             None,
             None,
         )
@@ -95,10 +97,12 @@ class TestParseSearchArg:
             False,
             None,
             None,
+            None,
         )
 
     def test_flags_only_is_unusable(self) -> None:
         assert _parse_search_arg("--as-of 2026-10-01") == (
+            None,
             None,
             None,
             None,
@@ -113,6 +117,7 @@ class TestParseSearchArg:
             None,
             None,
             None,
+            None,
         )
 
     def test_type_and_tier_flags(self) -> None:
@@ -122,6 +127,7 @@ class TestParseSearchArg:
             False,
             "guide",
             "human-reviewed",
+            None,
         )
 
     def test_filter_flags_anywhere_and_equals_form(self) -> None:
@@ -131,6 +137,7 @@ class TestParseSearchArg:
             False,
             "policy",
             "Guide",
+            None,
         )
 
     def test_filter_flag_without_value_is_unusable(self) -> None:
@@ -140,8 +147,10 @@ class TestParseSearchArg:
             None,
             None,
             None,
+            None,
         )
         assert _parse_search_arg("refund --tier=") == (
+            None,
             None,
             None,
             None,
@@ -273,3 +282,133 @@ class TestSlashSearchFilters:
         filter_session.handle_slash("/help")
         assert "--type" in _out(filter_session)
         assert "--tier" in _out(filter_session)
+
+
+class TestParseSearchLimit:
+    """``/search --limit`` / ``-n``: chat parity with the CLI (0.13.0)."""
+
+    def test_limit_space_form(self) -> None:
+        assert _parse_search_arg("refund --limit 2") == (
+            "refund",
+            None,
+            False,
+            None,
+            None,
+            2,
+        )
+
+    def test_limit_equals_form(self) -> None:
+        assert _parse_search_arg("refund --limit=3") == (
+            "refund",
+            None,
+            False,
+            None,
+            None,
+            3,
+        )
+
+    def test_limit_n_alias(self) -> None:
+        assert _parse_search_arg("refund -n 1") == (
+            "refund",
+            None,
+            False,
+            None,
+            None,
+            1,
+        )
+
+    def test_limit_anywhere_with_other_flags(self) -> None:
+        assert _parse_search_arg(
+            "--limit 2 refund --type note"
+        ) == ("refund", None, False, "note", None, 2)
+
+    def test_limit_without_value_is_unusable(self) -> None:
+        assert _parse_search_arg("refund --limit") == (
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+
+    def test_limit_non_numeric_is_unusable(self) -> None:
+        assert _parse_search_arg("refund --limit many") == (
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        assert _parse_search_arg("refund --limit=") == (
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+
+    def test_limit_non_positive_is_unusable(self) -> None:
+        assert _parse_search_arg("refund --limit 0") == (
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        assert _parse_search_arg("refund --limit -1") == (
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+
+
+class TestSlashSearchLimit:
+    """``/search --limit``: the cap actually caps (0.13.0)."""
+
+    def test_limit_caps_results(self, filter_session: ChatSession) -> None:
+        filter_session.handle_slash("/search refund --limit 1")
+        out = _out(filter_session)
+        assert "1 result(s)" in out
+        assert "notes/alpha" in out
+        assert "guides/beta" not in out
+        assert "notes/gamma" not in out
+
+    def test_limit_n_alias_caps_results(self, filter_session: ChatSession) -> None:
+        filter_session.handle_slash("/search refund -n 2")
+        out = _out(filter_session)
+        assert "2 result(s)" in out
+
+    def test_limit_combines_with_type_filter(
+        self, filter_session: ChatSession
+    ) -> None:
+        filter_session.handle_slash("/search refund --type note --limit 1")
+        out = _out(filter_session)
+        assert "1 result(s)" in out
+        assert "guides/beta" not in out
+
+    def test_limit_above_match_count_shows_all(
+        self, filter_session: ChatSession
+    ) -> None:
+        filter_session.handle_slash("/search refund --limit 50")
+        out = _out(filter_session)
+        assert "3 result(s)" in out
+        assert "notes/alpha" in out
+        assert "guides/beta" in out
+        assert "notes/gamma" in out
+
+    def test_bad_limit_prints_usage(self, filter_session: ChatSession) -> None:
+        filter_session.handle_slash("/search refund --limit many")
+        out = _out(filter_session)
+        assert "Usage:" in out
+        assert "--limit" in out
+
+    def test_help_lists_limit_flag(self, filter_session: ChatSession) -> None:
+        filter_session.handle_slash("/help")
+        assert "--limit" in _out(filter_session)

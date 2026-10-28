@@ -662,26 +662,33 @@ def _slash_read(session: ChatSession, arg: str) -> None:
 #: ``/help`` has its own row in ``_SLASH_HELP`` below).
 _SEARCH_USAGE = (
     "/search <keywords> [--as-of <date>] [--include-superseded] "
-    "[--type <type>] [--tier <tier>]"
+    "[--type <type>] [--tier <tier>] [--limit <n>]"
 )
+
+#: No explicit ``--limit``: the legacy default, matching the CLI's
+#: ``search`` default, the MCP ``search`` tool's default, and the old
+#: hardcoded chat value.
+_SEARCH_DEFAULT_LIMIT = 10
 
 
 def _parse_search_arg(
     arg: str,
 ) -> (
-    tuple[str, str | None, bool, str | None, str | None]
-    | tuple[None, None, None, None, None]
+    tuple[str, str | None, bool, str | None, str | None, int | None]
+    | tuple[None, None, None, None, None, None]
 ):
     """Split a ``/search`` argument into keywords plus search flags.
 
     ``--as-of <ISO-8601 date or datetime>``, ``--include-superseded``,
-    ``--type <type>`` and ``--tier <tier>`` may appear anywhere in the
-    argument (``--flag=<value>`` also works); everything else is keywords,
-    so quoted phrases survive via ``shlex``.
+    ``--type <type>``, ``--tier <tier>`` and ``--limit <n>`` (``-n`` is
+    the same flag, mirroring ``okfsmith search -n``) may appear anywhere
+    in the argument (``--flag=<value>`` also works); everything else is
+    keywords, so quoted phrases survive via ``shlex``.
     Returns ``(keywords, as_of, include_superseded, type_filter,
-    tier_filter)``, or all-``None`` when the argument is unusable (no
-    keywords, or a value flag with no value) — the caller prints the
-    usage line in that case.
+    tier_filter, limit)``, or all-``None`` when the argument is unusable
+    (no keywords, a value flag with no value, or a ``--limit`` that is
+    not a positive integer) — the caller prints the usage line in that
+    case.
     """
     try:
         tokens = shlex.split(arg)
@@ -692,6 +699,7 @@ def _parse_search_arg(
     include_superseded = False
     type_filter: str | None = None
     tier_filter: str | None = None
+    limit: int | None = None
     i = 0
     while i < len(tokens):
         token = tokens[i]
@@ -699,37 +707,62 @@ def _parse_search_arg(
             include_superseded = True
         elif token == "--as-of":
             if i + 1 >= len(tokens):
-                return None, None, None, None, None
+                return None, None, None, None, None, None
             as_of = tokens[i + 1]
             i += 1
         elif token.startswith("--as-of="):
             as_of = token[len("--as-of="):]
             if not as_of:
-                return None, None, None, None, None
+                return None, None, None, None, None, None
         elif token == "--type":
             if i + 1 >= len(tokens):
-                return None, None, None, None, None
+                return None, None, None, None, None, None
             type_filter = tokens[i + 1]
             i += 1
         elif token.startswith("--type="):
             type_filter = token[len("--type="):]
             if not type_filter:
-                return None, None, None, None, None
+                return None, None, None, None, None, None
         elif token == "--tier":
             if i + 1 >= len(tokens):
-                return None, None, None, None, None
+                return None, None, None, None, None, None
             tier_filter = tokens[i + 1]
             i += 1
         elif token.startswith("--tier="):
             tier_filter = token[len("--tier="):]
             if not tier_filter:
-                return None, None, None, None, None
+                return None, None, None, None, None, None
+        elif token in ("--limit", "-n"):
+            if i + 1 >= len(tokens):
+                return None, None, None, None, None, None
+            try:
+                limit = int(tokens[i + 1])
+            except ValueError:
+                return None, None, None, None, None, None
+            if limit < 1:
+                return None, None, None, None, None, None
+            i += 1
+        elif token.startswith("--limit="):
+            raw = token[len("--limit="):]
+            try:
+                limit = int(raw)
+            except ValueError:
+                return None, None, None, None, None, None
+            if limit < 1:
+                return None, None, None, None, None, None
         else:
             keywords.append(token)
         i += 1
     if not keywords:
-        return None, None, None, None, None
-    return " ".join(keywords), as_of, include_superseded, type_filter, tier_filter
+        return None, None, None, None, None, None
+    return (
+        " ".join(keywords),
+        as_of,
+        include_superseded,
+        type_filter,
+        tier_filter,
+        limit,
+    )
 
 
 def _slash_search(session: ChatSession, arg: str) -> None:
@@ -739,7 +772,9 @@ def _slash_search(session: ChatSession, arg: str) -> None:
     if parsed[0] is None:
         session.console.print(f"[yellow]Usage:[/yellow] {_SEARCH_USAGE}")
         return
-    keywords, as_of, include_superseded, type_filter, tier_filter = parsed
+    keywords, as_of, include_superseded, type_filter, tier_filter, limit = (
+        parsed
+    )
     from okfsmith.mcp_server.server import BundleTools
 
     tools = BundleTools(session.bundle)
@@ -748,35 +783,43 @@ def _slash_search(session: ChatSession, arg: str) -> None:
         and not include_superseded
         and type_filter is None
         and tier_filter is None
+        and limit is None
     ):
         # Unchanged legacy path: the raw argument goes through verbatim
         # (so quoted phrases keep their BM25 meaning) and the BM25
         # emptiness pre-check prints the yellow "No concepts match" line
         # existing tests pin.
-        hits = _search_bundle(session.bundle, arg, 10)
+        hits = _search_bundle(session.bundle, arg, _SEARCH_DEFAULT_LIMIT)
         if not hits:
             session.console.print(
                 f"[yellow]No concepts match {escape(arg)!r}.[/yellow]"
             )
             return
-        session.console.print(Markdown(tools.search(arg, limit=10)))
+        session.console.print(
+            Markdown(tools.search(arg, limit=_SEARCH_DEFAULT_LIMIT))
+        )
         return
-    # Filtered/temporal path: the legacy pre-check evaluates supersession
-    # at *now* and without filters, so it would wrongly report "no match"
-    # for a past instant that resurrects a superseded concept or for a
-    # filter that only matches demoted hits. ``tools.search`` already
-    # returns a clean no-match line and clean ``Error:`` lines for garbage
-    # ``--as-of`` / ``--tier`` values (the MCP tools' "never an exception"
-    # contract), so render it directly.
+    # Filtered/temporal/limited path: the legacy pre-check evaluates
+    # supersession at *now* and without filters, so it would wrongly report
+    # "no match" for a past instant that resurrects a superseded concept
+    # or for a filter that only matches demoted hits. ``tools.search``
+    # already returns a clean no-match line and clean ``Error:`` lines for
+    # garbage ``--as-of`` / ``--tier`` values (the MCP tools' "never an
+    # exception" contract), so render it directly. ``max_chunks`` tracks
+    # the limit so a raised limit actually shows more results: the tool's
+    # evidence budget would otherwise cap the rendered page at 10 items
+    # (its hard cap of 50 still applies above that).
+    effective_limit = limit if limit is not None else _SEARCH_DEFAULT_LIMIT
     session.console.print(
         Markdown(
             tools.search(
                 keywords,
-                limit=10,
+                limit=effective_limit,
                 include_superseded=include_superseded,
                 as_of=as_of,
                 type_filter=type_filter,
                 tier_filter=tier_filter,
+                max_chunks=effective_limit,
             )
         )
     )
@@ -920,7 +963,7 @@ _SLASH_HELP: list[tuple[str, Callable, str]] = [
     ("ingest <path> [--recursive]", _slash_ingest, "Ingest a file or directory into the bundle."),
     ("list", _slash_list, "List concepts in the bundle."),
     ("read <id>", _slash_read, "Print a concept in full."),
-    ("search <keywords> [--as-of <date>] [--include-superseded] [--type <type>] [--tier <tier>]", _slash_search, "Keyword-search concepts, optionally replayed at a past/future instant or narrowed by type / trust tier."),
+    ("search <query> [--as-of DATE] [--include-superseded] [--type TYPE] [--tier TIER] [--limit N]", _slash_search, "Keyword-search concepts, optionally replayed at a past/future instant, narrowed by type / trust tier, or capped at N results (--limit / -n)."),
     ("validate", _slash_validate, "Validate the bundle against OKF v0.2."),
     ("graph", _slash_graph, "Show the concept link graph."),
     ("doctor", _slash_doctor, "Check the environment."),
