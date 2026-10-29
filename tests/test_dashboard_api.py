@@ -220,7 +220,11 @@ class TestBundles:
         ).json()["results"]
         assert results, "real ingest must be searchable"
         hit = results[0]
-        assert set(hit) == {"bundle_id", "concept_id", "title", "snippet", "score"}
+        assert set(hit) == {
+            "bundle_id", "concept_id", "title", "snippet", "score",
+            # 0.14.0: type/trust-tier/temporal fields on every hit.
+            "type", "trust_tier", "temporal_status", "superseded_by",
+        }
         assert hit["concept_id"] == "source/packing-section"
         assert isinstance(hit["score"], float)
         assert "liquor jugs" in hit["snippet"]
@@ -501,6 +505,79 @@ class TestSearchFilters:
     def test_blank_filters_ignored(self, client, workspace):
         _, ids = self._ids(client, workspace, type="  ", trust_tier="")
         assert set(ids) == {"notes/alpha", "guides/beta", "notes/gamma"}
+
+
+class TestSearchResultFields:
+    """``GET /api/v1/search`` hits carry type/trust-tier/temporal fields.
+
+    Dashboard parity with ``okfsmith search --format json`` (0.14.0):
+    each hit reports its frontmatter ``type``, its trust tier, and its
+    temporal status at the replay instant — previously a dashboard client
+    could not tell a current hit from a superseded/expired/future one
+    without an extra call. The tier field is ``trust_tier``, not ``tier``,
+    because the dashboard's ``/concepts`` listing already uses ``tier``
+    for its high/medium/low recency bucket.
+    """
+
+    def _hits(self, client, workspace, **params):
+        _write_search_filter_trio(workspace / "kb")
+        c, headers = client
+        bid = _bundle_id(c, headers)
+        payload = c.get(
+            "/api/v1/search",
+            params={"q": "refund", "bundle_id": bid, **params},
+            headers=headers,
+        ).json()
+        return {hit["concept_id"]: hit for hit in payload["results"]}
+
+    def test_type_and_trust_tier_on_every_hit(self, client, workspace):
+        hits = self._hits(client, workspace)
+        assert hits["notes/alpha"]["type"] == "Note"
+        assert hits["notes/alpha"]["trust_tier"] == "unverified"
+        assert hits["guides/beta"]["type"] == "Guide"
+        assert hits["guides/beta"]["trust_tier"] == "human-reviewed"
+        assert hits["notes/gamma"]["type"] == "Note"
+        assert hits["notes/gamma"]["trust_tier"] == "machine-confirmed"
+        for hit in hits.values():
+            assert hit["temporal_status"] == "current"
+            assert hit["superseded_by"] is None
+
+    def test_superseded_hit_labelled_at_now(self, client, workspace):
+        _write_search_temporal_pair(workspace / "kb")
+        c, headers = client
+        bid = _bundle_id(c, headers)
+        payload = c.get(
+            "/api/v1/search",
+            params={
+                "q": "refund", "bundle_id": bid, "include_superseded": "true",
+            },
+            headers=headers,
+        ).json()
+        hits = {hit["concept_id"]: hit for hit in payload["results"]}
+        assert hits["policy-v1"]["temporal_status"] == "superseded"
+        assert hits["policy-v1"]["superseded_by"] == "policy-v2"
+        assert hits["policy-v2"]["temporal_status"] == "current"
+        assert hits["policy-v2"]["superseded_by"] is None
+
+    def test_status_evaluated_at_replay_instant(self, client, workspace):
+        # At 2026-10-01, v2 is not yet valid, so v1 is still the head
+        # (current) and v2 reports not_yet_valid — the status follows
+        # ?as_of, not the wall clock.
+        _write_search_temporal_pair(workspace / "kb")
+        c, headers = client
+        bid = _bundle_id(c, headers)
+        payload = c.get(
+            "/api/v1/search",
+            params={
+                "q": "refund", "bundle_id": bid, "as_of": "2026-10-01",
+                "include_superseded": "true",
+            },
+            headers=headers,
+        ).json()
+        hits = {hit["concept_id"]: hit for hit in payload["results"]}
+        assert hits["policy-v1"]["temporal_status"] == "current"
+        assert hits["policy-v1"]["superseded_by"] is None
+        assert hits["policy-v2"]["temporal_status"] == "not_yet_valid"
 
 
 # ------------------------------------------------------------------- ingest --

@@ -5,6 +5,30 @@ follow SemVer.
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-10-29
+
+### Added
+
+- **Dashboard search hits now carry type, trust tier, and temporal
+  status:** `GET /api/v1/search` results previously returned only
+  `bundle_id`, `concept_id`, `title`, `snippet`, and `score` — a
+  dashboard client could not tell a current hit from a superseded,
+  expired, or future one, or show its type/tier, without an extra call
+  per hit, while `okfsmith search --format json` already reported all
+  of it. Each hit now also carries `type` (frontmatter type),
+  `trust_tier` (`unverified` / `machine-confirmed` /
+  `human-reviewed`), `temporal_status` (`current` / `superseded` /
+  `expired` / `not_yet_valid`, evaluated at the replay instant, so
+  `?as_of=` changes the labels just as it changes the ranking), and
+  `superseded_by` (the chain head, or `null`). The field is named
+  `trust_tier`, not `tier`, because the dashboard's `/concepts`
+  listing already uses `tier` for its high/medium/low recency bucket.
+  Additive only — no existing field changed. Pinned by three new tests
+  in `tests/test_dashboard_api.py::TestSearchResultFields` (type and
+  trust tier on every hit, superseded labelling at now, status
+  evaluated at the replay instant); `docs/src/temporality.md`
+  documents it.
+
 ## [0.13.0] - 2026-10-28
 
 ### Added

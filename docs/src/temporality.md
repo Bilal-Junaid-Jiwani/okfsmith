@@ -89,7 +89,7 @@ endpoint sweeps `bundle_id=all`).
 | `read` | One-line `[temporal: …]` badge under the concept when it has temporal data or is superseded; JSON `temporal_status` |
 | `validate` | Advisory warnings W016–W020 (never affect conformance) |
 | chat / MCP | The shared search engine applies the same ranking — temporal behavior is identical everywhere |
-| dashboard | `GET /api/v1/search` accepts `?as_of=` (ISO-8601 date or datetime) and `?include_superseded=`; the JSON envelope reports the `as_of` instant used and `superseded_hidden`, like the CLI |
+| dashboard | `GET /api/v1/search` accepts `?as_of=` (ISO-8601 date or datetime) and `?include_superseded=`; the JSON envelope reports the `as_of` instant used and `superseded_hidden`, like the CLI, and each hit carries `type`, `trust_tier`, `temporal_status`, and `superseded_by` (evaluated at the replay instant) |
 
 ## Sync preserves temporal metadata
 

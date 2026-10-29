@@ -681,10 +681,18 @@ def create_app(workspace: Path, token: str) -> FastAPI:
                 log.warning("search failed for %s: %s", bid, exc)
                 continue
             superseded_hidden += result.superseded_hidden
+            # Same temporal labels the CLI's `--format json` search prints,
+            # so dashboard clients need no extra call to tell a current hit
+            # from a superseded/expired/future one. One index per bundle,
+            # not per hit. Named `trust_tier` — not `tier` — because the
+            # dashboard's `/concepts` listing already uses `tier` for its
+            # high/medium/low recency bucket.
+            sindex = _temporal.SupersessionIndex.from_bundle(bundle)
             for score, concept in result.hits:
                 body = concept.body or ""
                 fm = concept.frontmatter or {}
                 desc = str(fm.get("description") or "")
+                status = sindex.status(concept, replay_at)
                 results.append(
                     {
                         "bundle_id": bid,
@@ -692,6 +700,10 @@ def create_app(workspace: Path, token: str) -> FastAPI:
                         "title": _concept_title(concept),
                         "snippet": _search_snippet(f"{desc}\n{body}", query),
                         "score": round(float(score), 4),
+                        "type": str(fm.get("type") or ""),
+                        "trust_tier": _spec.trust_tier(fm),
+                        "temporal_status": status.name,
+                        "superseded_by": status.superseded_by,
                     }
                 )
         results.sort(key=lambda r: r["score"], reverse=True)
