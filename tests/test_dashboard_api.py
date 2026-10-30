@@ -160,8 +160,15 @@ class TestBundles:
         ids = {item["id"] for item in payload["items"]}
         assert ids == {"source/dashboard-qa-notes", "source/packing-section"}
         for item in payload["items"]:
-            assert set(item) == {"id", "title", "tier", "sources", "updated_at"}
+            assert set(item) == {
+                "id", "title", "tier", "sources", "updated_at",
+                # 0.15.0: frontmatter type and trust tier on every item.
+                "type", "trust_tier",
+            }
             assert item["tier"] in ("high", "medium", "low")
+            assert item["trust_tier"] in (
+                "unverified", "machine-confirmed", "human-reviewed",
+            )
 
     def test_concepts_query_filter(self, client):
         c, headers = client
@@ -199,6 +206,71 @@ class TestBundles:
         r = c.get(f"/api/v1/bundles/{bid}/concepts/no-such-concept", headers=headers)
         assert r.status_code == 404
         _error_shape(r.json())
+
+    def test_concepts_type_filter(self, client, workspace):
+        _write_search_filter_trio(workspace / "kb")
+        c, headers = client
+        bid = _bundle_id(c, headers)
+        payload = c.get(
+            f"/api/v1/bundles/{bid}/concepts", params={"type": "guide"},
+            headers=headers,
+        ).json()
+        assert payload["total"] == 1
+        item = payload["items"][0]
+        assert item["id"] == "guides/beta"
+        assert item["type"] == "Guide"
+        assert item["trust_tier"] == "human-reviewed"
+
+    def test_concepts_filters_case_insensitive_and_combined(
+        self, client, workspace
+    ):
+        _write_search_filter_trio(workspace / "kb")
+        c, headers = client
+        bid = _bundle_id(c, headers)
+        payload = c.get(
+            f"/api/v1/bundles/{bid}/concepts", params={"type": "NOTE"},
+            headers=headers,
+        ).json()
+        assert {i["id"] for i in payload["items"]} == {
+            "notes/alpha", "notes/gamma",
+        }
+        payload = c.get(
+            f"/api/v1/bundles/{bid}/concepts",
+            params={"type": "note", "trust_tier": "machine-confirmed"},
+            headers=headers,
+        ).json()
+        assert [i["id"] for i in payload["items"]] == ["notes/gamma"]
+        payload = c.get(
+            f"/api/v1/bundles/{bid}/concepts",
+            params={"trust_tier": "human-reviewed"},
+            headers=headers,
+        ).json()
+        assert [i["id"] for i in payload["items"]] == ["guides/beta"]
+
+    def test_concepts_unknown_trust_tier_is_400(self, client, workspace):
+        _write_search_filter_trio(workspace / "kb")
+        c, headers = client
+        bid = _bundle_id(c, headers)
+        r = c.get(
+            f"/api/v1/bundles/{bid}/concepts",
+            params={"trust_tier": "bogus"},
+            headers=headers,
+        )
+        assert r.status_code == 400
+        _error_shape(r.json())
+        assert r.json()["error"] == "bad-trust-tier"
+
+    def test_concepts_blank_filters_ignored(self, client, workspace):
+        _write_search_filter_trio(workspace / "kb")
+        c, headers = client
+        bid = _bundle_id(c, headers)
+        payload = c.get(
+            f"/api/v1/bundles/{bid}/concepts",
+            params={"type": "  ", "trust_tier": ""},
+            headers=headers,
+        ).json()
+        # Fixture bundle (2 ingested) + trio (3 written) = 5 concepts.
+        assert payload["total"] == 5
 
     def test_graph_shape(self, client):
         c, headers = client

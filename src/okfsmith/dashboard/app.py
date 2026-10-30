@@ -468,17 +468,58 @@ def create_app(workspace: Path, token: str) -> FastAPI:
         bundle_id: str,
         q: str | None = Query(default=None),
         tier: str | None = Query(default=None),
+        type: str | None = Query(
+            default=None,
+            description="Only concepts of this `type` frontmatter value "
+            "(case-insensitive; the dashboard analogue of "
+            "`okfsmith list --type`).",
+        ),
+        trust_tier: str | None = Query(
+            default=None,
+            description="Only concepts with this trust tier (`unverified`, "
+            "`machine-confirmed`, `human-reviewed`; the dashboard analogue "
+            "of `okfsmith list --tier`). Named `trust_tier` — not `tier` — "
+            "because this listing already uses `tier` for its own "
+            "high/medium/low recency axis.",
+        ),
         page: int = Query(default=1, ge=1),
         per_page: int = Query(default=50, ge=1, le=200),
     ):
         bundle, _ = _load_bundle_or_404(bundle_id)
         if tier is not None and tier not in ("high", "medium", "low"):
             raise err("bad-tier", f"Unknown tier '{tier}'.", "Use high, medium, or low.", 400)
+        # Filters mirror the CLI's --type / --tier (case-insensitive in
+        # the comparison); blank values are ignored, an unknown trust
+        # tier is a 400 like a bad recency tier, never a silent empty
+        # result. Same convention as GET /api/v1/search.
+        type_filter = type.strip() or None if type is not None else None
+        tier_filter = (
+            trust_tier.strip() or None if trust_tier is not None else None
+        )
+        if tier_filter is not None and tier_filter.casefold() not in (
+            "unverified",
+            "machine-confirmed",
+            "human-reviewed",
+        ):
+            raise err(
+                "bad-trust-tier",
+                f"Query 'trust_tier' {trust_tier!r} is not one of: "
+                "unverified, machine-confirmed, human-reviewed.",
+                "Pass e.g. ?trust_tier=human-reviewed.",
+                400,
+            )
         needle = (q or "").strip().lower()
         items = []
         for concept in bundle.iter_concepts():
             ctier = _tier_of(concept.frontmatter)
             if tier is not None and ctier != tier:
+                continue
+            fm = concept.frontmatter or {}
+            ctype = str(fm.get("type") or "")
+            if type_filter is not None and ctype.casefold() != type_filter.casefold():
+                continue
+            trust = _spec.trust_tier(fm)
+            if tier_filter is not None and trust.casefold() != tier_filter.casefold():
                 continue
             title = _concept_title(concept)
             if needle and needle not in title.lower() and needle not in concept.id.lower() \
@@ -495,6 +536,8 @@ def create_app(workspace: Path, token: str) -> FastAPI:
                     "id": concept.id,
                     "title": title,
                     "tier": ctier,
+                    "type": ctype,
+                    "trust_tier": trust,
                     "sources": _concept_sources(concept),
                     "updated_at": updated,
                 }

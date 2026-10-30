@@ -5,6 +5,39 @@ follow SemVer.
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-10-30
+
+### Added
+
+- **Dashboard concept listing gains type and trust-tier filters:**
+  `GET /api/v1/bundles/{id}/concepts` was the only concept-inventory
+  surface that could not narrow by frontmatter `type` or trust tier —
+  `okfsmith list --type` / `--tier` and the MCP `list` tool's
+  `filter_type` already could — and it did not even report those two
+  fields, so a dashboard client could not show them without an extra
+  call per concept. The listing now accepts `?type=` and
+  `?trust_tier=` (case-insensitive, blank values ignored, an unknown
+  trust tier is a 400 `bad-trust-tier` like the search endpoint's,
+  never a silent empty result), and every item now also carries `type`
+  and `trust_tier` alongside the existing `tier` recency bucket. The
+  parameter is named `trust_tier`, not `tier`, because the listing
+  already uses `tier` for its high/medium/low recency axis. Additive
+  only — the existing `tier` recency filter, `q` filter, and
+  pagination are unchanged. Pinned by four new tests in
+  `tests/test_dashboard_api.py` (type narrowing, case-insensitive and
+  combined filters, 400 on an unknown trust tier, blank filters
+  ignored); the existing listing-shape test now pins the two new
+  fields.
+
+### Fixed
+
+- **Project website dashboard caption no longer claims a version the
+  screenshot does not show:** the caption under the dashboard
+  screenshot said "The screenshot shows okfsmith v0.8.7", but the
+  screenshot itself carries a v0.8.6 badge. The version claim is
+  dropped rather than bumped, since the image is a fixed capture and
+  no new screenshot was taken.
+
 ## [0.14.0] - 2026-10-29
 
 ### Added
