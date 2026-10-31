@@ -1460,6 +1460,7 @@ class BundleTools:
         self,
         filter_type: str = "",
         limit: int = 50,
+        tier_filter: str = "",
         max_chunks: int = 50,
         max_tokens: int | None = None,
         continuation_token: str | None = None,
@@ -1469,8 +1470,21 @@ class BundleTools:
         Use this for a full inventory of the knowledge base, or to narrow
         down by concept type. `filter_type` matches the concept's frontmatter
         `type` (case-insensitive substring, e.g. "Metric", "Playbook",
-        "Attested Computation"). `limit` caps the number of rows returned
-        (non-numeric input falls back to the default 50).
+        "Attested Computation"). `tier_filter` narrows by derived trust
+        tier (`unverified`, `machine-confirmed`, `human-reviewed`) — the
+        MCP analogue of the CLI's ``okfsmith list --tier`` flag and the
+        dashboard listing's ``?trust_tier=`` parameter, which were the
+        only inventory surfaces that could already do this. Matching is
+        case-insensitive and exact (unlike `filter_type`'s substring
+        match), blank values are ignored, and an unknown tier returns a
+        clean error, never an exception. Both filters apply *before* the
+        `limit` cut, so a filtered listing never loses matches that sat
+        below the truncation point. `limit` caps the number of rows
+        returned (non-numeric input falls back to the default 50).
+
+        `tier_filter` sits after `limit` in the signature so the historic
+        positional calls `list(filter_type, limit)` keep working
+        unchanged (see ``test_old_signatures_unchanged``).
 
         Evidence budgets: `max_chunks` caps the concept rows per response
         (default 50, hard cap 50; the rows are the budget — there are no
@@ -1483,6 +1497,20 @@ class BundleTools:
         any concept, pass its id to `get`.
         """
         self._ensure_fresh_bundle()
+        tier_filter = (
+            tier_filter.strip() or ""
+            if isinstance(tier_filter, str)
+            else tier_filter
+        )
+        if tier_filter and tier_filter.casefold() not in (
+            UNVERIFIED,
+            MACHINE_CONFIRMED,
+            HUMAN_REVIEWED,
+        ):
+            return (
+                f"Error: `tier_filter` {tier_filter!r} is not one of: "
+                f"{UNVERIFIED}, {MACHINE_CONFIRMED}, {HUMAN_REVIEWED}."
+            )
         concepts = list(self.bundle.iter_concepts())
         if filter_type:
             needle = str(filter_type).lower()
@@ -1491,13 +1519,25 @@ class BundleTools:
                 for c in concepts
                 if needle in str(c.frontmatter.get("type", "")).lower()
             ]
+        if tier_filter:
+            wanted = tier_filter.casefold()
+            concepts = [
+                c
+                for c in concepts
+                if _trust_tier_safe(c.frontmatter).casefold() == wanted
+            ]
         concepts = concepts[: _coerce_limit(limit, 50)]
         if not concepts:
-            return (
-                "No concepts found."
-                if not filter_type
-                else f"No concepts found with type matching {filter_type!r}."
-            )
+            if filter_type and tier_filter:
+                return (
+                    f"No concepts found with type matching {filter_type!r} "
+                    f"and trust tier {tier_filter!r}."
+                )
+            if filter_type:
+                return f"No concepts found with type matching {filter_type!r}."
+            if tier_filter:
+                return f"No concepts found with trust tier {tier_filter!r}."
+            return "No concepts found."
         units = [f"- {_concept_label(c)}" for c in concepts]
         title = f"Concepts ({len(units)})"
         return self._render_paged(

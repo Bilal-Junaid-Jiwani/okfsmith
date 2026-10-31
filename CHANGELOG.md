@@ -5,6 +5,30 @@ follow SemVer.
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-10-31
+
+### Added
+
+- **MCP `list` tool gains a `tier_filter` parameter (inventory
+  filter parity):** the MCP `list` tool was the only concept-inventory
+  surface that could not narrow by trust tier — `okfsmith list --tier`
+  and the dashboard listing's `?trust_tier=` already could, and the MCP
+  `search` tool already had `tier_filter` — so an agent listing a bundle
+  could not ask for just the human-reviewed (or just the unverified)
+  concepts without fetching the whole inventory and filtering itself.
+  `list(tier_filter="human-reviewed")` now narrows to that tier, with
+  the same contract as the MCP search filter: case-insensitive exact
+  match against the derived trust tier, blank values ignored, and an
+  unknown tier returns a clean `Error: `tier_filter` ... is not one of`
+  string, never an exception. Both filters apply *before* the `limit`
+  cut, so a filtered listing never loses matches below the truncation
+  point, and `tier_filter` combines with `filter_type`. The parameter
+  sits after `limit` in the signature so the historic positional calls
+  `list(filter_type, limit)` keep working unchanged. Pinned by five new
+  tests in `tests/test_mcp.py` (tier narrowing, case-insensitive and
+  blank values, unknown-tier error, combined type+tier, filter-before-
+  limit); `docs/src/mcp.md` and the MCP server README document it.
+
 ## [0.15.0] - 2026-10-30
 
 ### Added

@@ -87,6 +87,46 @@ def test_list_filter_type(tools: BundleTools) -> None:
     assert "finance/revenue" not in out
 
 
+def test_list_tier_filter(tools: BundleTools) -> None:
+    # Fixture tiers: finance/revenue + computations/revenue are
+    # human-reviewed, finance/profit is machine-confirmed, and
+    # incidents/playbook is unverified.
+    out = tools.list(tier_filter="human-reviewed")
+    assert "finance/revenue" in out
+    assert "computations/revenue" in out
+    assert "finance/profit" not in out
+    assert "incidents/playbook" not in out
+
+
+def test_list_tier_filter_case_insensitive_and_blank(tools: BundleTools) -> None:
+    out = tools.list(tier_filter="HUMAN-REVIEWED")
+    assert "finance/revenue" in out
+    assert "finance/profit" not in out
+    assert "incidents/playbook" in tools.list(tier_filter="  ")
+
+
+def test_list_tier_filter_unknown_is_clean_error(tools: BundleTools) -> None:
+    out = tools.list(tier_filter="gold")
+    assert out.startswith("Error: `tier_filter`")
+    assert "unverified" in out and "human-reviewed" in out
+
+
+def test_list_tier_filter_combines_with_type(tools: BundleTools) -> None:
+    out = tools.list(filter_type="BigQuery", tier_filter="human-reviewed")
+    assert "finance/revenue" in out
+    assert "computations/revenue" not in out
+    out = tools.list(filter_type="Metric", tier_filter="human-reviewed")
+    assert "No concepts found" in out
+
+
+def test_list_tier_filter_applies_before_limit(tools: BundleTools) -> None:
+    # incidents/playbook is the only unverified concept and sorts last;
+    # a limit-before-filter cut of 1 would drop it and return nothing.
+    out = tools.list(tier_filter="unverified", limit=1)
+    assert "incidents/playbook" in out
+    assert "finance/revenue" not in out
+
+
 def test_list_limit(tools: BundleTools) -> None:
     out = tools.list(limit=1)
     assert len([line for line in out.splitlines() if line.startswith("- ")]) == 1

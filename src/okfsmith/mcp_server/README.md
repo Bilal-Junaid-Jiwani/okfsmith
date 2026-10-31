@@ -19,7 +19,7 @@ pip install "okfsmith[mcp]"
 | Tool | What it does |
 |---|---|
 | `index()` | Root `index.md` — the map of the whole knowledge base (start here) |
-| `list(filter_type="", limit=50)` | Concept inventory: id, type, trust tier, title; optional type filter |
+| `list(filter_type="", limit=50, tier_filter="")` | Concept inventory: id, type, trust tier, title; optional type filter and trust-tier filter (`unverified` / `machine-confirmed` / `human-reviewed`) |
 | `search(query, limit=10)` | Keyword search over id / title / description / tags / body, ranked by field |
 | `get(concept_id)` | Full concept: YAML frontmatter + markdown body |
 | `neighbors(concept_id)` | Outgoing links + incoming backlinks, with the link text as the relation note |
