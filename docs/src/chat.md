@@ -105,7 +105,7 @@ Extractive mode: excerpts above, no generative summary. Use /read <id> for the f
 |---|---|
 | `/help` | Show this table. |
 | `/ingest <path> [--recursive]` | Ingest a file or directory into the bundle. |
-| `/list` | List concepts in the bundle. |
+| `/list [--type <type>] [--tier <tier>]` | List concepts in the bundle, optionally narrowed to one concept type (`--type`) or trust tier (`--tier`) — the same filters as `okfsmith list`, the MCP `list` tool, and the dashboard listing. |
 | `/read <id>` | Print a concept in full. |
 | `/search <keywords> [--as-of <date>] [--include-superseded] [--type <type>] [--tier <tier>] [--limit <n>]` | Keyword-search concepts, optionally replayed at a past/future instant (`--as-of`, ISO-8601 date or datetime), with superseded concepts shown (`--include-superseded`), narrowed to one concept type (`--type`) or trust tier (`--tier`), or capped at `<n>` results (`--limit` / `-n`, default 10) — the same temporal replay, filters, and limit as `okfsmith search`, the MCP `search` tool, and the dashboard search. |
 | `/validate` | Validate the bundle against OKF v0.2. |

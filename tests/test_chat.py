@@ -344,6 +344,76 @@ def test_ctrl_c_cancels_input_and_session_survives(
     assert "api/auth" in capsys.readouterr().out
 
 
+def test_slash_list_tier_filter(session: ChatSession, capsys: pytest.CaptureFixture) -> None:
+    code = _run_with_inputs(session, ["/list --tier human-reviewed", "/exit"])
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "api/auth" in out
+    assert "api/limits" not in out
+    assert "guide/errors" not in out
+    assert "1 concept(s)" in out
+
+
+def test_slash_list_filters_case_insensitive_and_equals_form(
+    session: ChatSession, capsys: pytest.CaptureFixture
+) -> None:
+    code = _run_with_inputs(session, ["/list --tier=HUMAN-REVIEWED", "/exit"])
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "api/auth" in out
+    assert "api/limits" not in out
+    assert "1 concept(s)" in out
+
+
+def test_slash_list_combined_type_and_tier(
+    session: ChatSession, capsys: pytest.CaptureFixture
+) -> None:
+    code = _run_with_inputs(
+        session, ["/list --type Guide --tier unverified", "/exit"]
+    )
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "guide/errors" in out
+    assert "api/auth" not in out
+    assert "api/limits" not in out
+    assert "1 concept(s)" in out
+
+
+def test_slash_list_type_filter_mixed_bundle(
+    tmp_path: Path, capsys: pytest.CaptureFixture
+) -> None:
+    kb = tmp_path / "kb"
+    _write_concept(
+        kb, "m/revenue", "type: Metric\ntitle: Revenue\n", "# Revenue\n\nBody."
+    )
+    _write_concept(
+        kb,
+        "g/auth",
+        "type: Guide\ntitle: Auth\nverified:\n  - by: human:alice\n",
+        "# Auth\n\nBody.",
+    )
+    console = Console(file=io.StringIO(), width=100)
+    mixed = ChatSession(Bundle.load(kb), kb, backend=None, console=console)
+    code = _run_with_inputs(mixed, ["/list --type Metric", "/exit"])
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "m/revenue" in out
+    assert "g/auth" not in out
+    assert "1 concept(s)" in out
+
+
+def test_slash_list_unknown_tier_and_flag_keep_session_alive(
+    session: ChatSession,
+) -> None:
+    code = _run_with_inputs(
+        session, ["/list --tier bogus", "/list --bogus", "/list", "/exit"]
+    )
+    assert code == 0
+    out = _out(session)
+    assert "Unknown trust tier 'bogus'" in out
+    assert "Usage: /list [--type <type>] [--tier <tier>]" in out
+
+
 def test_ctrl_c_during_answer_does_not_kill_session(
     bundle_dir: Path,
 ) -> None:

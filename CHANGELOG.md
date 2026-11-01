@@ -5,6 +5,29 @@ follow SemVer.
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-11-01
+
+### Added
+
+- **Chat `/list` gains `--type` and `--tier` filters (inventory
+  filter parity):** the chat listing was the only concept-inventory
+  surface that could not narrow at all — `okfsmith list --type` /
+  `--tier`, the MCP `list` tool's `filter_type` / `tier_filter`, and
+  the dashboard listing's `?type=` / `?trust_tier=` already could —
+  so browsing a large bundle from the REPL meant paging through
+  everything. `/list --type Guide --tier human-reviewed` now narrows
+  with the same contract as the CLI: case-insensitive exact match on
+  frontmatter `type` and derived trust tier, `--flag=<value>` also
+  works, and an unknown tier prints a clean `Unknown trust tier ...`
+  hint (never a traceback — the REPL survives, since the CLI's
+  `BadParameter` is not one the loop catches). Bare words and unknown
+  flags print the usage line instead of being silently ignored, and
+  bare `/list` still lists everything as before. Pinned by five new
+  tests in `tests/test_chat.py` (tier narrowing, case-insensitive and
+  `=`-form flags, combined type+tier, type narrowing on a mixed-type
+  bundle, unknown tier/flag keeping the session alive); `docs/src/
+  chat.md` and the `/help` table document the flags.
+
 ## [0.16.0] - 2026-10-31
 
 ### Added

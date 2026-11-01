@@ -633,17 +633,85 @@ def _slash_ingest(session: ChatSession, arg: str) -> None:
     )
 
 
-def _slash_list(session: ChatSession, _arg: str) -> None:
+#: Usage line for ``/list`` (printed when its arguments are unusable;
+#: ``/help`` has its own row in ``_SLASH_HELP`` below).
+_LIST_USAGE = "/list [--type <type>] [--tier <tier>]"
+
+
+def _parse_list_arg(arg: str) -> tuple[str | None, str | None] | None:
+    """Split a ``/list`` argument into type/tier filters.
+
+    ``--type <type>`` and ``--tier <tier>`` (``--flag=<value>`` also
+    works) narrow the listing exactly like ``okfsmith list --type`` /
+    ``--tier``, the MCP ``list`` tool's ``filter_type`` / ``tier_filter``,
+    and the dashboard listing's ``?type=`` / ``?trust_tier=`` — the chat
+    listing was the only inventory surface that could not narrow at
+    all, so browsing a large bundle meant paging through everything.
+    Returns ``(type_filter, tier_filter)`` — either may be ``None`` —
+    or ``None`` when the argument is unusable (an unknown flag, a value
+    flag with no value); the caller prints the usage line in that case.
+    Tier *values* are validated by the caller, so the error can name the
+    valid tiers instead of just repeating the usage line.
+    """
+    try:
+        tokens = shlex.split(arg)
+    except ValueError:  # unbalanced quote — fall back to plain splitting
+        tokens = arg.split()
+    type_filter: str | None = None
+    tier_filter: str | None = None
+    i = 0
+    while i < len(tokens):
+        token = tokens[i]
+        if token == "--type":
+            if i + 1 >= len(tokens):
+                return None
+            type_filter = tokens[i + 1]
+            i += 1
+        elif token.startswith("--type="):
+            type_filter = token[len("--type="):]
+            if not type_filter:
+                return None
+        elif token == "--tier":
+            if i + 1 >= len(tokens):
+                return None
+            tier_filter = tokens[i + 1]
+            i += 1
+        elif token.startswith("--tier="):
+            tier_filter = token[len("--tier="):]
+            if not tier_filter:
+                return None
+        else:
+            return None
+        i += 1
+    return (type_filter, tier_filter)
+
+
+def _slash_list(session: ChatSession, arg: str) -> None:
     from okfsmith.cli import commands as _cmd
 
+    parsed = _parse_list_arg(arg)
+    if parsed is None:
+        session.console.print(f"[yellow]Usage:[/yellow] {_LIST_USAGE}")
+        return
+    type_filter, tier_filter = parsed
+    if tier_filter is not None and tier_filter.casefold() not in _cmd.TRUST_TIERS:
+        # A bad tier must not reach list_concepts: it raises
+        # typer.BadParameter, which the REPL loop does not catch, so an
+        # unvalidated value would kill the session instead of printing
+        # a hint (unlike /search, whose MCP tool returns an Error line).
+        session.console.print(
+            f"[yellow]Unknown trust tier {escape(tier_filter)!r} — use one "
+            f"of: {', '.join(_cmd.TRUST_TIERS)}.[/yellow]"
+        )
+        return
     # Pass every option explicitly: calling a Typer command function
     # directly leaves OptionInfo sentinels in place of unset options.
     _run_cli(
         session,
         _cmd.list_concepts,
         session.bundle_root,
-        None,
-        None,
+        type_filter,
+        tier_filter,
         _cmd.ValidateFormat.text,
     )
 
@@ -961,7 +1029,7 @@ _SLASH: dict[str, Callable[[ChatSession, str], str | None]] = {
 _SLASH_HELP: list[tuple[str, Callable, str]] = [
     ("help", _slash_help, "Show this table."),
     ("ingest <path> [--recursive]", _slash_ingest, "Ingest a file or directory into the bundle."),
-    ("list", _slash_list, "List concepts in the bundle."),
+    ("list [--type TYPE] [--tier TIER]", _slash_list, "List concepts in the bundle, optionally narrowed by type / trust tier."),
     ("read <id>", _slash_read, "Print a concept in full."),
     ("search <query> [--as-of DATE] [--include-superseded] [--type TYPE] [--tier TIER] [--limit N]", _slash_search, "Keyword-search concepts, optionally replayed at a past/future instant, narrowed by type / trust tier, or capped at N results (--limit / -n)."),
     ("validate", _slash_validate, "Validate the bundle against OKF v0.2."),
