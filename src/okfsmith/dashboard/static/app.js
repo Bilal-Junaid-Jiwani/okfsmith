@@ -219,6 +219,16 @@ function tierPill(tier) {
   return el('span', { class: 'pill ' + cls, text: String(tier || 'unknown') });
 }
 
+// Trust-tier pill for search hits: the /search API returns `trust_tier`
+// (human-reviewed / machine-confirmed / unverified), NOT the recency
+// `tier` (high / medium / low) the concept endpoints return, so pilling
+// a search hit off the recency field always showed "unknown".
+function trustTierPill(tier) {
+  const t = String(tier || 'unknown').toLowerCase();
+  const cls = t === 'human-reviewed' ? 'pill-green' : t === 'machine-confirmed' ? 'pill-amber' : 'pill-muted';
+  return el('span', { class: 'pill ' + cls, text: String(tier || 'unknown') });
+}
+
 function scoreColor(v) {
   v = Number(v);
   if (isNaN(v)) return 'var(--muted)';
@@ -866,8 +876,12 @@ ROUTES.explore = function (view) {
     if (!results.length) { resultsWrap.append(emptyState('search', 'No results', 'Nothing in this bundle matched "' + q + '". Try different keywords.')); return; }
     resultsWrap.append(el('div', { class: 'muted small', text: results.length + ' result' + (results.length === 1 ? '' : 's') }));
     for (const r of results) {
+      const metaBits = [];
+      if (r.type) metaBits.push(r.type);
+      if (r.temporal_status && r.temporal_status !== 'current') metaBits.push(String(r.temporal_status).replace(/_/g, ' '));
       const hit = el('button', { class: 'search-hit' },
-        el('div', { class: 'hit-title' }, el('span', { text: r.title }), tierPill(r.tier), el('span', { class: 'hit-score', text: Number(r.score).toFixed(3) })),
+        el('div', { class: 'hit-title' }, el('span', { text: r.title }), trustTierPill(r.trust_tier), el('span', { class: 'hit-score', text: Number(r.score).toFixed(3) })),
+        metaBits.length ? el('div', { class: 'muted small', text: metaBits.join(' · ') }) : null,
         el('div', { class: 'hit-snippet', text: r.snippet || '' }));
       hit.onclick = () => openConceptModal(r.bundle_id || bundle.id, r.concept_id, r.title);
       resultsWrap.append(hit);

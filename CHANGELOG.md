@@ -5,6 +5,22 @@ follow SemVer.
 
 ## [Unreleased]
 
+## [0.17.1] - 2026-11-02
+
+### Fixed
+
+- **Dashboard Explore search hits showed an "unknown" trust pill:**
+  the hit row rendered `tierPill(r.tier)`, but `GET /api/v1/search`
+  never returns a `tier` field — its trust field is `trust_tier`
+  (`tier` is the high/medium/low recency bucket the concept endpoints
+  return). Every search hit therefore showed "unknown" no matter how
+  trusted the concept was. Hits now pill the real `trust_tier`
+  (human-reviewed green, machine-confirmed amber, unverified muted),
+  and the meta line under the title also shows the concept `type` and
+  a non-current `temporal_status` (e.g. superseded) instead of dropping
+  both fields the API already returned. Pinned by two new tests in
+  `tests/test_dashboard_ui.py` asserting against the shipped `app.js`.
+
 ## [0.17.0] - 2026-11-01
 
 ### Added
