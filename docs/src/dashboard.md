@@ -76,6 +76,9 @@ What you can do:
 
 - **Click any node** to inspect the concept: its full text, trust tier,
   sources, and validation state.
+- **Search** above the graph, narrowed by concept type and trust tier
+  — the same `?type=` / `?trust_tier=` filters as `okfsmith search
+  --type` / `--tier`.
 - **Zoom** with the `+` / `−` buttons or your mouse wheel; **drag** to
   pan.
 - **Keyboard**: arrow keys pan, `+` / `−` zoom, `[` and `]` cycle

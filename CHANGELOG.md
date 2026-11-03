@@ -5,6 +5,24 @@ follow SemVer.
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-11-03
+
+### Added
+
+- **Dashboard Explore search gains type and trust-tier filters:**
+  `GET /api/v1/search` has accepted `?type=` / `?trust_tier=` since
+  0.14 (the dashboard analogue of `okfsmith search --type` /
+  `--tier`), but the Explore page never exposed them, so narrowing a
+  search meant re-running it on the CLI or in chat. The search bar now
+  has a type text input (type is free-form frontmatter text) and a
+  trust-tier select (`unverified` / `machine-confirmed` /
+  `human-reviewed`), both passed through to the API — blank values
+  send no parameter, exactly like the API's own convention. Changing
+  the trust-tier select re-runs an already-shown search, so narrowing
+  needs no retyped query; the type input runs on Enter like the main
+  query box. Pinned by two new tests in
+  `tests/test_dashboard_ui.py` asserting against the shipped `app.js`.
+
 ## [0.17.1] - 2026-11-02
 
 ### Fixed

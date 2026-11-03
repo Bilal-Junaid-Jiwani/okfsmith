@@ -855,22 +855,39 @@ ROUTES.explore = function (view) {
   if (!bundle) return;
 
   // search
+  // Type / trust-tier filters for the search: GET /api/v1/search has
+  // accepted ?type= / ?trust_tier= since 0.14 (the dashboard analogue
+  // of `okfsmith search --type` / `--tier`), but the Explore page never
+  // exposed them, so narrowing a search meant re-running it on the CLI
+  // or in chat. Type is free-form frontmatter text, so it is a text
+  // input; trust tier is a closed set, so it is a select.
   const searchInput = el('input', { class: 'input', type: 'search', placeholder: 'Search concepts across bundles…  (Enter to search)', 'aria-label': 'Search concepts' });
   const scopeSel = el('select', { class: 'select', 'aria-label': 'Search scope' },
     el('option', { value: bundle.id, text: 'This bundle' }),
     el('option', { value: 'all', text: 'All bundles' }));
+  const searchTypeInput = el('input', { class: 'input', type: 'text', placeholder: 'Type filter (optional)', 'aria-label': 'Filter search by concept type' });
+  const searchTrustSel = el('select', { class: 'select', 'aria-label': 'Filter search by trust tier' },
+    el('option', { value: '', text: 'Any trust tier' }),
+    el('option', { value: 'unverified', text: 'unverified' }),
+    el('option', { value: 'machine-confirmed', text: 'machine-confirmed' }),
+    el('option', { value: 'human-reviewed', text: 'human-reviewed' }));
   const resultsWrap = el('div', { class: 'search-results' });
-  view.append(el('div', { class: 'search-bar' }, searchInput, scopeSel), resultsWrap);
+  view.append(el('div', { class: 'search-bar' }, searchInput, scopeSel, searchTypeInput, searchTrustSel), resultsWrap);
 
-  searchInput.addEventListener('keydown', async (e) => {
-    if (e.key !== 'Enter') return;
+  let exploreSearched = false;
+  async function runExploreSearch() {
     const q = searchInput.value.trim();
     if (!q) return;
+    exploreSearched = true;
     resultsWrap.innerHTML = '';
     resultsWrap.append(skeletonBlock(2));
+    let url = '/search?q=' + encodeURIComponent(q) + '&bundle_id=' + encodeURIComponent(scopeSel.value) + '&limit=25';
+    const typeFilter = searchTypeInput.value.trim();
+    if (typeFilter) url += '&type=' + encodeURIComponent(typeFilter);
+    if (searchTrustSel.value) url += '&trust_tier=' + encodeURIComponent(searchTrustSel.value);
     let results = [];
     try {
-      results = (await api('/search?q=' + encodeURIComponent(q) + '&bundle_id=' + encodeURIComponent(scopeSel.value) + '&limit=25')).results || [];
+      results = (await api(url)).results || [];
     } catch (err) { resultsWrap.innerHTML = ''; resultsWrap.append(emptyState('search', 'Search failed', err.message)); return; }
     resultsWrap.innerHTML = '';
     if (!results.length) { resultsWrap.append(emptyState('search', 'No results', 'Nothing in this bundle matched "' + q + '". Try different keywords.')); return; }
@@ -886,7 +903,14 @@ ROUTES.explore = function (view) {
       hit.onclick = () => openConceptModal(r.bundle_id || bundle.id, r.concept_id, r.title);
       resultsWrap.append(hit);
     }
-  });
+  }
+
+  searchInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') runExploreSearch(); });
+  searchTypeInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') runExploreSearch(); });
+  // Changing the trust-tier select re-runs an already-shown search, so
+  // narrowing does not need the query retyped; with no search yet it
+  // just arms the filter for the next Enter.
+  searchTrustSel.addEventListener('change', () => { if (exploreSearched) runExploreSearch(); });
 
   // graph
   const layout = el('div', { class: 'explore-layout' });

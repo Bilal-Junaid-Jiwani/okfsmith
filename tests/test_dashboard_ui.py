@@ -44,3 +44,48 @@ def test_search_hits_surface_type_and_temporal_status():
     )
     # The hit meta line shows the concept type when the API provides one.
     assert "r.type" in js, "Explore search hits must surface the API's type"
+
+
+def _explore_js() -> str:
+    """The Explore page's own section of app.js (up to the graph code)."""
+    js = _app_js()
+    start = js.index("page: explore")
+    end = js.index("// graph", start)
+    return js[start:end]
+
+
+def test_explore_search_exposes_type_and_trust_tier_filters():
+    """Explore search must offer the ?type= / ?trust_tier= filters.
+
+    GET /api/v1/search has accepted both since 0.14 (the dashboard
+    analogue of `okfsmith search --type` / `--tier`), but the Explore
+    page never exposed them, so narrowing a search meant re-running it
+    on the CLI or in chat. The request URL must carry both parameters,
+    and the trust-tier select must offer the API's closed tier set.
+    """
+    js = _explore_js()
+    assert "'&type=' + encodeURIComponent" in js, (
+        "Explore search must pass its type filter as ?type= to /search"
+    )
+    assert "'&trust_tier=' + encodeURIComponent" in js, (
+        "Explore search must pass its trust-tier filter as ?trust_tier= "
+        "to /search"
+    )
+    for tier in ("unverified", "machine-confirmed", "human-reviewed"):
+        assert f"value: '{tier}'" in js, (
+            f"Explore search trust-tier select must offer {tier!r}"
+        )
+
+
+def test_explore_search_reruns_when_trust_tier_changes():
+    """Changing the trust-tier select re-runs an already-shown search."""
+    js = _explore_js()
+    assert "searchTrustSel.addEventListener('change'" in js, (
+        "Explore search must re-run when its trust-tier select changes, "
+        "so narrowing does not need the query retyped"
+    )
+    assert "exploreSearched" in js, (
+        "Explore search must track whether a search has been shown, so "
+        "a filter change before the first search does not fire a query "
+        "with no keywords"
+    )

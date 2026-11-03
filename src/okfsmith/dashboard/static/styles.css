@@ -511,7 +511,7 @@ table.data tr.clickable { cursor: pointer; }
 .dp-body { font-size: 13px; color: var(--text); white-space: pre-wrap; word-break: break-word; background: var(--bg); border: 1px solid var(--border-soft); border-radius: 8px; padding: 12px; max-height: 320px; overflow-y: auto; }
 .dp-body.full { max-height: 520px; }
 
-.search-bar { display: flex; gap: 10px; margin-bottom: 16px; }
+.search-bar { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; }
 .search-bar .input { flex: 1; }
 .search-results { display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px; }
 .search-hit { text-align: left; width: 100%; background: var(--surface); border: 1px solid var(--border-soft); border-radius: var(--radius); padding: 13px 16px; cursor: pointer; color: var(--text); font-family: var(--font); transition: border-color 0.15s ease, transform 0.1s ease; }
