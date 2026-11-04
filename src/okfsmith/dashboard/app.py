@@ -558,6 +558,14 @@ def create_app(workspace: Path, token: str) -> FastAPI:
             "id": concept.id,
             "title": _concept_title(concept),
             "tier": _tier_of(concept.frontmatter),
+            # Same explicit fields the listing and /search responses
+            # already carry: the detail views (graph panel, concept
+            # modal) used to show only the opaque high/medium/low
+            # recency bucket, so a reader could not tell whether the
+            # concept was human-reviewed or merely unverified, nor
+            # what type it is — both are now first-class fields.
+            "trust_tier": _spec.trust_tier(fm),
+            "type": str(fm.get("type") or ""),
             "frontmatter": fm,
             "body": concept.body or "",
             "sources": _concept_sources(concept),

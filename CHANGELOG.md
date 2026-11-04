@@ -5,6 +5,25 @@ follow SemVer.
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-11-04
+
+### Added
+
+- **Dashboard concept detail views show trust tier and type:**
+  `GET /api/v1/bundles/{id}/concepts/{concept_id}` now returns the
+  same explicit `trust_tier` and `type` fields the listing and
+  `/search` responses already carry, and both detail views — the
+  Explore graph's detail panel and the concept modal opened from a
+  search hit — pill the real trust tier (`human-reviewed` green,
+  `machine-confirmed` amber, `unverified` muted) and show the type
+  next to it. Previously they showed only the opaque high/medium/low
+  recency bucket, so opening a concept never said whether it was
+  human-reviewed or merely unverified, nor what type it is. Pinned by
+  an updated `test_concept_detail_real_data` (exact response shape
+  plus the new fields) and a new test in
+  `tests/test_dashboard_ui.py` asserting both detail renderers read
+  `c.trust_tier` / `c.type` from the shipped `app.js`.
+
 ## [0.18.0] - 2026-11-03
 
 ### Added

@@ -309,7 +309,7 @@ async function conceptDetailBody(bundleId, conceptId) {
     const c = await api('/bundles/' + encodeURIComponent(bundleId) + '/concepts/' + encodeURIComponent(conceptId));
     wrap.innerHTML = '';
     wrap.append(
-      el('div', { class: 'dp-meta' }, tierPill(c.tier)),
+      el('div', { class: 'dp-meta' }, tierPill(c.tier), trustTierPill(c.trust_tier), c.type ? el('span', { class: 'muted small', text: c.type }) : null),
       el('div', { class: 'dp-section-label', text: 'Sources' }),
       c.sources && c.sources.length
         ? el('div', { class: 'dp-sources' }, c.sources.map((s) => el('span', { class: 'src-chip', text: s })))
@@ -961,7 +961,7 @@ async function showConceptInPanel(panel, bundleId, node) {
     openFullBtn.onclick = () => { bodyBox.textContent = c.body || '(empty body)'; bodyBox.classList.add('full'); openFullBtn.remove(); };
     panel.append(
       el('h3', { class: 'dp-title', text: c.title }),
-      el('div', { class: 'dp-meta' }, tierPill(c.tier)),
+      el('div', { class: 'dp-meta' }, tierPill(c.tier), trustTierPill(c.trust_tier), c.type ? el('span', { class: 'muted small', text: c.type }) : null),
       el('div', { class: 'dp-section-label', text: 'Sources' }),
       c.sources && c.sources.length
         ? el('div', { class: 'dp-sources' }, c.sources.map((s) => el('span', { class: 'src-chip', text: s })))

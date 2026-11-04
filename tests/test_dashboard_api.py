@@ -192,10 +192,16 @@ class TestBundles:
             headers=headers,
         ).json()
         assert set(detail) == {
-            "id", "title", "tier", "frontmatter", "body",
-            "sources", "provenance",
+            "id", "title", "tier", "trust_tier", "type", "frontmatter",
+            "body", "sources", "provenance",
         }
         assert detail["title"] == "Dashboard QA Notes"
+        # The detail response carries the same explicit trust/type
+        # fields the listing and /search responses do (freshly
+        # ingested concepts carry no `verified` key, and ingest
+        # defaults their type to Draft).
+        assert detail["trust_tier"] == "unverified"
+        assert detail["type"] == "Draft"
         # Real ingested body text, not fixture JSON.
         assert "The quick brown fox jumps over the lazy dog" in detail["body"]
         assert detail["sources"], "ingested concepts carry their source file"

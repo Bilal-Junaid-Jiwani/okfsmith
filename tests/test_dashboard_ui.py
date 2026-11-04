@@ -1,4 +1,4 @@
-"""Tests for the dashboard SPA's Explore search-hit rendering.
+"""Tests for the dashboard SPA's Explore search-hit and concept-detail rendering.
 
 Regression test for the 0.17.1 bug: the Explore page rendered each search
 hit with ``tierPill(r.tier)``, but ``GET /api/v1/search`` never returns a
@@ -74,6 +74,36 @@ def test_explore_search_exposes_type_and_trust_tier_filters():
     for tier in ("unverified", "machine-confirmed", "human-reviewed"):
         assert f"value: '{tier}'" in js, (
             f"Explore search trust-tier select must offer {tier!r}"
+        )
+
+
+def _detail_js(fn_name, end_marker):
+    """One concept-detail renderer's section of app.js."""
+    js = _app_js()
+    start = js.index(fn_name)
+    return js[start:js.index(end_marker, start)]
+
+
+def test_concept_detail_views_render_trust_tier_and_type():
+    """Both concept-detail views must show trust tier and type.
+
+    The graph detail panel and the concept modal used to pill only the
+    opaque high/medium/low recency bucket, so a reader opening a
+    concept could not tell whether it was human-reviewed or merely
+    unverified, nor what type it is — even though the listing and
+    search hits already surface both. Each detail renderer must pill
+    the detail endpoint's `trust_tier` and show its `type`.
+    """
+    for fn_name, end_marker in (
+        ("async function conceptDetailBody", "function openConceptModal"),
+        ("async function showConceptInPanel", "function buildGraph"),
+    ):
+        section = _detail_js(fn_name, end_marker)
+        assert "trustTierPill(c.trust_tier)" in section, (
+            f"{fn_name} must pill the detail endpoint's trust_tier"
+        )
+        assert "c.type" in section, (
+            f"{fn_name} must surface the detail endpoint's type"
         )
 
 
