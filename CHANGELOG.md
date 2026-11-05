@@ -5,6 +5,18 @@ follow SemVer.
 
 ## [Unreleased]
 
+## [0.20.1] - 2026-11-05
+
+### Fixed
+
+- **Man page version pin missed in 0.20.0:** the 0.20.0 release bumped
+  `pyproject.toml` and the project website but not `man/okfsmith.1`,
+  so `test_man_page_states_current_version` failed and CI went red on
+  the release commit (the man page also ships in the sdist, so the
+  published 0.20.0 sdist carried the stale header). The header now
+  states 0.20.1, matching the declared version, and the website
+  version strings move with it.
+
 ## [0.20.0] - 2026-11-05
 
 ### Added
