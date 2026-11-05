@@ -5,6 +5,26 @@ follow SemVer.
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-11-05
+
+### Added
+
+- **Dashboard Explore search gains an "Include superseded" toggle:**
+  `GET /api/v1/search` has hidden superseded matches by default since
+  the temporal replay landed, reporting them only as a
+  `superseded_hidden` count — but the Explore page neither passed the
+  API's `?include_superseded=` flag nor read that count, so a search
+  whose only matches were superseded looked like it matched nothing,
+  and those matches were unreachable from the dashboard without the
+  CLI or chat. The search bar now has an "Include superseded" toggle
+  that passes the flag (toggling it re-runs an already-shown search,
+  like the trust-tier select), and with the toggle off the result
+  count is followed by an honest note — "N superseded matches hidden
+  — tick 'Include superseded' to show them" — including on the
+  no-results state, so a hidden-only match is never reported as no
+  match. Pinned by two new tests in `tests/test_dashboard_ui.py`
+  asserting against the shipped `app.js`.
+
 ## [0.19.0] - 2026-11-04
 
 ### Added

@@ -119,3 +119,49 @@ def test_explore_search_reruns_when_trust_tier_changes():
         "a filter change before the first search does not fire a query "
         "with no keywords"
     )
+
+
+def test_explore_search_exposes_superseded_toggle():
+    """Explore search must offer the API's ?include_superseded= flag.
+
+    GET /api/v1/search hides superseded matches by default, but the
+    Explore page never exposed the flag, so those matches were
+    unreachable from the dashboard — a search whose only matches were
+    superseded looked like it matched nothing at all.
+    """
+    js = _explore_js()
+    assert "id: 'search-superseded'" in js, (
+        "Explore search must have a superseded checkbox"
+    )
+    assert "text: 'Include superseded'" in js, (
+        "Explore search superseded toggle must be labeled"
+    )
+    assert "'&include_superseded=true'" in js, (
+        "Explore search must pass its superseded toggle as "
+        "?include_superseded= to /search"
+    )
+    assert "searchSupersededChk.addEventListener('change'" in js, (
+        "Explore search must re-run when its superseded toggle changes, "
+        "so revealing hidden matches does not need the query retyped"
+    )
+
+
+def test_explore_search_surfaces_hidden_superseded_count():
+    """Explore search must not silently drop `superseded_hidden`.
+
+    GET /api/v1/search reports how many matches it hid as superseded;
+    the Explore page used to read only `.results`, so a search could
+    hide matches without ever saying so.
+    """
+    js = _explore_js()
+    assert "superseded_hidden" in js, (
+        "Explore search must read the /search payload's superseded_hidden"
+    )
+    assert "supersededHiddenNote" in js, (
+        "Explore search must render a note when superseded matches "
+        "were hidden"
+    )
+    assert "hidden" in js and "Include superseded" in js, (
+        "The hidden-matches note must say matches were hidden and how "
+        "to reveal them"
+    )

@@ -229,6 +229,13 @@ function trustTierPill(tier) {
   return el('span', { class: 'pill ' + cls, text: String(tier || 'unknown') });
 }
 
+// Note shown when /search hid superseded matches: the count comes from
+// the API's `superseded_hidden` field, which the Explore page used to
+// drop silently, so a search could hide matches without saying so.
+function supersededHiddenNote(count) {
+  return el('div', { class: 'muted small', text: count + ' superseded match' + (count === 1 ? '' : 'es') + ' hidden — tick "Include superseded" to show them.' });
+}
+
 function scoreColor(v) {
   v = Number(v);
   if (isNaN(v)) return 'var(--muted)';
@@ -871,8 +878,16 @@ ROUTES.explore = function (view) {
     el('option', { value: 'unverified', text: 'unverified' }),
     el('option', { value: 'machine-confirmed', text: 'machine-confirmed' }),
     el('option', { value: 'human-reviewed', text: 'human-reviewed' }));
+  // Superseded toggle: GET /api/v1/search hides superseded matches by
+  // default and reports them only as `superseded_hidden`, so a search
+  // whose only matches were superseded looked like it matched nothing
+  // — and there was no way to see those matches at all. The toggle
+  // passes the API's ?include_superseded= flag; with it off, the hidden
+  // count is surfaced as a note under the result count.
+  const searchSupersededChk = el('input', { type: 'checkbox', id: 'search-superseded', 'aria-label': 'Include superseded matches in search' });
+  const searchSupersededToggle = el('label', { class: 'toggle' }, searchSupersededChk, el('span', { class: 'track' }), el('span', { class: 'toggle-label', text: 'Include superseded' }));
   const resultsWrap = el('div', { class: 'search-results' });
-  view.append(el('div', { class: 'search-bar' }, searchInput, scopeSel, searchTypeInput, searchTrustSel), resultsWrap);
+  view.append(el('div', { class: 'search-bar' }, searchInput, scopeSel, searchTypeInput, searchTrustSel, searchSupersededToggle), resultsWrap);
 
   let exploreSearched = false;
   async function runExploreSearch() {
@@ -885,13 +900,22 @@ ROUTES.explore = function (view) {
     const typeFilter = searchTypeInput.value.trim();
     if (typeFilter) url += '&type=' + encodeURIComponent(typeFilter);
     if (searchTrustSel.value) url += '&trust_tier=' + encodeURIComponent(searchTrustSel.value);
+    if (searchSupersededChk.checked) url += '&include_superseded=true';
     let results = [];
+    let supersededHidden = 0;
     try {
-      results = (await api(url)).results || [];
+      const payload = await api(url);
+      results = payload.results || [];
+      supersededHidden = payload.superseded_hidden || 0;
     } catch (err) { resultsWrap.innerHTML = ''; resultsWrap.append(emptyState('search', 'Search failed', err.message)); return; }
     resultsWrap.innerHTML = '';
-    if (!results.length) { resultsWrap.append(emptyState('search', 'No results', 'Nothing in this bundle matched "' + q + '". Try different keywords.')); return; }
+    if (!results.length) {
+      resultsWrap.append(emptyState('search', 'No results', 'Nothing in this bundle matched "' + q + '". Try different keywords.'));
+      if (supersededHidden > 0) resultsWrap.append(supersededHiddenNote(supersededHidden));
+      return;
+    }
     resultsWrap.append(el('div', { class: 'muted small', text: results.length + ' result' + (results.length === 1 ? '' : 's') }));
+    if (supersededHidden > 0 && !searchSupersededChk.checked) resultsWrap.append(supersededHiddenNote(supersededHidden));
     for (const r of results) {
       const metaBits = [];
       if (r.type) metaBits.push(r.type);
@@ -911,6 +935,10 @@ ROUTES.explore = function (view) {
   // narrowing does not need the query retyped; with no search yet it
   // just arms the filter for the next Enter.
   searchTrustSel.addEventListener('change', () => { if (exploreSearched) runExploreSearch(); });
+  // Toggling the superseded checkbox re-runs an already-shown search,
+  // like the trust-tier select, so revealing hidden matches needs no
+  // retyped query; with no search yet it just arms the flag.
+  searchSupersededChk.addEventListener('change', () => { if (exploreSearched) runExploreSearch(); });
 
   // graph
   const layout = el('div', { class: 'explore-layout' });
