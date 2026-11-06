@@ -194,6 +194,8 @@ class TestBundles:
         assert set(detail) == {
             "id", "title", "tier", "trust_tier", "type", "frontmatter",
             "body", "sources", "provenance",
+            # 0.21.0: same temporal fields the /search hits carry.
+            "temporal_status", "superseded_by",
         }
         assert detail["title"] == "Dashboard QA Notes"
         # The detail response carries the same explicit trust/type
@@ -202,9 +204,38 @@ class TestBundles:
         # defaults their type to Draft).
         assert detail["trust_tier"] == "unverified"
         assert detail["type"] == "Draft"
+        # A freshly ingested concept with no temporal frontmatter is
+        # current and superseded by nothing.
+        assert detail["temporal_status"] == "current"
+        assert detail["superseded_by"] is None
         # Real ingested body text, not fixture JSON.
         assert "The quick brown fox jumps over the lazy dog" in detail["body"]
         assert detail["sources"], "ingested concepts carry their source file"
+
+    def test_concept_detail_reports_temporal_status(self, client, workspace):
+        """Concept detail carries the same temporal fields as /search hits.
+
+        The graph detail panel and the concept modal used to show a
+        concept with no hint whether it was current, superseded (and
+        by what), expired, or not yet valid — a superseded concept
+        opened from the graph looked identical to a current one, even
+        though the search hits already label both. The detail
+        endpoint now evaluates the supersession index at now, the
+        same way /search does.
+        """
+        _write_search_temporal_pair(workspace / "kb")
+        c, headers = client
+        bid = _bundle_id(c, headers)
+        old = c.get(
+            f"/api/v1/bundles/{bid}/concepts/policy-v1", headers=headers
+        ).json()
+        assert old["temporal_status"] == "superseded"
+        assert old["superseded_by"] == "policy-v2"
+        new = c.get(
+            f"/api/v1/bundles/{bid}/concepts/policy-v2", headers=headers
+        ).json()
+        assert new["temporal_status"] == "current"
+        assert new["superseded_by"] is None
 
     def test_concept_404_shape(self, client):
         c, headers = client

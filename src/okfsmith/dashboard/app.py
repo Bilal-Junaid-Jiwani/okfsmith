@@ -548,16 +548,28 @@ def create_app(workspace: Path, token: str) -> FastAPI:
 
     @app.get(f"{API}/bundles/{{bundle_id}}/concepts/{{concept_id:path}}")
     async def get_concept(bundle_id: str, concept_id: str):
+        from okfsmith.core import temporal as _temporal
+
         bundle, _ = _load_bundle_or_404(bundle_id)
         concept = bundle.get(concept_id)
         if concept is None:
             raise err("concept-not-found", f"No concept '{concept_id}'.",
                       "List concepts with GET /api/v1/bundles/{id}/concepts.", 404)
         fm = dict(concept.frontmatter or {})
+        # Same explicit temporal fields the /search hits already carry:
+        # the detail views (graph panel, concept modal) used to show a
+        # concept with no hint whether it was current, superseded (and
+        # by what), expired, or not yet valid — a superseded concept
+        # opened from the graph looked identical to a current one.
+        status = _temporal.SupersessionIndex.from_bundle(bundle).status(
+            concept, _temporal.utcnow()
+        )
         return {
             "id": concept.id,
             "title": _concept_title(concept),
             "tier": _tier_of(concept.frontmatter),
+            "temporal_status": status.name,
+            "superseded_by": status.superseded_by,
             # Same explicit fields the listing and /search responses
             # already carry: the detail views (graph panel, concept
             # modal) used to show only the opaque high/medium/low

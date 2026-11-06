@@ -5,6 +5,27 @@ follow SemVer.
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-11-06
+
+### Added
+
+- **Dashboard concept detail views show temporal status:**
+  `GET /api/v1/bundles/{id}/concepts/{concept_id}` now returns the
+  same explicit `temporal_status` and `superseded_by` fields the
+  `/search` hits already carry, evaluated at now through the shared
+  supersession index — and both detail views (the Explore graph's
+  detail panel and the concept modal opened from a search hit) pill
+  it in the meta row. Previously a concept opened from the graph
+  showed no hint whether it was current, superseded (and by what),
+  expired, or not yet valid, so a superseded concept looked
+  identical to a current one; the pill appears only when the status
+  is not `current` (red "superseded by <id>", amber "expired",
+  blue "not yet valid"), so current concepts render exactly as
+  before. Pinned by a new API test asserting the detail of a
+  superseded pair and a new test in `tests/test_dashboard_ui.py`
+  asserting both detail renderers call the new
+  `temporalStatusPill(c)` helper.
+
 ## [0.20.1] - 2026-11-05
 
 ### Fixed

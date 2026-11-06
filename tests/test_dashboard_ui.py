@@ -107,6 +107,33 @@ def test_concept_detail_views_render_trust_tier_and_type():
         )
 
 
+def test_concept_detail_views_render_temporal_status():
+    """Both concept-detail views must flag a non-current concept.
+
+    The graph detail panel and the concept modal used to show a
+    concept with no hint whether it was current, superseded (and by
+    what), expired, or not yet valid — a superseded concept opened
+    from the graph looked identical to a current one, even though
+    the search hits already label both. Each detail renderer must
+    pill the detail endpoint's `temporal_status` (with the
+    superseding id when there is one).
+    """
+    for fn_name, end_marker in (
+        ("async function conceptDetailBody", "function openConceptModal"),
+        ("async function showConceptInPanel", "function buildGraph"),
+    ):
+        section = _detail_js(fn_name, end_marker)
+        assert "temporalStatusPill(c)" in section, (
+            f"{fn_name} must pill the detail endpoint's temporal_status"
+        )
+    js = _app_js()
+    helper = js[js.index("function temporalStatusPill"):]
+    helper = helper[:helper.index("\n}\n") + 3]
+    assert "c.temporal_status" in helper
+    assert "c.superseded_by" in helper
+    assert "superseded by" in helper
+
+
 def test_explore_search_reruns_when_trust_tier_changes():
     """Changing the trust-tier select re-runs an already-shown search."""
     js = _explore_js()

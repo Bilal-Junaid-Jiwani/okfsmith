@@ -229,6 +229,21 @@ function trustTierPill(tier) {
   return el('span', { class: 'pill ' + cls, text: String(tier || 'unknown') });
 }
 
+// Temporal-status pill for concept detail views: the detail endpoint
+// returns `temporal_status` (current / superseded / expired /
+// not_yet_valid) and `superseded_by`, the same fields /search hits
+// carry. Current is the unremarkable default and gets no pill, so a
+// current concept looks exactly as before; anything else is flagged
+// in the meta row, with the superseding concept's id when there is one.
+function temporalStatusPill(c) {
+  const t = String(c.temporal_status || 'current').toLowerCase();
+  if (t === 'current') return null;
+  if (t === 'superseded') return el('span', { class: 'pill pill-red', text: c.superseded_by ? 'superseded by ' + c.superseded_by : 'superseded' });
+  if (t === 'expired') return el('span', { class: 'pill pill-amber', text: 'expired' });
+  if (t === 'not_yet_valid') return el('span', { class: 'pill pill-blue', text: 'not yet valid' });
+  return el('span', { class: 'pill pill-muted', text: t });
+}
+
 // Note shown when /search hid superseded matches: the count comes from
 // the API's `superseded_hidden` field, which the Explore page used to
 // drop silently, so a search could hide matches without saying so.
@@ -316,7 +331,7 @@ async function conceptDetailBody(bundleId, conceptId) {
     const c = await api('/bundles/' + encodeURIComponent(bundleId) + '/concepts/' + encodeURIComponent(conceptId));
     wrap.innerHTML = '';
     wrap.append(
-      el('div', { class: 'dp-meta' }, tierPill(c.tier), trustTierPill(c.trust_tier), c.type ? el('span', { class: 'muted small', text: c.type }) : null),
+      el('div', { class: 'dp-meta' }, tierPill(c.tier), trustTierPill(c.trust_tier), temporalStatusPill(c), c.type ? el('span', { class: 'muted small', text: c.type }) : null),
       el('div', { class: 'dp-section-label', text: 'Sources' }),
       c.sources && c.sources.length
         ? el('div', { class: 'dp-sources' }, c.sources.map((s) => el('span', { class: 'src-chip', text: s })))
@@ -989,7 +1004,7 @@ async function showConceptInPanel(panel, bundleId, node) {
     openFullBtn.onclick = () => { bodyBox.textContent = c.body || '(empty body)'; bodyBox.classList.add('full'); openFullBtn.remove(); };
     panel.append(
       el('h3', { class: 'dp-title', text: c.title }),
-      el('div', { class: 'dp-meta' }, tierPill(c.tier), trustTierPill(c.trust_tier), c.type ? el('span', { class: 'muted small', text: c.type }) : null),
+      el('div', { class: 'dp-meta' }, tierPill(c.tier), trustTierPill(c.trust_tier), temporalStatusPill(c), c.type ? el('span', { class: 'muted small', text: c.type }) : null),
       el('div', { class: 'dp-section-label', text: 'Sources' }),
       c.sources && c.sources.length
         ? el('div', { class: 'dp-sources' }, c.sources.map((s) => el('span', { class: 'src-chip', text: s })))
