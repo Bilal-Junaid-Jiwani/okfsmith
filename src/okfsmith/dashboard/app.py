@@ -767,6 +767,12 @@ def create_app(workspace: Path, token: str) -> FastAPI:
                         "trust_tier": _spec.trust_tier(fm),
                         "temporal_status": status.name,
                         "superseded_by": status.superseded_by,
+                        # Same explicit sources the listing, detail, and
+                        # chat citations already carry: the chat's
+                        # /search chips used to build with `sources: []`,
+                        # so hovering one showed an empty "Sources: "
+                        # tooltip even for freshly ingested concepts.
+                        "sources": _concept_sources(concept),
                     }
                 )
         results.sort(key=lambda r: r["score"], reverse=True)

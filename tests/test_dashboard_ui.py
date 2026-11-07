@@ -192,3 +192,36 @@ def test_explore_search_surfaces_hidden_superseded_count():
         "The hidden-matches note must say matches were hidden and how "
         "to reveal them"
     )
+
+
+def test_chat_slash_chips_carry_sources():
+    """Chat /search and /list chips must carry the concept's sources.
+
+    Both slash commands used to build citation chips with
+    ``sources: []`` hardcoded, so hovering a chip showed a dangling
+    "Sources: " tooltip — even though the /search hits now carry
+    sources and the /list listing always did. Each chip builder must
+    pass the payload's sources through, and ``citationChips`` must
+    only append the Sources line when the citation has sources.
+    """
+    js = _app_js()
+    slash = js[js.index("async function runSlash"):]
+    slash = slash[:slash.index("// initial paint")]
+    assert "sources: []" not in slash, (
+        "Chat /search and /list must not build chips with hardcoded "
+        "`sources: []` — the tooltip would show an empty 'Sources: '"
+    )
+    assert slash.count("sources: c.sources || []") == 2, (
+        "Both the /search and /list chip builders must pass the "
+        "payload's `c.sources` through to citationChips"
+    )
+    chips = js[js.index("function citationChips"):]
+    chips = chips[:chips.index("return cites;")]
+    assert "srcs.length ?" in chips, (
+        "citationChips must only append the Sources line when the "
+        "citation actually carries sources"
+    )
+    assert "'\\nSources: ' + srcs.join(', ')" in chips, (
+        "citationChips must render the carried sources in the chip "
+        "tooltip"
+    )

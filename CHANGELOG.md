@@ -5,6 +5,26 @@ follow SemVer.
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-11-07
+
+### Added
+
+- **Chat citation chips show their concept's sources:**
+  `GET /api/v1/search` now returns the same explicit `sources`
+  list per hit that the concepts listing, the concept detail
+  endpoint, and the chat message citations already carry, and the
+  dashboard chat's `/search` and `/list` slash commands pass it
+  through to their citation chips instead of building them with a
+  hardcoded `sources: []`. Hovering a chip now names the concept's
+  origin file in the tooltip; `citationChips` only appends the
+  "Sources: …" line when the citation actually carries sources, so
+  a sourceless concept no longer hovers as a dangling "Sources: ".
+  Pinned by an updated `test_search_real_hits` (exact hit shape
+  plus a non-empty `sources`) and a new test in
+  `tests/test_dashboard_ui.py` asserting both slash-command chip
+  builders pass `c.sources` through. Docs: the temporality surface
+  table now lists `sources` among the search-hit fields.
+
 ## [0.21.0] - 2026-11-06
 
 ### Added

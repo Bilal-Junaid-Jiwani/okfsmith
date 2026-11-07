@@ -333,10 +333,16 @@ class TestBundles:
             "bundle_id", "concept_id", "title", "snippet", "score",
             # 0.14.0: type/trust-tier/temporal fields on every hit.
             "type", "trust_tier", "temporal_status", "superseded_by",
+            # 0.22.0: sources on every hit, like the listing, detail,
+            # and chat citations already carry — the chat's /search
+            # chips used to build with `sources: []`, so hovering one
+            # showed an empty "Sources: " tooltip.
+            "sources",
         }
         assert hit["concept_id"] == "source/packing-section"
         assert isinstance(hit["score"], float)
         assert "liquor jugs" in hit["snippet"]
+        assert hit["sources"], "ingested concepts carry their source file"
 
     def test_snapshot(self, client):
         c, headers = client

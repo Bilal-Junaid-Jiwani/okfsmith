@@ -1619,7 +1619,13 @@ ROUTES.chat = function (view) {
   function citationChips(citations) {
     const cites = el('div', { class: 'citations' });
     for (const c of citations) {
-      const chip = el('button', { class: 'cite-chip', text: c.title || c.concept_id, title: (c.snippet || '') + '\nSources: ' + (c.sources || []).join(', ') });
+      // Sources are shown only when the citation actually carries them:
+      // the /search and /list slash commands used to build chips with
+      // `sources: []`, so every chip hovered as a dangling "Sources: "
+      // even for concepts whose source file the API already knew.
+      const srcs = c.sources || [];
+      const title = (c.snippet || '') + (srcs.length ? '\nSources: ' + srcs.join(', ') : '');
+      const chip = el('button', { class: 'cite-chip', text: c.title || c.concept_id, title });
       chip.onclick = () => openConceptModal(bundle.id, c.concept_id, c.title);
       cites.append(chip);
     }
@@ -1712,7 +1718,7 @@ ROUTES.chat = function (view) {
         const r = await api('/search?q=' + encodeURIComponent(arg) + '&bundle_id=' + encodeURIComponent(b.id) + '&limit=10');
         const res = r.results || [];
         m.firstChild.textContent = res.length ? res.length + ' result(s) for "' + arg + '":' : 'No results for "' + arg + '".';
-        const chips = res.map((c) => ({ concept_id: c.concept_id, title: c.title, snippet: c.snippet, sources: [] }));
+        const chips = res.map((c) => ({ concept_id: c.concept_id, title: c.title, snippet: c.snippet, sources: c.sources || [] }));
         if (res.length) m.append(citationChips(chips));
         recordMsg(sess, 'assistant', m.firstChild.textContent, chips);
       } else if (name === '/read') {
@@ -1726,7 +1732,7 @@ ROUTES.chat = function (view) {
         const items = r.items || [];
         const txt = 'First ' + items.length + ' of ' + r.total + ' concepts:';
         m.firstChild.textContent = txt;
-        const chips = items.map((c) => ({ concept_id: c.id, title: c.title, snippet: '', sources: [] }));
+        const chips = items.map((c) => ({ concept_id: c.id, title: c.title, snippet: '', sources: c.sources || [] }));
         if (items.length) m.append(citationChips(chips));
         recordMsg(sess, 'assistant', txt, chips);
       } else if (name === '/graph') {
