@@ -509,6 +509,15 @@ def create_app(workspace: Path, token: str) -> FastAPI:
                 400,
             )
         needle = (q or "").strip().lower()
+        # Same explicit temporal fields the /search hits and the detail
+        # endpoint already carry: the listing used to show a superseded,
+        # expired, or not-yet-valid concept exactly like a current one,
+        # so the chat's /list chips — built from this listing — hovered
+        # with no hint of status. One index per request, not per item.
+        from okfsmith.core import temporal as _temporal
+
+        sindex = _temporal.SupersessionIndex.from_bundle(bundle)
+        now = _temporal.utcnow()
         items = []
         for concept in bundle.iter_concepts():
             ctier = _tier_of(concept.frontmatter)
@@ -531,6 +540,7 @@ def create_app(workspace: Path, token: str) -> FastAPI:
                 ).isoformat()
             except OSError:
                 updated = None
+            status = sindex.status(concept, now)
             items.append(
                 {
                     "id": concept.id,
@@ -538,6 +548,8 @@ def create_app(workspace: Path, token: str) -> FastAPI:
                     "tier": ctier,
                     "type": ctype,
                     "trust_tier": trust,
+                    "temporal_status": status.name,
+                    "superseded_by": status.superseded_by,
                     "sources": _concept_sources(concept),
                     "updated_at": updated,
                 }

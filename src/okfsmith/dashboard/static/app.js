@@ -1623,8 +1623,16 @@ ROUTES.chat = function (view) {
       // the /search and /list slash commands used to build chips with
       // `sources: []`, so every chip hovered as a dangling "Sources: "
       // even for concepts whose source file the API already knew.
+      // Temporal label, same fields the listing, detail, and /search
+      // responses carry: a chip for a superseded, expired, or
+      // not-yet-valid concept used to hover exactly like a current
+      // one, even though the payload already knew its status.
+      // Current is the unremarkable default and adds no line, so a
+      // current chip hovers exactly as before.
       const srcs = c.sources || [];
-      const title = (c.snippet || '') + (srcs.length ? '\nSources: ' + srcs.join(', ') : '');
+      const t = String(c.temporal_status || 'current').toLowerCase();
+      const tlabel = t === 'superseded' ? 'Superseded' + (c.superseded_by ? ' by ' + c.superseded_by : '') : t === 'expired' ? 'Expired' : t === 'not_yet_valid' ? 'Not yet valid' : '';
+      const title = (c.snippet || '') + (tlabel ? '\n' + tlabel : '') + (srcs.length ? '\nSources: ' + srcs.join(', ') : '');
       const chip = el('button', { class: 'cite-chip', text: c.title || c.concept_id, title });
       chip.onclick = () => openConceptModal(bundle.id, c.concept_id, c.title);
       cites.append(chip);
@@ -1718,7 +1726,7 @@ ROUTES.chat = function (view) {
         const r = await api('/search?q=' + encodeURIComponent(arg) + '&bundle_id=' + encodeURIComponent(b.id) + '&limit=10');
         const res = r.results || [];
         m.firstChild.textContent = res.length ? res.length + ' result(s) for "' + arg + '":' : 'No results for "' + arg + '".';
-        const chips = res.map((c) => ({ concept_id: c.concept_id, title: c.title, snippet: c.snippet, sources: c.sources || [] }));
+        const chips = res.map((c) => ({ concept_id: c.concept_id, title: c.title, snippet: c.snippet, sources: c.sources || [], temporal_status: c.temporal_status, superseded_by: c.superseded_by }));
         if (res.length) m.append(citationChips(chips));
         recordMsg(sess, 'assistant', m.firstChild.textContent, chips);
       } else if (name === '/read') {
@@ -1732,7 +1740,7 @@ ROUTES.chat = function (view) {
         const items = r.items || [];
         const txt = 'First ' + items.length + ' of ' + r.total + ' concepts:';
         m.firstChild.textContent = txt;
-        const chips = items.map((c) => ({ concept_id: c.id, title: c.title, snippet: '', sources: c.sources || [] }));
+        const chips = items.map((c) => ({ concept_id: c.id, title: c.title, snippet: '', sources: c.sources || [], temporal_status: c.temporal_status, superseded_by: c.superseded_by }));
         if (items.length) m.append(citationChips(chips));
         recordMsg(sess, 'assistant', txt, chips);
       } else if (name === '/graph') {

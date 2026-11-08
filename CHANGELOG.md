@@ -5,6 +5,31 @@ follow SemVer.
 
 ## [Unreleased]
 
+## [0.23.0] - 2026-11-08
+
+### Added
+
+- **Concepts listing rows show temporal status:**
+  `GET /api/v1/bundles/{id}/concepts` now returns the same
+  explicit `temporal_status` and `superseded_by` per item that
+  the `/search` hits and the concept detail endpoint already
+  carry, evaluated at now through the shared supersession index
+  (one index per request, not per item) — and the dashboard
+  chat's `/search` and `/list` slash commands pass both fields
+  through to their citation chips, so a chip's tooltip now names
+  the concept's status (`Superseded by <id>`, `Expired`,
+  `Not yet valid`) alongside its sources. Previously the
+  listing — the response the `/list` chips are built from —
+  carried no temporal fields at all, so a superseded concept
+  listed there looked identical to a current one. Current
+  concepts add no tooltip line, so they hover exactly as
+  before. Pinned by a new API test asserting the listing of a
+  superseded pair and a new test in
+  `tests/test_dashboard_ui.py` asserting both slash-command chip
+  builders pass the temporal fields through. Docs: the
+  temporality surface table now lists the listing endpoint and
+  the chip tooltip label.
+
 ## [0.22.0] - 2026-11-07
 
 ### Added

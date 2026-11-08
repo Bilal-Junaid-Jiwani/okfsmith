@@ -225,3 +225,39 @@ def test_chat_slash_chips_carry_sources():
         "citationChips must render the carried sources in the chip "
         "tooltip"
     )
+
+
+def test_chat_slash_chips_carry_temporal_status():
+    """Chat /search and /list chips must carry the concept's temporal status.
+
+    The listing, the detail endpoint, and the /search hits all carry
+    `temporal_status` / `superseded_by`, but the chat's chip builders
+    dropped both — so a superseded concept cited by /search or /list
+    hovered exactly like a current one. Each chip builder must pass
+    the payload's temporal fields through, and ``citationChips`` must
+    add the temporal label to the chip tooltip (nothing for a current
+    concept, so current chips hover exactly as before).
+    """
+    js = _app_js()
+    slash = js[js.index("async function runSlash"):]
+    slash = slash[:slash.index("// initial paint")]
+    assert slash.count("temporal_status: c.temporal_status") == 2, (
+        "Both the /search and /list chip builders must pass the "
+        "payload's `temporal_status` through to citationChips"
+    )
+    assert slash.count("superseded_by: c.superseded_by") == 2, (
+        "Both the /search and /list chip builders must pass the "
+        "payload's `superseded_by` through to citationChips"
+    )
+    chips = js[js.index("function citationChips"):]
+    chips = chips[:chips.index("return cites;")]
+    assert "tlabel" in chips and "'Superseded'" in chips, (
+        "citationChips must label a superseded chip with the "
+        "superseding concept's id in the tooltip"
+    )
+    assert "'Expired'" in chips and "'Not yet valid'" in chips, (
+        "citationChips must label expired and not-yet-valid chips too"
+    )
+    assert "t === 'current'" in chips or "|| 'current'" in chips, (
+        "citationChips must add no temporal line for a current chip"
+    )

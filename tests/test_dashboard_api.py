@@ -164,6 +164,9 @@ class TestBundles:
                 "id", "title", "tier", "sources", "updated_at",
                 # 0.15.0: frontmatter type and trust tier on every item.
                 "type", "trust_tier",
+                # 0.23.0: same temporal fields the /search hits and the
+                # detail endpoint carry, evaluated at now.
+                "temporal_status", "superseded_by",
             }
             assert item["tier"] in ("high", "medium", "low")
             assert item["trust_tier"] in (
@@ -236,6 +239,28 @@ class TestBundles:
         ).json()
         assert new["temporal_status"] == "current"
         assert new["superseded_by"] is None
+
+    def test_concepts_list_reports_temporal_status(self, client, workspace):
+        """Concepts listing carries the same temporal fields as /search hits.
+
+        The search hits and the detail endpoint label a superseded
+        concept, but the listing — the response the chat's /list chips
+        are built from — carried no temporal fields at all, so a
+        superseded concept listed there looked identical to a current
+        one. The listing now evaluates the supersession index at now,
+        the same way the detail endpoint does.
+        """
+        _write_search_temporal_pair(workspace / "kb")
+        c, headers = client
+        bid = _bundle_id(c, headers)
+        payload = c.get(
+            f"/api/v1/bundles/{bid}/concepts", headers=headers
+        ).json()
+        by_id = {item["id"]: item for item in payload["items"]}
+        assert by_id["policy-v1"]["temporal_status"] == "superseded"
+        assert by_id["policy-v1"]["superseded_by"] == "policy-v2"
+        assert by_id["policy-v2"]["temporal_status"] == "current"
+        assert by_id["policy-v2"]["superseded_by"] is None
 
     def test_concept_404_shape(self, client):
         c, headers = client
