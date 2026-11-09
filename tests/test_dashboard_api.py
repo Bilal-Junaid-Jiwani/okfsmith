@@ -342,8 +342,35 @@ class TestBundles:
         node_ids = {n["id"] for n in graph["nodes"]}
         assert node_ids == {"source/dashboard-qa-notes", "source/packing-section"}
         for node in graph["nodes"]:
-            assert set(node) == {"id", "label", "tier"}
+            assert set(node) == {
+                "id", "label", "tier",
+                # 0.24.0: same temporal fields the listing, detail, and
+                # /search responses carry, evaluated at now.
+                "temporal_status", "superseded_by",
+            }
+            assert node["temporal_status"] == "current"
+            assert node["superseded_by"] is None
         assert graph["truncated"] is False
+
+    def test_graph_nodes_report_temporal_status(self, client, workspace):
+        """Graph nodes carry the same temporal fields as the listing.
+
+        The search hits, the detail endpoint, and the listing label a
+        superseded concept, but the graph — the view that shows how
+        concepts link — drew every node alike, so a superseded node
+        looked identical to a current one until clicked open. The
+        graph now evaluates the supersession index at now, the same
+        way the listing does.
+        """
+        _write_search_temporal_pair(workspace / "kb")
+        c, headers = client
+        bid = _bundle_id(c, headers)
+        graph = c.get(f"/api/v1/bundles/{bid}/graph", headers=headers).json()
+        by_id = {n["id"]: n for n in graph["nodes"]}
+        assert by_id["policy-v1"]["temporal_status"] == "superseded"
+        assert by_id["policy-v1"]["superseded_by"] == "policy-v2"
+        assert by_id["policy-v2"]["temporal_status"] == "current"
+        assert by_id["policy-v2"]["superseded_by"] is None
 
     def test_search_real_hits(self, client):
         c, headers = client

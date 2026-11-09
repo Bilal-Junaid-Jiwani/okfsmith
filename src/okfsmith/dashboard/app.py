@@ -606,14 +606,32 @@ def create_app(workspace: Path, token: str) -> FastAPI:
         truncated = len(raw_nodes) > GRAPH_NODE_CAP
         kept = raw_nodes[:GRAPH_NODE_CAP]
         kept_ids = {n["id"] for n in kept}
-        nodes = [
-            {
-                "id": n["id"],
-                "label": str(n.get("title") or n["id"]),
-                "tier": TIER_BUCKET.get(str(n.get("trust") or ""), "low"),
-            }
-            for n in kept
-        ]
+        # Same explicit temporal fields the listing, detail, and /search
+        # responses already carry: the graph used to draw a superseded,
+        # expired, or not-yet-valid concept exactly like a current one,
+        # so a node that is history looked identical to live knowledge
+        # until clicked open. One index per request, not per node.
+        from okfsmith.core import temporal as _temporal
+
+        sindex = _temporal.SupersessionIndex.from_bundle(bundle)
+        now = _temporal.utcnow()
+        nodes = []
+        for n in kept:
+            concept = bundle.get(n["id"])
+            if concept is None:
+                status_name, superseded_by = "current", None
+            else:
+                status = sindex.status(concept, now)
+                status_name, superseded_by = status.name, status.superseded_by
+            nodes.append(
+                {
+                    "id": n["id"],
+                    "label": str(n.get("title") or n["id"]),
+                    "tier": TIER_BUCKET.get(str(n.get("trust") or ""), "low"),
+                    "temporal_status": status_name,
+                    "superseded_by": superseded_by,
+                }
+            )
         edges = [
             {"from": e["from"], "to": e["to"], "dead": bool(e.get("dead"))}
             for e in model.get("edges", [])

@@ -5,6 +5,30 @@ follow SemVer.
 
 ## [Unreleased]
 
+## [0.24.0] - 2026-11-09
+
+### Added
+
+- **Graph nodes show temporal status:**
+  `GET /api/v1/bundles/{id}/graph` now returns the same explicit
+  `temporal_status` and `superseded_by` per node that the concepts
+  listing, the concept detail endpoint, and the `/search` hits
+  already carry, evaluated at now through the shared supersession
+  index (one index per request, not per node) — and the dashboard
+  graph canvas rings a non-current node (superseded, expired, or
+  not yet valid) with a dashed outline, explained by a "not
+  current" legend entry that only appears when the graph actually
+  has one, so history reads as history without clicking a node
+  open. Previously the graph drew every node as an identical solid
+  circle, so a superseded concept linked from a current one looked
+  like live knowledge until its detail panel was opened. Current
+  nodes draw exactly as before. Pinned by a new API test asserting
+  the graph of a superseded pair and a new test in
+  `tests/test_dashboard_ui.py` asserting the draw loop rings a
+  non-current node and the legend explains it. Docs: the
+  temporality surface table now lists the graph endpoint and the
+  dashed-ring marker.
+
 ## [0.23.0] - 2026-11-08
 
 ### Added

@@ -1172,6 +1172,18 @@ function buildGraph(canvas, nodes, edges, onSelect, gwrap) {
     ec.className = 'lg-item';
     ec.append(document.createTextNode(nodes.length + ' nodes · ' + edgeList.length + ' links'));
     legend.append(ec);
+    // The dashed ring on a node means "not current" (superseded /
+    // expired / not yet valid) — explain it only when the graph
+    // actually has one, so a clean graph gains no legend noise.
+    if (nodes.some((nd) => String(nd.temporal_status || 'current').toLowerCase() !== 'current')) {
+      const nc = document.createElement('span');
+      nc.className = 'lg-item';
+      const ring = document.createElement('span');
+      ring.className = 'lg-ring';
+      nc.append(ring);
+      nc.append(document.createTextNode('not current'));
+      legend.append(nc);
+    }
     gwrap.append(legend);
 
     const zoom = document.createElement('div');
@@ -1261,6 +1273,21 @@ function buildGraph(canvas, nodes, edges, onSelect, gwrap) {
       ctx.lineWidth = 2;
       ctx.strokeStyle = 'rgba(8,10,14,0.65)';
       ctx.stroke();
+      // Non-current concepts (superseded / expired / not yet valid)
+      // wear a dashed outer ring, so the graph shows at a glance which
+      // nodes are history rather than live knowledge — the detail
+      // panel still names the exact status on click. Current nodes
+      // draw exactly as before. The ring sits inside the hover/focus
+      // rings, which draw on top.
+      if (String(nd.temporal_status || 'current').toLowerCase() !== 'current') {
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, r + 3, 0, Math.PI * 2);
+        ctx.setLineDash([4, 3]);
+        ctx.strokeStyle = 'rgba(160,170,190,0.85)';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
       if (nd === hovered || nd === selected) {
         ctx.beginPath();
         ctx.arc(s.x, s.y, r + 5, 0, Math.PI * 2);

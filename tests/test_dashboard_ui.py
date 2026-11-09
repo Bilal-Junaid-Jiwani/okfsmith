@@ -227,6 +227,41 @@ def test_chat_slash_chips_carry_sources():
     )
 
 
+def test_graph_marks_non_current_nodes():
+    """Graph nodes must show at a glance when a concept is not current.
+
+    The graph drew every node as a solid colored circle, so a
+    superseded, expired, or not-yet-valid concept looked identical to
+    a current one until clicked open — even though the graph payload
+    now carries `temporal_status`. The draw loop must ring a
+    non-current node with a dashed outline (current nodes draw
+    exactly as before), and the legend must explain the ring — but
+    only when the graph actually has a non-current node, so a clean
+    graph gains no legend noise.
+    """
+    js = _app_js()
+    graph = js[js.index("function buildGraph"):]
+    graph = graph[:graph.index("function renderValidateResult")]
+    assert "nd.temporal_status" in graph, (
+        "The graph draw must read the payload's temporal_status"
+    )
+    assert "setLineDash([4, 3])" in graph, (
+        "A non-current node must wear a dashed ring, distinct from "
+        "the solid hover/selection rings"
+    )
+    assert "'not current'" in graph, (
+        "The graph legend must explain the dashed ring"
+    )
+    assert "lg-ring" in graph, (
+        "The legend's not-current entry must use the dashed-ring swatch"
+    )
+    css = (WORKTREE / "src" / "okfsmith" / "dashboard" / "static"
+           / "styles.css").read_text(encoding="utf-8")
+    assert ".lg-ring" in css and "dashed" in css, (
+        "styles.css must define the legend's dashed-ring swatch"
+    )
+
+
 def test_chat_slash_chips_carry_temporal_status():
     """Chat /search and /list chips must carry the concept's temporal status.
 
