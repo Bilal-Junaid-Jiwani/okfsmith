@@ -5,6 +5,26 @@ follow SemVer.
 
 ## [Unreleased]
 
+## [0.25.0] - 2026-11-10
+
+### Added
+
+- **MCP `search` hits and `list` rows show temporal status:**
+  the MCP `search` and `list` tools now append the same temporal
+  note the dashboard surfaces gained in 0.21.0–0.24.0 and
+  `traverse` / `provenance` already carry — a non-current row
+  reads `_(superseded by `<id>`)_`, `_(expired)_`, or
+  `_(not yet valid)_`, evaluated at the `as_of` replay instant
+  when one is given, never at now. Previously a superseded
+  concept revealed with `include_superseded=True`, or listed
+  outright, read exactly like a current one, so an agent caller
+  had no way to tell history from live knowledge. Current rows
+  carry no note, so they read exactly as before. Pinned by three
+  new tests in `tests/test_mcp.py` (superseded hit, replay-instant
+  note, superseded listing row). Docs: the temporality surface
+  table, the MCP tool reference, and the MCP README now list the
+  note on both tools.
+
 ## [0.24.0] - 2026-11-09
 
 ### Added

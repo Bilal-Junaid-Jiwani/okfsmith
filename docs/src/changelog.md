@@ -4,6 +4,17 @@ eyebrow: Troubleshooting
 description: Release history for okfsmith — what changed in each version, what's coming next, and upgrade notes. Follows Keep a Changelog and Semantic Versioning.
 ---
 
+## [0.25.0] — 2026-11-10 {#v0-25-0}
+
+### Added {#v0-25-0-added}
+
+- **MCP `search` hits and `list` rows show temporal status** — a
+  non-current row now reads `_(superseded by `<id>`)_`,
+  `_(expired)_`, or `_(not yet valid)_`, evaluated at the `as_of`
+  replay instant when one is given. Previously a superseded
+  concept revealed with `include_superseded=True`, or listed
+  outright, read exactly like a current one.
+
 ## [0.7.1] — 2026-10-04 {#v0-7-1}
 
 ### Fixed {#v0-7-1-fixed}

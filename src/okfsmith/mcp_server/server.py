@@ -1494,7 +1494,10 @@ class BundleTools:
         inventories.
 
         Returns a markdown list ordered by concept id. For the full text of
-        any concept, pass its id to `get`.
+        any concept, pass its id to `get`. A non-current concept carries
+        its temporal status on its row — e.g. `_(superseded by
+        `policy-v2`)_` — so history never reads as live knowledge;
+        current concepts carry no note.
         """
         self._ensure_fresh_bundle()
         tier_filter = (
@@ -1538,7 +1541,17 @@ class BundleTools:
             if tier_filter:
                 return f"No concepts found with trust tier {tier_filter!r}."
             return "No concepts found."
-        units = [f"- {_concept_label(c)}" for c in concepts]
+        # Temporal status (0.25.0): a non-current concept reads exactly
+        # like a current one without its note — the same gap the
+        # dashboard listing closed in 0.23.0. Current rows stay bare.
+        now = _temporal.utcnow()
+        units = []
+        for c in concepts:
+            line = f"- {_concept_label(c)}"
+            note = self._temporal_note(c, now)
+            if note:
+                line += f" _({note})_"
+            units.append(line)
         title = f"Concepts ({len(units)})"
         return self._render_paged(
             title=title,
@@ -1668,17 +1681,19 @@ class BundleTools:
 
         Returns a compact markdown list: concept id, type, trust tier
         (`human-reviewed` > `machine-confirmed` > `unverified`), title, and
-        a one-line description. Use `get` with a result's id to read the
-        full concept. A missing or blank query returns a clean error,
-        never an exception.
+        a one-line description. A non-current hit carries its temporal
+        status on its row — e.g. `_(superseded by `policy-v2`)_`,
+        evaluated at the `as_of` replay instant when one is given — so a
+        superseded concept revealed with `include_superseded=True` never
+        reads as current; current hits carry no note. Use `get` with a
+        result's id to read the full concept. A missing or blank query
+        returns a clean error, never an exception.
         """
         self._ensure_fresh_bundle()
         if not isinstance(query, str) or not query.split():
             return "Error: `query` is empty — provide a keyword to search for."
         moment: datetime | None = None
         if as_of is not None and str(as_of).strip():
-            from okfsmith.core import temporal as _temporal
-
             moment = _temporal.parse_temporal(as_of)
             if moment is None:
                 return (
@@ -1716,7 +1731,19 @@ class BundleTools:
         )
         if not hits:
             return f"No concepts match {query!r}. Try broader keywords or use `list`."
-        units = [f"- {_concept_label(c)}\n  {_description(c)}" for _, c in hits]
+        # Temporal status (0.25.0): a superseded hit revealed with
+        # include_superseded=True read exactly like a current one — the
+        # same gap the dashboard search hits closed in 0.22.0/0.24.0.
+        # The note is evaluated at the replay instant when as_of is
+        # given, never at now. Current hits stay bare.
+        now = moment if moment is not None else _temporal.utcnow()
+        units = []
+        for _, c in hits:
+            line = f"- {_concept_label(c)}"
+            note = self._temporal_note(c, now)
+            if note:
+                line += f" _({note})_"
+            units.append(line + f"\n  {_description(c)}")
         notes = (
             [
                 f"_{hidden} superseded concept(s) hidden — "

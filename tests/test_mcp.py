@@ -369,6 +369,72 @@ class TestSearchAsOf:
         assert "superseded concept(s) hidden" not in out
 
 
+class TestSearchListTemporalStatus:
+    """MCP ``search`` hits and ``list`` rows show temporal status (0.25.0).
+
+    The dashboard surfaces gained the same treatment in 0.21.0–0.24.0
+    (detail, listing, search hits, graph), and ``traverse`` /
+    ``provenance`` already append the note — but ``search`` and ``list``
+    did not: a superseded concept revealed with
+    ``include_superseded=True`` (or listed outright) read exactly like
+    a current one, so an agent caller had no way to tell history from
+    live knowledge. The note is evaluated at the replay instant when
+    ``as_of`` is given, never at now.
+    """
+
+    @pytest.fixture()
+    def temporal_tools(self, tmp_path: Path) -> BundleTools:
+        bundle = Bundle(tmp_path)
+        bundle.write_concept(
+            "policy-v1",
+            {"title": "Refund Policy v1", "type": "policy"},
+            "The old refund policy allows returns within 14 days of purchase.",
+        )
+        bundle.write_concept(
+            "policy-v2",
+            {
+                "title": "Refund Policy v2",
+                "type": "policy",
+                "supersedes": ["policy-v1"],
+                "valid_from": "2026-10-20",
+            },
+            "The new refund policy allows returns within 30 days of purchase.",
+        )
+        return BundleTools(bundle)
+
+    @staticmethod
+    def _line(out: str, concept_id: str) -> str:
+        # Match the row that *starts* with this id: a superseded row's
+        # note names the superseding id, so a substring match would
+        # return the wrong row.
+        return next(
+            line
+            for line in out.splitlines()
+            if line.startswith(f"- **{concept_id}**")
+        )
+
+    def test_search_marks_superseded_hit(self, temporal_tools: BundleTools) -> None:
+        out = temporal_tools.search("refund", include_superseded=True)
+        assert "superseded by `policy-v2`" in self._line(out, "policy-v1")
+        assert "superseded" not in self._line(out, "policy-v2")
+
+    def test_search_note_uses_replay_instant(
+        self, temporal_tools: BundleTools
+    ) -> None:
+        # At 2026-10-01 v2 is not yet valid, so v1 is the current one:
+        # the note follows the replay instant, not now.
+        out = temporal_tools.search(
+            "refund", as_of="2026-10-01", include_superseded=True
+        )
+        assert "superseded" not in self._line(out, "policy-v1")
+        assert "not yet valid" in self._line(out, "policy-v2")
+
+    def test_list_marks_superseded_row(self, temporal_tools: BundleTools) -> None:
+        out = temporal_tools.list()
+        assert "superseded by `policy-v2`" in self._line(out, "policy-v1")
+        assert "superseded" not in self._line(out, "policy-v2")
+
+
 class TestSearchFilters:
     """``search`` type/tier filters: MCP parity with the CLI (0.12.0).
 
