@@ -4,6 +4,15 @@ eyebrow: Troubleshooting
 description: Release history for okfsmith — what changed in each version, what's coming next, and upgrade notes. Follows Keep a Changelog and Semantic Versioning.
 ---
 
+## [0.25.2] — 2026-11-11 {#v0-25-2}
+
+### Fixed {#v0-25-2-fixed}
+
+- **Docs-changelog checker tests failed on macOS/Windows** — the tmp
+  fixtures used `CHANGELOG.md` and `changelog.md`, which are the same
+  file on case-insensitive filesystems. Fixtures now use distinct
+  basenames (`root-changelog.md` / `docs-changelog.md`).
+
 ## [0.25.1] — 2026-11-11 {#v0-25-1}
 
 ### Fixed {#v0-25-1-fixed}

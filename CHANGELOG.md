@@ -5,6 +5,20 @@ follow SemVer.
 
 ## [Unreleased]
 
+## [0.25.2] - 2026-11-11
+
+### Fixed
+
+- **Docs-changelog checker tests failed on macOS/Windows:** the
+  tmp fixtures used `CHANGELOG.md` and `changelog.md` as the two
+  fixture names — on case-insensitive filesystems those are the same
+  file, so the docs write clobbered the root write and the "missing
+  version" tests always saw `[]`, failing on all eight macOS/Windows
+  CI jobs while passing on Linux. Fixtures now use distinct basenames
+  (`root-changelog.md` / `docs-changelog.md`). The checker itself was
+  correct; the shipped 0.25.1 tests just could not catch a regression
+  on those platforms.
+
 ## [0.25.1] - 2026-11-11
 
 ### Fixed
