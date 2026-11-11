@@ -67,3 +67,17 @@ jobs:
           # "deliberately NOT used (AGPL)" comments are allowed.
           test -z "$(git grep -n -E "^[^#]*\b(import fitz|from fitz|import pymupdf|from pymupdf)" -- src/ || true)"
           test -z "$(git grep -n -i -E "^[^#]*pymupdf" -- pyproject.toml || true)"
+
+  docs-changelog:
+    # Guards the completeness gap fixed in 0.25.1: the docs changelog
+    # once listed only 9 of 55 released versions, with nothing to
+    # catch it. Fails if any version in root CHANGELOG.md is missing
+    # from docs/src/changelog.md (docs-only versions are fine).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Check docs changelog completeness
+        run: python3 scripts/check_docs_changelog.py

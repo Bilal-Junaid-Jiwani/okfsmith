@@ -5,6 +5,30 @@ follow SemVer.
 
 ## [Unreleased]
 
+## [0.25.1] - 2026-11-11
+
+### Fixed
+
+- **Docs changelog backfill:** `docs/src/changelog.md` listed only
+  9 of the 55 released versions — it jumped from 0.25.0 straight to
+  0.7.1, so 47 versions (0.24.0–0.6.0, 0.4.1, 0.3.2, 0.1.0) were
+  missing from the docs site changelog at
+  bilal-junaid-jiwani.github.io/okfsmith/changelog.html. All 56
+  versions (55 released + docs-only 0.4.0) are now present, in
+  descending order with matching dates, and the docs site is rebuilt
+  from the synced source.
+
+### Added
+
+- **CI check that the docs changelog stays complete:** a new
+  `scripts/check_docs_changelog.py` (stdlib only) fails the build
+  if any version in root `CHANGELOG.md` is missing from
+  `docs/src/changelog.md`, wired into a `docs-changelog` job in
+  `.github/workflows/ci.yml`, so the gap this release closes cannot
+  silently reopen. Pinned by tests in
+  `tests/test_docs_changelog_check.py` (missing version reported,
+  docs-only versions tolerated, clean tree passes).
+
 ## [0.25.0] - 2026-11-10
 
 ### Added

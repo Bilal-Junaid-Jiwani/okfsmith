@@ -662,11 +662,383 @@
   "description": "Release history for okfsmith — what changed in each version, what's coming next, and upgrade notes. Follows Keep a Changelog and Semantic Versioning.",
   "headings": [
    {
+    "id": "v0-25-1",
+    "text": "[0.25.1] — 2026-11-11"
+   },
+   {
+    "id": "v0-25-1-fixed",
+    "text": "Fixed"
+   },
+   {
+    "id": "v0-25-1-added",
+    "text": "Added"
+   },
+   {
     "id": "v0-25-0",
     "text": "[0.25.0] — 2026-11-10"
    },
    {
     "id": "v0-25-0-added",
+    "text": "Added"
+   },
+   {
+    "id": "v0-24-0",
+    "text": "[0.24.0] — 2026-11-09"
+   },
+   {
+    "id": "v0-24-0-added",
+    "text": "Added"
+   },
+   {
+    "id": "v0-23-0",
+    "text": "[0.23.0] — 2026-11-08"
+   },
+   {
+    "id": "v0-23-0-added",
+    "text": "Added"
+   },
+   {
+    "id": "v0-22-0",
+    "text": "[0.22.0] — 2026-11-07"
+   },
+   {
+    "id": "v0-22-0-added",
+    "text": "Added"
+   },
+   {
+    "id": "v0-21-0",
+    "text": "[0.21.0] — 2026-11-06"
+   },
+   {
+    "id": "v0-21-0-added",
+    "text": "Added"
+   },
+   {
+    "id": "v0-20-1",
+    "text": "[0.20.1] — 2026-11-05"
+   },
+   {
+    "id": "v0-20-1-fixed",
+    "text": "Fixed"
+   },
+   {
+    "id": "v0-20-0",
+    "text": "[0.20.0] — 2026-11-05"
+   },
+   {
+    "id": "v0-20-0-added",
+    "text": "Added"
+   },
+   {
+    "id": "v0-19-0",
+    "text": "[0.19.0] — 2026-11-04"
+   },
+   {
+    "id": "v0-19-0-added",
+    "text": "Added"
+   },
+   {
+    "id": "v0-18-0",
+    "text": "[0.18.0] — 2026-11-03"
+   },
+   {
+    "id": "v0-18-0-added",
+    "text": "Added"
+   },
+   {
+    "id": "v0-17-1",
+    "text": "[0.17.1] — 2026-11-02"
+   },
+   {
+    "id": "v0-17-1-fixed",
+    "text": "Fixed"
+   },
+   {
+    "id": "v0-17-0",
+    "text": "[0.17.0] — 2026-11-01"
+   },
+   {
+    "id": "v0-17-0-added",
+    "text": "Added"
+   },
+   {
+    "id": "v0-16-0",
+    "text": "[0.16.0] — 2026-10-31"
+   },
+   {
+    "id": "v0-16-0-added",
+    "text": "Added"
+   },
+   {
+    "id": "v0-15-0",
+    "text": "[0.15.0] — 2026-10-30"
+   },
+   {
+    "id": "v0-15-0-added",
+    "text": "Added"
+   },
+   {
+    "id": "v0-15-0-fixed",
+    "text": "Fixed"
+   },
+   {
+    "id": "v0-14-0",
+    "text": "[0.14.0] — 2026-10-29"
+   },
+   {
+    "id": "v0-14-0-added",
+    "text": "Added"
+   },
+   {
+    "id": "v0-13-0",
+    "text": "[0.13.0] — 2026-10-28"
+   },
+   {
+    "id": "v0-13-0-added",
+    "text": "Added"
+   },
+   {
+    "id": "v0-12-1",
+    "text": "[0.12.1] — 2026-10-27"
+   },
+   {
+    "id": "v0-12-1-fixed",
+    "text": "Fixed"
+   },
+   {
+    "id": "v0-12-0",
+    "text": "[0.12.0] — 2026-10-27"
+   },
+   {
+    "id": "v0-12-0-added",
+    "text": "Added"
+   },
+   {
+    "id": "v0-11-1",
+    "text": "[0.11.1] — 2026-10-26"
+   },
+   {
+    "id": "v0-11-1-fixed",
+    "text": "Fixed"
+   },
+   {
+    "id": "v0-11-0",
+    "text": "[0.11.0] — 2026-10-25"
+   },
+   {
+    "id": "v0-11-0-added",
+    "text": "Added"
+   },
+   {
+    "id": "v0-10-0",
+    "text": "[0.10.0] — 2026-10-24"
+   },
+   {
+    "id": "v0-10-0-added",
+    "text": "Added"
+   },
+   {
+    "id": "v0-9-0",
+    "text": "[0.9.0] — 2026-10-23"
+   },
+   {
+    "id": "v0-9-0-added",
+    "text": "Added"
+   },
+   {
+    "id": "v0-8-7",
+    "text": "[0.8.7] — 2026-10-22"
+   },
+   {
+    "id": "v0-8-7-fixed",
+    "text": "Fixed"
+   },
+   {
+    "id": "v0-8-7-added",
+    "text": "Added"
+   },
+   {
+    "id": "v0-8-6",
+    "text": "[0.8.6] — 2026-10-21"
+   },
+   {
+    "id": "v0-8-6-fixed",
+    "text": "Fixed"
+   },
+   {
+    "id": "v0-8-5",
+    "text": "[0.8.5] — 2026-10-21"
+   },
+   {
+    "id": "v0-8-5-fixed",
+    "text": "Fixed"
+   },
+   {
+    "id": "v0-8-5-added",
+    "text": "Added"
+   },
+   {
+    "id": "v0-8-5-tests",
+    "text": "Tests"
+   },
+   {
+    "id": "v0-8-4",
+    "text": "[0.8.4] — 2026-10-21"
+   },
+   {
+    "id": "v0-8-4-fixed",
+    "text": "Fixed"
+   },
+   {
+    "id": "v0-8-4-added",
+    "text": "Added"
+   },
+   {
+    "id": "v0-8-3",
+    "text": "[0.8.3] — 2026-10-20"
+   },
+   {
+    "id": "v0-8-3-fixed",
+    "text": "Fixed"
+   },
+   {
+    "id": "v0-8-2",
+    "text": "[0.8.2] — 2026-10-17"
+   },
+   {
+    "id": "v0-8-2-fixed",
+    "text": "Fixed"
+   },
+   {
+    "id": "v0-8-1",
+    "text": "[0.8.1] — 2026-10-17"
+   },
+   {
+    "id": "v0-8-1-fixed",
+    "text": "Fixed"
+   },
+   {
+    "id": "v0-8-0",
+    "text": "[0.8.0] — 2026-10-17"
+   },
+   {
+    "id": "v0-8-0-added",
+    "text": "Added"
+   },
+   {
+    "id": "v0-7-15",
+    "text": "[0.7.15] — 2026-10-16"
+   },
+   {
+    "id": "v0-7-15-added",
+    "text": "Added"
+   },
+   {
+    "id": "v0-7-14",
+    "text": "[0.7.14] — 2026-10-15"
+   },
+   {
+    "id": "v0-7-14-fixed",
+    "text": "Fixed"
+   },
+   {
+    "id": "v0-7-13",
+    "text": "[0.7.13] — 2026-10-15"
+   },
+   {
+    "id": "v0-7-13-security",
+    "text": "Security"
+   },
+   {
+    "id": "v0-7-12",
+    "text": "[0.7.12] — 2026-10-14"
+   },
+   {
+    "id": "v0-7-12-fixed",
+    "text": "Fixed"
+   },
+   {
+    "id": "v0-7-11",
+    "text": "[0.7.11] — 2026-10-13"
+   },
+   {
+    "id": "v0-7-11-fixed",
+    "text": "Fixed"
+   },
+   {
+    "id": "v0-7-10",
+    "text": "[0.7.10] — 2026-10-12"
+   },
+   {
+    "id": "v0-7-10-fixed",
+    "text": "Fixed"
+   },
+   {
+    "id": "v0-7-9",
+    "text": "[0.7.9] — 2026-10-11"
+   },
+   {
+    "id": "v0-7-9-fixed",
+    "text": "Fixed"
+   },
+   {
+    "id": "v0-7-8",
+    "text": "[0.7.8] — 2026-10-10"
+   },
+   {
+    "id": "v0-7-8-fixed",
+    "text": "Fixed"
+   },
+   {
+    "id": "v0-7-7",
+    "text": "[0.7.7] — 2026-10-09"
+   },
+   {
+    "id": "v0-7-7-fixed",
+    "text": "Fixed"
+   },
+   {
+    "id": "v0-7-6",
+    "text": "[0.7.6] — 2026-10-08"
+   },
+   {
+    "id": "v0-7-6-fixed",
+    "text": "Fixed"
+   },
+   {
+    "id": "v0-7-5",
+    "text": "[0.7.5] — 2026-10-07"
+   },
+   {
+    "id": "v0-7-5-fixed",
+    "text": "Fixed"
+   },
+   {
+    "id": "v0-7-4",
+    "text": "[0.7.4] — 2026-10-07"
+   },
+   {
+    "id": "v0-7-4-fixed",
+    "text": "Fixed"
+   },
+   {
+    "id": "v0-7-4-added",
+    "text": "Added"
+   },
+   {
+    "id": "v0-7-3",
+    "text": "[0.7.3] — 2026-10-06"
+   },
+   {
+    "id": "v0-7-3-fixed",
+    "text": "Fixed"
+   },
+   {
+    "id": "v0-7-2",
+    "text": "[0.7.2] — 2026-10-05"
+   },
+   {
+    "id": "v0-7-2-added",
     "text": "Added"
    },
    {
@@ -683,6 +1055,22 @@
    },
    {
     "id": "v0-7-0-added",
+    "text": "Added"
+   },
+   {
+    "id": "v0-6-1",
+    "text": "[0.6.1] — 2026-10-01"
+   },
+   {
+    "id": "v0-6-1-fixed",
+    "text": "Fixed"
+   },
+   {
+    "id": "v0-6-0",
+    "text": "[0.6.0] — 2026-10-01"
+   },
+   {
+    "id": "v0-6-0-added",
     "text": "Added"
    },
    {
@@ -710,12 +1098,36 @@
     "text": "Added"
    },
    {
+    "id": "v0-4-1",
+    "text": "[0.4.1] — 2026-09-28"
+   },
+   {
+    "id": "v0-4-1-fixed",
+    "text": "Fixed"
+   },
+   {
+    "id": "v0-4-1-added",
+    "text": "Added"
+   },
+   {
+    "id": "v0-4-1-deferred",
+    "text": "Deferred"
+   },
+   {
     "id": "v0-4-0",
     "text": "[0.4.0] — 2026-09-28"
    },
    {
-    "id": "unreleased-added",
+    "id": "v0-4-0-added",
     "text": "Added"
+   },
+   {
+    "id": "v0-3-2",
+    "text": "[0.3.2] — 2026-09-28"
+   },
+   {
+    "id": "v0-3-2-fixed",
+    "text": "Fixed"
    },
    {
     "id": "v0-3-0",
@@ -742,6 +1154,10 @@
     "text": "Security"
    },
    {
+    "id": "v0-1-0",
+    "text": "[0.1.0] — 2026-09-26"
+   },
+   {
     "id": "upgrade-notes",
     "text": "Upgrade notes"
    },
@@ -750,6 +1166,6 @@
     "text": "Links"
    }
   ],
-  "text": "[0.25.0] — 2026-11-10 Added MCP search hits and list rows show temporal status — a non-current row now reads _(superseded by <id> )_ , _(expired)_ , or _(not yet valid)_ , evaluated at the as_of replay instant when one is given. Previously a superseded concept revealed with include_superseded=True , or listed outright, read exactly like a current one. [0.7.1] — 2026-10-04 Fixed Shared section-concept link resolution for graph and W001 — links written in a per-section concept (id doc/section ) are relative to the source document , but only the dashboard's Explore graph applied that rule — okfsmith graph reported such links as dead and validate raised a spurious W001. The rule now lives in the shared okfsmith.links resolver, so graph , the dashboard graph, and W001 agree: a target naming a whole document split into sections resolves to its primary section concept. Genuinely broken links are still dead. [0.7.0] — 2026-10-03 Added Native Anthropic Messages API backend — --provider anthropic (or just ANTHROPIC_API_KEY with nothing else configured) now speaks Anthropic's native API directly: no OpenAI-compatible proxy needed. Default model claude-haiku-4-5 ; system prompts use the API's native system parameter. [0.5.2] — 2026-09-29 Fixed Dashboard frontend missing from the PyPI wheel — the 0.5.1 wheel shipped only the dashboard's Python files, so a pip-installed okfsmith dashboard showed the \"frontend bundle has not been built yet\" placeholder instead of the SPA. The okfsmith/dashboard/static/* bundle now ships in wheels and sdists, guarded by regression tests. [0.5.1] — 2026-09-28 Fixed Knowledge-graph edge resolution for section concepts — when a document is split into per-section concepts (id doc/section ), markdown links in those concepts are relative to the source document , but the resolver treated the id as a file path, so the Explore graph silently dropped edges for interlinked documents. Links now resolve to the target document's primary section concept; genuinely broken links are still marked dead. [0.5.0] — 2026-09-28 Added Web dashboard ( okfsmith dashboard ) — a local-first web UI covering all ten product areas: Overview, Ingest (drag-and-drop with live parse → chunk → embed → validate → index progress), Explore (interactive knowledge graph), Temporal, Chat (grounded, with clickable citations), Validate, MCP, Eval, Doctor, and Settings. Binds only to 127.0.0.1 , per-launch token auth, default port 8931 with free-port fallback, fully offline packaged assets (no CDN). The knowledge graph renders ECharts-style: solid cluster-colored circles with labels inside, degree-scaled hubs, edge-to-edge arrows, and a cluster legend. See Web dashboard . [0.4.0] — 2026-09-28 Added okfsmith sync — incremental sync of a bundle with its sources: SHA-256 change detection, added / updated / renamed / removed handling (renames detected by content hash, updates replace under the same ids — never name-2 duplicates), atomic resumable state, --watch polling, --dry-run , --format json . See Syncing sources . Temporal knowledge model — concepts carry valid_from / valid_until validity windows, supersedes replacement chains, and last_verified freshness; retrieval ranks by currency, and --as-of <date> on search / eval replays any instant. Superseded concepts are hidden by default, never deleted. See Temporal model . MCP expansion — four new read tools: traverse (BFS link-graph expansion, depth ≤ 3, cycle-safe), provenance (concept → sources → ingest manifest), diff (bundle vs bundle or vs sync snapshot), plus evidence budgets on every tool ( max_chunks , max_tokens , continuation_token ) for bounded agent context. See MCP server . okfsmith eval — golden Q&A eval harness: scores golden sets on the RAG Triad (context relevancy / faithfulness / answer relevancy), diagnoses failures as retrieval vs generation, runs heuristic (keyless) or LLM-judge, and gates CI with --fail-under . See Evaluating bundles . Governed MCP write-back — four new tools ( previe"
+  "text": "[0.25.1] — 2026-11-11 Fixed Docs changelog backfill — the docs changelog listed only 9 of the 55 released versions, jumping from 0.25.0 straight to 0.7.1. All 56 versions (55 released + docs-only 0.4.0) are now present. Added CI check that the docs changelog stays complete — a new scripts/check_docs_changelog.py fails the build if any version in root CHANGELOG.md is missing from docs/src/changelog.md . [0.25.0] — 2026-11-10 Added MCP search hits and list rows show temporal status — a non-current row now reads _(superseded by <id> )_ , _(expired)_ , or _(not yet valid)_ , evaluated at the as_of replay instant when one is given. Previously a superseded concept revealed with include_superseded=True , or listed outright, read exactly like a current one. [0.24.0] — 2026-11-09 Added Graph nodes show temporal status: GET /api/v1/bundles/{id}/graph now returns the same explicit temporal_status and superseded_by per node that the concepts listing, the concept detail endpoint, and the /search hits already carry, evaluated at now through the shared supersession index — and the dashboard graph canvas rings a non-current node (superseded, expired, or not yet valid) with a dashed outline, explained by a \"not current\" legend entry. [0.23.0] — 2026-11-08 Added Concepts listing rows show temporal status: GET /api/v1/bundles/{id}/concepts now returns the same explicit temporal_status and superseded_by per item that the /search hits and the concept detail endpoint already carry, evaluated at now through the shared supersession index — and the dashboard chat's /search and /list slash commands pass both fields through to their citation chips. [0.22.0] — 2026-11-07 Added Chat citation chips show their concept's sources: GET /api/v1/search now returns the same explicit sources list per hit that the concepts listing, the concept detail endpoint, and the chat message citations already carry, and the dashboard chat's /search and /list slash commands pass it through to their citation chips instead of building them with a hardcoded sources: [] . [0.21.0] — 2026-11-06 Added Dashboard concept detail views show temporal status: GET /api/v1/bundles/{id}/concepts/{concept_id} now returns the same explicit temporal_status and superseded_by fields the /search hits already carry, evaluated at now through the shared supersession index — and both detail views (the Explore graph's detail panel and the concept modal opened from a search hit) pill it in the meta row. [0.20.1] — 2026-11-05 Fixed Man page version pin missed in 0.20.0: the 0.20.0 release bumped pyproject.toml and the project website but not man/okfsmith.1 , so test_man_page_states_current_version failed and CI went red on the release commit (the man page also ships in the sdist, so the published 0.20.0 sdist carried the stale header). [0.20.0] — 2026-11-05 Added Dashboard Explore search gains an \"Include superseded\" toggle: GET /api/v1/search has hidden superseded matches by default since the temporal replay landed, reporting them only as a superseded_hidden count — but the Explore page neither passed the API's ?include_superseded= flag nor read that count, so a search whose only matches were superseded looked like it matched nothing, and those matches were unreachable from the dashboard without the CLI or chat. [0.19.0] — 2026-11-04 Added Dashboard concept detail views show trust tier and type: GET /api/v1/bundles/{id}/concepts/{concept_id} now returns the same explicit trust_tier and type fields the listing and /search responses already carry, and both detail views — the Explore graph's detail panel and the concept modal opened from a search hit — pill the real trust tier ( human-reviewed green, machine-confirmed amber, unverified muted) and show the type next to it. [0.18.0] — 2026-11-03 Added Dashboard Explore search gains type and trust-tier filters: GET /api/v1/search has accepted ?type= / ?trust_tier= since 0.14 (the dashboard analogue of okfsmith search --type / --tier ), but the Explore page ne"
  }
 ]
