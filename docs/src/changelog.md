@@ -4,6 +4,17 @@ eyebrow: Troubleshooting
 description: Release history for okfsmith — what changed in each version, what's coming next, and upgrade notes. Follows Keep a Changelog and Semantic Versioning.
 ---
 
+## [0.26.0] — 2026-11-12 {#v0-26-0}
+
+### Added {#v0-26-0-added}
+
+- **Graph nodes show temporal status** — `okfsmith graph` now carries
+  the same temporal status the `search` / `list` / `read` surfaces
+  (and the dashboard graph API) already show. JSON nodes carry
+  `temporal_status` and `superseded_by`; the text report lists
+  non-current concepts; Mermaid labels mark them. Plain bundles print
+  byte-identical output to before.
+
 ## [0.25.2] — 2026-11-11 {#v0-25-2}
 
 ### Fixed {#v0-25-2-fixed}

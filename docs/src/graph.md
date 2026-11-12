@@ -52,6 +52,25 @@ To fix them:
 > [!TIP]
 > Links between concepts are the edges that turn a pile of drafts into a *knowledge graph*. When you write concept bodies by hand, link freely — `graph` will tell you when a target is wrong.
 
+## Temporal status
+
+Graph nodes carry the same temporal status the `search` / `list` / `read`
+surfaces (and the dashboard graph API) show, evaluated at now:
+`current`, `superseded`, `expired`, or `not_yet_valid` (see
+[Temporality](temporality.html) for what each means and which frontmatter
+drives it).
+
+- **Text** — when any node is non-current, the report gains a section
+  listing it, e.g. `Non-current concepts (1):` followed by
+  `  - old-policy (superseded by new-policy)`. A bundle where every
+  concept is current prints no such section.
+- **JSON** — every node carries `temporal_status` and `superseded_by`
+  (`null` unless superseded), so scripts can filter history from live
+  knowledge without a second call.
+- **Mermaid** — non-current nodes get the status in their label, e.g.
+  `old-policy — Old Policy (superseded by new-policy)`; current nodes
+  keep their plain label.
+
 ## Output formats
 
 `graph` renders four ways:
@@ -59,7 +78,7 @@ To fix them:
 | `--format` | Output |
 |---|---|
 | `text` (default) | The summary above, printed to stdout |
-| `json` | Machine-readable: nodes, edges, orphans, dead links |
+| `json` | Machine-readable: nodes (with `temporal_status` / `superseded_by`), edges, orphans, dead links |
 | `mermaid` | `flowchart LR` — one node per concept, e.g. `big_first_bundle["big/first-bundle — First Bundle"]`. Paste it into any Mermaid renderer. |
 | `html` | An interactive visualization written to `<bundle>/viz.html` |
 

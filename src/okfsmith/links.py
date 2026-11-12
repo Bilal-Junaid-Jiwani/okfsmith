@@ -271,11 +271,24 @@ def resolve_link(
     return "dead", None
 
 
-def _node_for(bundle: Bundle, concept_id: str) -> dict:
+def _node_for(bundle: Bundle, concept_id: str, sindex=None, at=None) -> dict:
     concept = bundle.get(concept_id)
     fm = concept.frontmatter if concept else {}
     title = fm.get("title") or concept_id
-    return {"id": concept_id, "type": str(fm.get("type") or ""), "title": str(title)}
+    node = {"id": concept_id, "type": str(fm.get("type") or ""), "title": str(title)}
+    # Temporal status at *at* (``now`` when the caller passes an index built
+    # for the current instant): graph nodes carry the same status the
+    # ``search`` / ``list`` / ``read`` surfaces show, so a superseded concept
+    # does not read as live knowledge in the graph either. Without an index
+    # (direct callers) the node is plain ``current``.
+    if sindex is not None and concept is not None and at is not None:
+        status = sindex.status(concept, at)
+        node["temporal_status"] = status.name
+        node["superseded_by"] = status.superseded_by
+    else:
+        node["temporal_status"] = "current"
+        node["superseded_by"] = None
+    return node
 
 
 def _gen_at_of(frontmatter: dict | None) -> str:
@@ -288,7 +301,10 @@ def build_graph(bundle: Bundle) -> dict:
     """Build the concept link graph.
 
     Returns ``{"nodes": [...], "edges": [...], "dead_links": [...]}`` where
-    nodes carry ``id``/``type``/``title``, edges are ``{"from", "to"}`` dicts,
+    nodes carry ``id``/``type``/``title`` plus ``temporal_status`` (``current`` /
+    ``superseded`` / ``expired`` / ``not_yet_valid``, evaluated at now) and
+    ``superseded_by`` (the head of the supersession chain, else ``None``),
+    edges are ``{"from", "to"}`` dicts,
     and dead links are ``{"source", "target"}`` dicts (raw target text).
     Asset and reserved-file links are skipped silently: they are neither
     edges nor dead links.
@@ -297,8 +313,12 @@ def build_graph(bundle: Bundle) -> dict:
     document (section-concept fallback): a target naming a whole document
     split into sections links to that document's primary section concept.
     """
+    from okfsmith.core.temporal import SupersessionIndex, utcnow
+
     concepts = list(bundle.iter_concepts())
-    nodes = {c.id: _node_for(bundle, c.id) for c in concepts}
+    sindex = SupersessionIndex.from_bundle(bundle)
+    now = utcnow()
+    nodes = {c.id: _node_for(bundle, c.id, sindex, now) for c in concepts}
     concept_ids = set(nodes)
     by_id = {c.id: c for c in concepts}
 
@@ -380,6 +400,26 @@ def _node_id(concept_id: str) -> str:
     return f"n_{escaped}" if escaped else "n_empty"
 
 
+def temporal_mark(node: dict) -> str | None:
+    """Short temporal marker for a graph node, or ``None`` when current.
+
+    Nodes built by :func:`build_graph` carry ``temporal_status`` /
+    ``superseded_by``; hand-built node dicts (tests, older callers) without
+    those keys are treated as current, so their output is unchanged.
+    """
+    status = node.get("temporal_status") or "current"
+    if status == "current":
+        return None
+    if status == "superseded":
+        head = node.get("superseded_by")
+        return f"superseded by {head}" if head else "superseded"
+    if status == "expired":
+        return "expired"
+    if status == "not_yet_valid":
+        return "not yet valid"
+    return status
+
+
 def mermaid_flowchart(graph: dict) -> str:
     """Render the graph as a Mermaid ``flowchart``.
 
@@ -389,6 +429,11 @@ def mermaid_flowchart(graph: dict) -> str:
     lines = ["flowchart LR"]
     for node in graph["nodes"]:
         label = f'{node["id"]} — {node["title"]}'.replace('"', "'").replace("]", ")")
+        # Non-current nodes are marked, same vocabulary as the text/JSON
+        # graph output; current nodes keep their label byte-identical.
+        mark = temporal_mark(node)
+        if mark:
+            label = f"{label} ({mark})"
         lines.append(f'    {_node_id(node["id"])}["{label}"]')
     for edge in graph["edges"]:
         lines.append(f'    {_node_id(edge["from"])} --> {_node_id(edge["to"])}')

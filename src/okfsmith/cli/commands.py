@@ -1778,6 +1778,21 @@ def _print_graph_text(bundle: Bundle, data: dict) -> None:
         f"{_plural(len(data['edges']), 'link')}, "
         f"{_plural(len(data['dead_links']), 'dead link')}."
     )
+    # Non-current nodes (superseded / expired / not yet valid) are listed
+    # explicitly — a graph that reads like live knowledge while hiding a
+    # superseded concept is the same trap the search/list/read temporal
+    # notes closed. The section is omitted entirely when every node is
+    # current, so plain bundles print byte-identical output to before.
+    non_current = [
+        node
+        for node in data["nodes"]
+        if (node.get("temporal_status") or "current") != "current"
+    ]
+    if non_current:
+        typer.echo(f"\nNon-current concepts ({len(non_current)}):")
+        for node in non_current:
+            mark = _links.temporal_mark(node)
+            typer.echo(f"  - {node['id']} ({mark})")
     orphan_ids = _links.orphans(bundle)
     typer.echo(f"\nOrphans ({len(orphan_ids)}):")
     for oid in orphan_ids:

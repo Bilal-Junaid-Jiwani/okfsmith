@@ -5,6 +5,23 @@ follow SemVer.
 
 ## [Unreleased]
 
+## [0.26.0] - 2026-11-12
+
+### Added
+
+- **Graph nodes show temporal status:** `okfsmith graph` now carries
+  the same temporal status the `search` / `list` / `read` surfaces
+  (and the dashboard graph API) already show — a superseded concept
+  no longer reads as live knowledge in the graph. Every node in
+  `graph --format json` carries `temporal_status` (`current` /
+  `superseded` / `expired` / `not_yet_valid`, evaluated at now) and
+  `superseded_by` (the chain head, else `null`); the text report gains
+  a `Non-current concepts (N):` section (omitted entirely when every
+  node is current, so plain bundles print byte-identical output); and
+  `--format mermaid` marks non-current node labels, e.g.
+  `old — Old Policy (superseded by new)`, leaving current labels
+  untouched. Pinned by tests in `tests/test_graph_temporal.py`.
+
 ## [0.25.2] - 2026-11-11
 
 ### Fixed

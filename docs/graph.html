@@ -111,6 +111,8 @@
 </li>
 <li><a href="#orphans-and-dead-links">Orphans and dead links</a>
 </li>
+<li><a href="#temporal-status">Temporal status</a>
+</li>
 <li><a href="#output-formats">Output formats</a>
 </li>
 </ul>
@@ -164,9 +166,19 @@ Dead links (0):
 </li>
 </ol>
 <aside class="admonition tip"><span class="admon-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.75a4.5 4.5 0 0 0-2.6 8.15c.6.48 1.1 1.1 1.1 1.85V12h3v-.25c0-.75.5-1.37 1.1-1.85A4.5 4.5 0 0 0 8 1.75z" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M6.5 14h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></span><div class="admon-body"><p class="admon-title">Tip</p><p>Links between concepts are the edges that turn a pile of drafts into a <em>knowledge graph</em>. When you write concept bodies by hand, link freely — <code>graph</code> will tell you when a target is wrong.</p></div></aside>
+<h2 id="temporal-status">Temporal status</h2>
+<p>Graph nodes carry the same temporal status the <code>search</code> / <code>list</code> / <code>read</code> surfaces (and the dashboard graph API) show, evaluated at now: <code>current</code>, <code>superseded</code>, <code>expired</code>, or <code>not_yet_valid</code> (see <a href="temporality.html">Temporality</a> for what each means and which frontmatter drives it).</p>
+<ul>
+<li><strong>Text</strong> — when any node is non-current, the report gains a section listing it, e.g. <code>Non-current concepts (1):</code> followed by <code>  - old-policy (superseded by new-policy)</code>. A bundle where every concept is current prints no such section.
+</li>
+<li><strong>JSON</strong> — every node carries <code>temporal_status</code> and <code>superseded_by</code> (<code>null</code> unless superseded), so scripts can filter history from live knowledge without a second call.
+</li>
+<li><strong>Mermaid</strong> — non-current nodes get the status in their label, e.g. <code>old-policy — Old Policy (superseded by new-policy)</code>; current nodes keep their plain label.
+</li>
+</ul>
 <h2 id="output-formats">Output formats</h2>
 <p><code>graph</code> renders four ways:</p>
-<div class="table-wrap"><table><thead><tr><th><code>--format</code></th><th>Output</th></tr></thead><tbody><tr><td><code>text</code> (default)</td><td>The summary above, printed to stdout</td></tr><tr><td><code>json</code></td><td>Machine-readable: nodes, edges, orphans, dead links</td></tr><tr><td><code>mermaid</code></td><td><code>flowchart LR</code> — one node per concept, e.g. <code>big_first_bundle["big/first-bundle — First Bundle"]</code>. Paste it into any Mermaid renderer.</td></tr><tr><td><code>html</code></td><td>An interactive visualization written to <code>&lt;bundle&gt;/viz.html</code></td></tr></tbody></table></div>
+<div class="table-wrap"><table><thead><tr><th><code>--format</code></th><th>Output</th></tr></thead><tbody><tr><td><code>text</code> (default)</td><td>The summary above, printed to stdout</td></tr><tr><td><code>json</code></td><td>Machine-readable: nodes (with <code>temporal_status</code> / <code>superseded_by</code>), edges, orphans, dead links</td></tr><tr><td><code>mermaid</code></td><td><code>flowchart LR</code> — one node per concept, e.g. <code>big_first_bundle["big/first-bundle — First Bundle"]</code>. Paste it into any Mermaid renderer.</td></tr><tr><td><code>html</code></td><td>An interactive visualization written to <code>&lt;bundle&gt;/viz.html</code></td></tr></tbody></table></div>
 <pre class="codeblock" data-lang="bash"><code># write a Mermaid diagram to a file
 okfsmith graph ./kb --format mermaid --output graph.mmd
 
@@ -198,6 +210,8 @@ okfsmith graph ./kb --format html
 <li><a href="#see-the-graph">See the graph</a>
 </li>
 <li><a href="#orphans-and-dead-links">Orphans and dead links</a>
+</li>
+<li><a href="#temporal-status">Temporal status</a>
 </li>
 <li><a href="#output-formats">Output formats</a>
 </li>
