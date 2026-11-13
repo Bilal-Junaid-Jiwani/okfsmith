@@ -14,6 +14,12 @@ Features:
 - edges extracted from markdown links in concept bodies; links whose target
   is not a concept in the bundle are drawn as red dashed dead-link edges
   leading to a ghost node
+- temporal status: nodes carry the same ``temporal_status`` /
+  ``superseded_by`` the ``search`` / ``list`` / ``read`` / ``graph`` surfaces
+  show — non-current concepts (superseded / expired / not yet valid) are
+  struck through on the canvas (a shape channel, never color alone), get a
+  temporal badge in the detail panel, and are counted in the header stats,
+  so a superseded concept never reads as live knowledge in the viewer either
 - click a node for a detail panel: badges, minimal-markdown description,
   clickable outlinks/backlinks ("connections"), metadata table, body
 - keyboard access: the canvas is focusable; arrow keys pan, ``+``/``-``
@@ -116,9 +122,9 @@ def _tags_of(frontmatter: dict) -> list[str]:
         return [str(tags)]
 
 
-def _node_for(concept: Concept) -> dict[str, Any]:
+def _node_for(concept: Concept, sindex=None, now=None) -> dict[str, Any]:
     fm = concept.frontmatter or {}
-    return {
+    node: dict[str, Any] = {
         "id": concept.id,
         "type": str(fm.get("type") or "unknown"),
         "title": str(fm.get("title") or concept.id),
@@ -128,6 +134,17 @@ def _node_for(concept: Concept) -> dict[str, Any]:
         "frontmatter": _jsonable(dict(fm)),
         "body": concept.body or "",
     }
+    # Temporal status at *now* (same instant the CLI graph evaluates): a
+    # superseded concept must not read as live knowledge in the viewer
+    # either. Without an index (direct callers) the node is plain current.
+    if sindex is not None and now is not None:
+        status = sindex.status(concept, now)
+        node["temporal_status"] = status.name
+        node["superseded_by"] = status.superseded_by
+    else:
+        node["temporal_status"] = "current"
+        node["superseded_by"] = None
+    return node
 
 
 def _primary_section_id(
@@ -154,8 +171,12 @@ def _primary_section_id(
 
 def _build_model(bundle: Bundle) -> dict[str, Any]:
     """Build the ``{"nodes": [...], "edges": [...]}`` model for the template."""
+    from okfsmith.core.temporal import SupersessionIndex, utcnow
+
     concepts = list(bundle.iter_concepts())
-    nodes = [_node_for(c) for c in concepts]
+    sindex = SupersessionIndex.from_bundle(bundle)
+    now = utcnow()
+    nodes = [_node_for(c, sindex, now) for c in concepts]
     ids = {n["id"] for n in nodes}
     by_id = {c.id: c for c in concepts}
     edges: list[dict[str, Any]] = []
@@ -234,6 +255,7 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
   .badge.trust-machine-confirmed { background: #58a6ff; color: #0f1115; }
   .badge.trust-human-reviewed { background: #d4a017; color: #0f1115; }
   .badge.dead { background: transparent; color: #ff7b72; border: 1px dashed #ff7b72; }
+  .badge.temporal { background: transparent; color: #e3b341; border: 1px dashed #e3b341; }
   #detail .desc { font-size: 13px; color: #c6cbd4; }
   #detail table { width: 100%; border-collapse: collapse; font-size: 12px; margin: 8px 0; }
   #detail th, #detail td { text-align: left; padding: 4px 6px; border-bottom: 1px solid #2a2e38;
@@ -418,6 +440,19 @@ function md(s) {
     });
 }
 function nodeRadius(n) { return 6 + Math.min(9, n.deg); }   // degree-scaled
+/* Short temporal marker for a node, or null when current — same vocabulary
+   as the CLI graph's `temporal_mark` (links.py): "superseded by X" /
+   "expired" / "not yet valid". Ghost nodes carry no temporal fields and
+   read as current. */
+function temporalMark(n) {
+  const s = n.temporal_status || "current";
+  if (s === "current") return null;
+  if (s === "superseded") return "superseded by " + (n.superseded_by || "");
+  if (s === "expired") return "expired";
+  if (s === "not_yet_valid") return "not yet valid";
+  return s;
+}
+function isNonCurrent(n) { return (n.temporal_status || "current") !== "current"; }
 
 /* ---------------- camera ---------------- */
 const view = { cx: 0, cy: 0, scale: 1 };
@@ -535,12 +570,19 @@ function drawNode(n) {
     ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.5;
     ctx.beginPath(); ctx.arc(p.x, p.y, r + 7, 0, 7); ctx.stroke();
   }
+  if (!n.ghost && isNonCurrent(n)) {                // non-current: struck through
+    ctx.strokeStyle = "#e6e8ec"; ctx.lineWidth = 2;  // shape channel, not color
+    ctx.beginPath();
+    ctx.moveTo(p.x - r - 2, p.y - r - 2); ctx.lineTo(p.x + r + 2, p.y + r + 2);
+    ctx.stroke();
+  }
   ctx.restore();
 }
 function drawLabel(n) {
   const p = w2s(n.x, n.y);
   ctx.save();
   if (isDimmed(n)) ctx.globalAlpha = 0.25;
+  else if (isNonCurrent(n)) ctx.globalAlpha = 0.6;  // non-current labels fade too
   ctx.font = "11px system-ui, sans-serif";
   ctx.fillStyle = "#dfe3ea";
   ctx.strokeStyle = "#0f1115"; ctx.lineWidth = 3;
@@ -598,6 +640,13 @@ function draw() {
   h += '<div class="row"><svg width="16" height="16">'
     + '<line x1="1" y1="8" x2="15" y2="8" stroke="#ff7b72" stroke-width="2"'
     + ' stroke-dasharray="4 3"/></svg><span><b>dead link</b> &mdash; target not in bundle</span></div>';
+  if (nodes.some(n => !n.ghost && isNonCurrent(n))) {
+    h += '<div class="row"><svg width="16" height="16">'
+      + '<circle cx="8" cy="8" r="5" fill="none" stroke="#8b93a3" stroke-width="2"/>'
+      + '<line x1="2" y1="14" x2="14" y2="2" stroke="#e6e8ec" stroke-width="1.5"/>'
+      + '</svg><span><b>non-current concept</b> &mdash; struck through '
+      + '(superseded / expired / not yet valid)</span></div>';
+  }
   const types = [...new Set(nodes.filter(n => !n.ghost).map(n => n.type))].sort().slice(0, 12);
   if (types.length) {
     h += '<div class="types">' + types.map(t =>
@@ -639,6 +688,7 @@ function select(n, center) {
     + '<div class="badges">'
     + '<span class="badge" style="background:' + typeColor(n.type) + '">' + esc(n.type) + "</span>"
     + '<span class="badge trust-' + esc(n.trust) + '">' + esc(n.trust) + "</span>"
+    + (temporalMark(n) ? '<span class="badge temporal">' + esc(temporalMark(n)) + "</span>" : "")
     + (n.ghost ? '<span class="badge dead">dead-link target</span>' : "")
     + "</div>"
     + (n.description ? '<p class="desc">' + md(n.description) + "</p>" : "")
@@ -804,7 +854,9 @@ document.getElementById("reset-view").addEventListener("click", () => {
   for (const n of nodes) {
     if (n.ghost) continue;
     const li = document.createElement("li");
-    li.textContent = n.title + " (" + n.id + ", " + n.type + ", " + n.trust + ")";
+    const mark = temporalMark(n);
+    li.textContent = n.title + " (" + n.id + ", " + n.type + ", " + n.trust
+      + (mark ? ", " + mark : "") + ")";
     frag.appendChild(li);
   }
   ul.appendChild(frag);
@@ -866,15 +918,28 @@ def render_html(bundle_root: str | Path, output: str | Path) -> Path:
     dead = sum(1 for e in model["edges"] if e["dead"])
     n_nodes = len(model["nodes"])
     n_edges = len(model["edges"])
+    non_current = sum(
+        1 for n in model["nodes"] if n.get("temporal_status") != "current"
+    )
     stats = (
         f"{n_nodes} concepts &middot; {n_edges} links"
         + (f" &middot; {dead} dead link{'s' if dead != 1 else ''}" if dead else "")
+        + (
+            f" &middot; {non_current} non-current"
+            if non_current
+            else ""
+        )
     )
     title = html.escape(Path(bundle_root).name or "bundle")
     aria_label = (
         f"Knowledge graph of {n_nodes} concepts and {n_edges} links. "
         "Trust tier is shown by node shape; concept type by color. "
-        "The full concept list follows the canvas as text."
+        + (
+            "Non-current concepts are struck through. "
+            if non_current
+            else ""
+        )
+        + "The full concept list follows the canvas as text."
         if n_nodes
         else "Empty knowledge graph: this bundle has no concepts."
     )

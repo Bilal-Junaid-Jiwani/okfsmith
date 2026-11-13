@@ -4,6 +4,19 @@ eyebrow: Troubleshooting
 description: Release history for okfsmith — what changed in each version, what's coming next, and upgrade notes. Follows Keep a Changelog and Semantic Versioning.
 ---
 
+## [0.27.0] — 2026-11-13 {#v0-27-0}
+
+### Added {#v0-27-0-added}
+
+- **Viz HTML graph shows temporal status** — the interactive viewer
+  (`okfsmith graph --format html`) is the last surface to carry the
+  temporal status the other surfaces already show. Nodes carry
+  `temporal_status` and `superseded_by`; non-current nodes are struck
+  through on the canvas (a shape channel, never color alone), get a
+  temporal badge in the detail panel, are counted in the header
+  stats, and are named in the screen-reader concept list. Plain
+  bundles show no non-current count and no strike-through legend row.
+
 ## [0.26.0] — 2026-11-12 {#v0-26-0}
 
 ### Added {#v0-26-0-added}

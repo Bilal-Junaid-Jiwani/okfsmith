@@ -5,6 +5,26 @@ follow SemVer.
 
 ## [Unreleased]
 
+## [0.27.0] - 2026-11-13
+
+### Added
+
+- **Viz HTML graph shows temporal status:** the interactive viewer
+  (`okfsmith graph --format html`) is the last surface to carry the
+  temporal status the `search` / `list` / `read` / `graph` surfaces
+  already show — a superseded concept no longer reads as live
+  knowledge in the viewer. Every node in the embedded model carries
+  `temporal_status` (`current` / `superseded` / `expired` /
+  `not_yet_valid`, evaluated at render time) and `superseded_by` (the
+  chain head, else `null`); non-current nodes are struck through on
+  the canvas (a shape channel, never color alone) with faded labels,
+  get a temporal badge in the detail panel (`superseded by X` /
+  `expired` / `not yet valid`), are counted in the header stats, are
+  explained in the legend, and are named in the screen-reader concept
+  list. Plain bundles show no non-current count and no
+  strike-through legend row. Pinned by tests in
+  `tests/test_viz_temporal.py`.
+
 ## [0.26.0] - 2026-11-12
 
 ### Added

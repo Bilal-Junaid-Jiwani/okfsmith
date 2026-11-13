@@ -90,7 +90,7 @@ okfsmith graph ./kb --format mermaid --output graph.mmd
 okfsmith graph ./kb --format html
 ```
 
-The HTML viewer needs no server — open `kb/viz.html` in a browser. It shows the graph with a colorblind-safe palette, per-concept backlinks, a search box, and keyboard access. (Chat's `/graph` runs the same command inside the REPL.)
+The HTML viewer needs no server — open `kb/viz.html` in a browser. It shows the graph with a colorblind-safe palette, per-concept backlinks, a search box, and keyboard access. Non-current concepts (superseded, expired, or not yet valid) are struck through on the canvas and carry a temporal badge in the detail panel, so stale knowledge never reads as live. (Chat's `/graph` runs the same command inside the REPL.)
 
 <details>
 <summary>Advanced</summary>

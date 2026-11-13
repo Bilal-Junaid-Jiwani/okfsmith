@@ -72,7 +72,9 @@ knowledge usually lives, and that's what okfsmith ingests first:
 - **Graph visualization.** `okfsmith graph --format html` renders a
   self-contained `viz.html` (works offline): nodes colored by type with a
   colorblind-safe palette, shaped by trust tier, with backlinks, search, and
-  keyboard access.
+  keyboard access — and non-current concepts (superseded / expired / not yet
+  valid) struck through with a temporal badge, so stale knowledge never
+  reads as live.
 - **One-command MCP server.** `okfsmith mcp ./kb` over stdio, SSE, or
   streamable HTTP.
 - **Skill pack.** `skills/okfsmith-build/SKILL.md` teaches agents the
