@@ -4,6 +4,18 @@ eyebrow: Troubleshooting
 description: Release history for okfsmith — what changed in each version, what's coming next, and upgrade notes. Follows Keep a Changelog and Semantic Versioning.
 ---
 
+## [0.27.1] — 2026-11-13 {#v0-27-1}
+
+### Fixed {#v0-27-1-fixed}
+
+- **Ingest job reported "done" before its junk-bundle cleanup ran** —
+  a zero-concept upload to a new bundle finished the job and only
+  then removed the just-created empty directory, so a poller could
+  observe "done" while the junk directory was still on disk (seen
+  once on CI, ubuntu-latest / Python 3.13). The cleanup and registry
+  refresh now run before `job.finish(...)`, so "done" is only
+  published once the workspace is in its final state.
+
 ## [0.27.0] — 2026-11-13 {#v0-27-0}
 
 ### Added {#v0-27-0-added}

@@ -1086,14 +1086,14 @@ def create_app(workspace: Path, token: str) -> FastAPI:
                 + ["no-LLM ingest creates new draft concepts; nothing is updated in place."],
             }
             detail = f"dry run: ~{would_create} concept(s) would be created"
-        if n_failed and not n_ok and not n_skipped:
-            job.finish("error", detail="; ".join(notes[:5]), error="; ".join(notes[:5]))
-        else:
-            job.finish("done", detail=detail)
         # A new bundle that ended up with zero concepts is junk: the ingest
         # produced nothing (unsupported or empty uploads) and the directory
         # was created only for this job, so remove it again. A dry run that
         # *would* create concepts keeps its directory for the real run.
+        # This runs BEFORE job.finish: "done" is polled by clients, so the
+        # job must only report done once the workspace is in its final
+        # state — finishing first let a poller observe "done" while the
+        # junk directory was still on disk (CI: ubuntu 3.13, 0.27.0).
         if created_new_bundle and n_ok == 0 and would_create == 0:
             try:
                 if sum(1 for _ in target.iter_concepts()) == 0:
@@ -1101,6 +1101,10 @@ def create_app(workspace: Path, token: str) -> FastAPI:
             except OSError:
                 pass
         registry.refresh()
+        if n_failed and not n_ok and not n_skipped:
+            job.finish("error", detail="; ".join(notes[:5]), error="; ".join(notes[:5]))
+        else:
+            job.finish("done", detail=detail)
 
     @app.post(f"{API}/ingest", status_code=202)
     async def post_ingest(

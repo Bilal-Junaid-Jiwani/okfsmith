@@ -5,6 +5,21 @@ follow SemVer.
 
 ## [Unreleased]
 
+## [0.27.1] - 2026-11-13
+
+### Fixed
+
+- **Ingest job reported "done" before its junk-bundle cleanup ran:**
+  a zero-concept upload to a new bundle finished the job (status
+  `done`, observable by polling clients) and only then removed the
+  just-created empty bundle directory — so a poller could observe
+  "done" while the junk directory was still on disk. Seen once on CI
+  (ubuntu-latest, Python 3.13): `test_ingest_zero_concept_upload_
+  removes_new_bundle` failed with "junk bundle left behind" while
+  the other 13 CI jobs passed. The cleanup and registry refresh now
+  run before `job.finish(...)`, so "done" is only published once the
+  workspace is in its final state. The existing test is the pin.
+
 ## [0.27.0] - 2026-11-13
 
 ### Added
