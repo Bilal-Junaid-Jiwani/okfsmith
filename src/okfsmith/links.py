@@ -297,12 +297,13 @@ def _gen_at_of(frontmatter: dict | None) -> str:
     return str((fm.get("generated") or {}).get("at") or "")
 
 
-def build_graph(bundle: Bundle) -> dict:
+def build_graph(bundle: Bundle, as_of=None) -> dict:
     """Build the concept link graph.
 
     Returns ``{"nodes": [...], "edges": [...], "dead_links": [...]}`` where
     nodes carry ``id``/``type``/``title`` plus ``temporal_status`` (``current`` /
-    ``superseded`` / ``expired`` / ``not_yet_valid``, evaluated at now) and
+    ``superseded`` / ``expired`` / ``not_yet_valid``, evaluated at ``as_of``
+    when given, else now) and
     ``superseded_by`` (the head of the supersession chain, else ``None``),
     edges are ``{"from", "to"}`` dicts,
     and dead links are ``{"source", "target"}`` dicts (raw target text).
@@ -317,7 +318,7 @@ def build_graph(bundle: Bundle) -> dict:
 
     concepts = list(bundle.iter_concepts())
     sindex = SupersessionIndex.from_bundle(bundle)
-    now = utcnow()
+    now = as_of if as_of is not None else utcnow()
     nodes = {c.id: _node_for(bundle, c.id, sindex, now) for c in concepts}
     concept_ids = set(nodes)
     by_id = {c.id: c for c in concepts}

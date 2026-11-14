@@ -54,6 +54,19 @@ last_verified: 2026-01-15     # when a human/agent last confirmed this is right
 okfsmith search ./kb "refund policy" --as-of 2025-06-01 --format json
 ```
 
+The same replay works on `list`, `read`, and `graph` — the whole
+inventory, not just search:
+
+```bash
+okfsmith list ./kb --as-of 2025-06-01 --format json   # statuses as of then
+okfsmith read ./kb policy/refunds --as-of 2025-06-01  # badge as of then
+okfsmith graph ./kb --as-of 2025-06-01                # node status as of then
+```
+
+Each JSON envelope reports the `as_of` instant evaluated; the HTML
+viewer labels a replay ("as of …") in its header stats, so a replayed
+viewer never reads as the present.
+
 The JSON envelope always reports the instant used and how many superseded results were hidden:
 ```json
 {
@@ -85,8 +98,9 @@ endpoint sweeps `bundle_id=all`).
 | Command | Surface |
 |---|---|
 | `search` | `Valid` column (`expired` / `future` / `superseded→<id>`); `--as-of`, `--include-superseded`; JSON rows carry `temporal_status` and `superseded_by` |
-| `list` | `Valid` column (`—` for concepts with no temporal fields, `current` / `expired` / `future` / `superseded` otherwise); JSON `temporal_status` |
-| `read` | One-line `[temporal: …]` badge under the concept when it has temporal data or is superseded; JSON `temporal_status` |
+| `list` | `Valid` column (`—` for concepts with no temporal fields, `current` / `expired` / `future` / `superseded` otherwise); `--as-of` replays the column; JSON `temporal_status` + `as_of` |
+| `read` | One-line `[temporal: …]` badge under the concept when it has temporal data or is superseded; `--as-of` replays the badge; JSON `temporal_status` + `as_of` |
+| `graph` | Text report lists non-current concepts; Mermaid labels mark them; JSON nodes carry `temporal_status` / `superseded_by`; the HTML viewer strikes non-current nodes through and badges them in the detail panel. `--as-of` replays all four formats; JSON adds `as_of`, HTML labels the replay in its header stats. |
 | `validate` | Advisory warnings W016–W020 (never affect conformance) |
 | chat / MCP | The shared search engine applies the same ranking — temporal behavior is identical everywhere. The MCP `search` and `list` tools carry the same status on each row: a non-current hit/row shows `_(superseded by `<id>`)_`, `_(expired)_`, or `_(not yet valid)_`, evaluated at the `as_of` replay instant when one is given, so an agent caller never mistakes history for live knowledge; current rows carry no note. |
 | dashboard | `GET /api/v1/search` accepts `?as_of=` (ISO-8601 date or datetime) and `?include_superseded=`; the JSON envelope reports the `as_of` instant used and `superseded_hidden`, like the CLI, and each hit carries `type`, `trust_tier`, `temporal_status`, `superseded_by`, and `sources` (evaluated at the replay instant). The concept detail endpoint (`GET /api/v1/bundles/{id}/concepts/{concept_id}`) carries the same `temporal_status` and `superseded_by`, evaluated at now, and both detail views pill a non-current status. The concepts listing endpoint (`GET /api/v1/bundles/{id}/concepts`) carries the same `temporal_status` and `superseded_by` on every item, evaluated at now. The graph endpoint (`GET /api/v1/bundles/{id}/graph`) carries the same `temporal_status` and `superseded_by` on every node, evaluated at now, and the graph canvas rings a non-current node with a dashed outline (explained in the legend when one is present), so history reads as history without clicking a node open. The dashboard chat's `/search` and `/list` slash commands show those sources — and the temporal label (`Superseded by <id>`, `Expired`, `Not yet valid`) — on each citation chip's tooltip, so a cited concept's origin file and its status are one hover away |

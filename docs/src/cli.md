@@ -205,6 +205,9 @@ okfsmith list ./kb --format json | jq '.concepts[].id'
 
 # Only human-reviewed concepts
 okfsmith list ./kb --tier human-reviewed
+
+# Replay the list as it stood on 2025-06-01
+okfsmith list ./kb --as-of 2025-06-01
 ```
 
 Real output (trimmed — the real table had 18 rows):
@@ -233,6 +236,7 @@ per concept.
 | `--format <text\|json>` | Output format (default `text`). |
 | `--type <str>` | Only concepts of this type. |
 | `--tier <str>` | Only this trust tier: `unverified`, `machine-confirmed`, `human-reviewed`. |
+| `--as-of <date\|datetime>` | Replay the list at a past/future instant: validity windows and supersession chains are evaluated then, not now. JSON adds `as_of` (the instant evaluated). |
 
 <details>
 <summary>Advanced</summary>
@@ -254,6 +258,9 @@ okfsmith read [OPTIONS] {bundle} {concept_id}
 ```bash
 okfsmith read ./kb big/first-bundle
 okfsmith read ./kb big/first-bundle --format json
+
+# What was this concept's status on 2025-06-01?
+okfsmith read ./kb big/first-bundle --as-of 2025-06-01
 ```
 
 Real output (frontmatter, then body):
@@ -292,10 +299,15 @@ concept), text output appends a one-line badge such as
 `[temporal: expired (valid_until 2025-06-30 has passed)]`; plain current
 concepts print exactly as before. JSON output adds `temporal_status`.
 
+`--as-of <date|datetime>` replays the badge and the JSON status at a
+past/future instant (same replay as `search` and `list`); the JSON
+envelope also reports `as_of`.
+
 ### Common options {#read-options}
 | Flag | What it does |
 |---|---|
 | `--format <text\|json>` | Output format (default `text`). |
+| `--as-of <date\|datetime>` | Replay the temporal badge/status at a past/future instant. |
 
 <details>
 <summary>Advanced</summary>
@@ -425,6 +437,9 @@ okfsmith graph ./kb --format html
 
 # Mermaid diagram to stdout
 okfsmith graph ./kb --format mermaid
+
+# Replay the graph as it stood on 2025-06-01 (all formats, incl. html)
+okfsmith graph ./kb --as-of 2025-06-01
 ```
 
 Real output:
@@ -444,6 +459,7 @@ Dead links (0):
 |---|---|
 | `--format <text\|json\|mermaid\|html>` | Output format (default `text`). `html` writes an interactive visualization — colorblind-safe palette, backlinks, search. |
 | `--output <path>` | Write to a file instead of stdout. |
+| `--as-of <date\|datetime>` | Replay the graph at a past/future instant: node temporal status is evaluated then, not now. JSON adds `as_of`; the HTML viewer labels the replay ("as of …") in its header stats. |
 
 <details>
 <summary>Advanced</summary>

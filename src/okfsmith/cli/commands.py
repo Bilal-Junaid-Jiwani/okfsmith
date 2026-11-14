@@ -188,12 +188,36 @@ def _short_dt(value) -> str:
     return value.isoformat()
 
 
-def _temporal_badge(bundle, concept) -> str | None:
+def _parse_as_of(as_of: str | None):
+    """Parse a ``--as-of`` value into a moment, or ``None`` when absent.
+
+    Raises the same ``BadParameter`` the search/eval replay flags raise
+    for a value that is not an ISO-8601 date or datetime.
+    """
+    if as_of is None:
+        return None
+    import typer
+
+    if isinstance(as_of, typer.models.OptionInfo):
+        # Direct call (e.g. chat's /list and /read) left the option unset:
+        # Typer fills unset options with the OptionInfo sentinel, not None.
+        return None
+    from okfsmith.core import temporal as _temporal
+
+    moment = _temporal.parse_temporal(as_of)
+    if moment is None:
+        raise typer.BadParameter(
+            f"--as-of '{as_of}' is not an ISO-8601 date or datetime."
+        )
+    return moment
+
+
+def _temporal_badge(bundle, concept, moment=None) -> str | None:
     """One-line temporal status badge for ``read`` text output.
 
     Returns ``None`` for plain concepts with a ``current`` status, so they
     print byte-identical output to before. Never raises on hostile
-    frontmatter.
+    frontmatter. The status is evaluated at ``moment`` when given, else now.
     """
     from okfsmith.core.temporal import (
         SupersessionIndex,
@@ -203,7 +227,9 @@ def _temporal_badge(bundle, concept) -> str | None:
     )
 
     fm = concept.frontmatter or {}
-    status = SupersessionIndex.from_bundle(bundle).status(concept, utcnow())
+    if moment is None:
+        moment = utcnow()
+    status = SupersessionIndex.from_bundle(bundle).status(concept, moment)
     if not has_temporal_fields(fm) and status.name == "current":
         # Plain concept, nothing temporal to say: byte-identical output.
         return None
@@ -1352,6 +1378,16 @@ def list_concepts(
     output_format: ValidateFormat = typer.Option(
         ValidateFormat.text, "--format", help="Output format: text or json."
     ),
+    # NOTE: ``as_of`` stays last — chat's /list calls list_concepts
+    # positionally (bundle, type, tier, format), so a new option inserted
+    # before ``output_format`` would silently land in the wrong slot.
+    as_of: str | None = typer.Option(
+        None,
+        "--as-of",
+        help="Replay the list at a past/future instant (ISO-8601 date or "
+        "datetime): validity windows and supersession chains are evaluated "
+        "at that instant instead of now.",
+    ),
 ) -> None:
     """List concepts in the bundle: id, type, title, trust tier.
 
@@ -1359,12 +1395,14 @@ def list_concepts(
     Examples:
         okfsmith list ./kb
         okfsmith list ./kb --tier human-reviewed --format json
+        okfsmith list ./kb --as-of 2025-06-01
     """
     as_json = output_format == "json"
     if tier_filter is not None and tier_filter.casefold() not in TRUST_TIERS:
         raise typer.BadParameter(
             f"--tier '{tier_filter}' is not one of: {', '.join(TRUST_TIERS)}"
         )
+    moment = _parse_as_of(as_of)
     try:
         _require_bundle_dir(bundle)
     except CliError as exc:
@@ -1374,7 +1412,7 @@ def list_concepts(
     from okfsmith.core.temporal import SupersessionIndex, utcnow
 
     sindex = SupersessionIndex.from_bundle(bundle)
-    moment = utcnow()
+    moment = moment if moment is not None else utcnow()
     rows = []
     for concept in bundle.iter_concepts():
         ctype = str(concept.frontmatter.get("type") or "")
@@ -1394,6 +1432,7 @@ def list_concepts(
         })
     if as_json:
         _dump_json({
+            "as_of": moment.isoformat(),
             "concepts": [
                 {k: row[k] for k in ("id", "type", "title", "tier", "temporal_status")}
                 for row in rows
@@ -1438,6 +1477,15 @@ def read(
     output_format: ValidateFormat = typer.Option(
         ValidateFormat.text, "--format", help="Output format: text or json."
     ),
+    # NOTE: ``as_of`` stays last — chat's /read calls read() positionally
+    # (bundle, id, format); see the note on list_concepts above.
+    as_of: str | None = typer.Option(
+        None,
+        "--as-of",
+        help="Replay the read at a past/future instant (ISO-8601 date or "
+        "datetime): the temporal badge and status are evaluated at that "
+        "instant instead of now.",
+    ),
 ) -> None:
     """Print a concept: frontmatter as YAML, then the body.
 
@@ -1445,8 +1493,10 @@ def read(
     Examples:
         okfsmith read ./kb finance/revenue
         okfsmith read ./kb finance/revenue --format json
+        okfsmith read ./kb finance/revenue --as-of 2025-06-01
     """
     as_json = output_format == "json"
+    moment = _parse_as_of(as_of)
     try:
         _require_bundle_dir(bundle)
     except CliError as exc:
@@ -1469,8 +1519,9 @@ def read(
     assert concept is not None  # for type checkers; fail() raises
     from okfsmith.core.temporal import SupersessionIndex, utcnow
 
+    moment = moment if moment is not None else utcnow()
     temporal_status = SupersessionIndex.from_bundle(bundle).status(
-        concept, utcnow()
+        concept, moment
     ).name
     if as_json:
         _dump_json({
@@ -1478,10 +1529,11 @@ def read(
             "frontmatter": concept.frontmatter,
             "body": concept.body,
             "temporal_status": temporal_status,
+            "as_of": moment.isoformat(),
         })
     else:
         typer.echo(_fm.serialize_frontmatter(concept.frontmatter, concept.body))
-        badge = _temporal_badge(bundle, concept)
+        badge = _temporal_badge(bundle, concept, moment)
         if badge is not None:
             typer.echo(f"\n{badge}")
 
@@ -1551,15 +1603,7 @@ def search(
         raise typer.BadParameter(
             f"--tier '{tier_filter}' is not one of: {', '.join(TRUST_TIERS)}"
         )
-    moment = None
-    if as_of is not None:
-        from okfsmith.core import temporal as _temporal
-
-        moment = _temporal.parse_temporal(as_of)
-        if moment is None:
-            raise typer.BadParameter(
-                f"--as-of '{as_of}' is not an ISO-8601 date or datetime."
-            )
+    moment = _parse_as_of(as_of)
     try:
         _require_bundle_dir(bundle)
     except CliError as exc:
@@ -1688,6 +1732,13 @@ def graph(
         "--force",
         help="Overwrite the --output file if it already exists.",
     ),
+    as_of: str | None = typer.Option(
+        None,
+        "--as-of",
+        help="Replay the graph at a past/future instant (ISO-8601 date or "
+        "datetime): node temporal status is evaluated at that instant "
+        "instead of now.",
+    ),
 ) -> None:
     """Show the concept link graph (nodes, edges, orphans, dead links).
 
@@ -1696,8 +1747,10 @@ def graph(
         okfsmith graph ./kb
         okfsmith graph ./kb --format html --output graph.html
         okfsmith graph ./kb --format json --output graph.json --force
+        okfsmith graph ./kb --as-of 2025-06-01
     """
     as_json = output_format == "json"
+    moment = _parse_as_of(as_of)
     try:
         _require_bundle_dir(bundle)
     except CliError as exc:
@@ -1724,7 +1777,14 @@ def graph(
                 "Pass --force to overwrite it, or choose a different path.",
             )
     bundle = _load_bundle_for_read(bundle_path)
-    data = _links.build_graph(bundle)
+    from okfsmith.core.temporal import utcnow as _utcnow
+
+    # ``moment`` stays None when the flag was not given: the HTML viewer
+    # only labels a replay when one was asked for (plain graphs keep their
+    # byte-identical stats line); the JSON envelope always names the instant
+    # the statuses were evaluated at.
+    effective = moment if moment is not None else _utcnow()
+    data = _links.build_graph(bundle, as_of=effective)
 
     if output_format == "json":
         adjacency: dict[str, list[str]] = {}
@@ -1733,6 +1793,7 @@ def graph(
         for edge in data["edges"]:
             adjacency.setdefault(edge["from"], []).append(edge["to"])
         payload = {
+            "as_of": effective.isoformat(),
             "nodes": data["nodes"],
             "adjacency": adjacency,
             "dead_links": data["dead_links"],
@@ -1755,7 +1816,10 @@ def graph(
         # render_html(root, output) -> Path; target is always set for html.
         assert target is not None
         render_html = _lazy_attr("okfsmith.viz", "render_html")
-        written = render_html(bundle_path, target)
+        if moment is None:
+            written = render_html(bundle_path, target)
+        else:
+            written = render_html(bundle_path, target, as_of=moment)
         typer.echo(f"Wrote {written}")
     elif output_format == "text":
         if target is not None:
@@ -2257,15 +2321,7 @@ def eval_bundle(
         raise typer.BadParameter("--fail-under must be between 0 and 100.")
     if metric_threshold is not None and not 0.0 <= metric_threshold <= 1.0:
         raise typer.BadParameter("--metric-threshold must be between 0 and 1.")
-    moment = None
-    if as_of is not None:
-        from okfsmith.core import temporal as _temporal
-
-        moment = _temporal.parse_temporal(as_of)
-        if moment is None:
-            raise typer.BadParameter(
-                f"--as-of '{as_of}' is not an ISO-8601 date or datetime."
-            )
+    moment = _parse_as_of(as_of)
     try:
         _require_bundle_dir(bundle)
     except CliError as exc:

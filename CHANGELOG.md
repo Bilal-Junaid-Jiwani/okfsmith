@@ -5,6 +5,29 @@ follow SemVer.
 
 ## [Unreleased]
 
+## [0.28.0] - 2026-11-14
+
+### Added
+
+- **`list`, `read`, and `graph` gain `--as-of` temporal replay:**
+  `search` / `eval` / chat / MCP could already replay at a past/future
+  instant, but the other three inventory surfaces evaluated temporal
+  status only at *now* — "what did the bundle believe in 2019?" had no
+  answer there. Now `okfsmith list ./kb --as-of 2025-06-01`,
+  `okfsmith read ./kb <id> --as-of 2025-06-01`, and
+  `okfsmith graph ./kb --as-of 2025-06-01` evaluate validity windows
+  and supersession chains at that instant in every output format
+  (text, JSON, Mermaid, and the HTML viewer). Each JSON envelope
+  reports the evaluated instant as `as_of` (like `search`), and the
+  HTML viewer labels a replay ("as of …") in its header stats so a
+  replayed viewer never reads as the present; without the flag the
+  viewer keeps its exact previous stats line. A garbage `--as-of`
+  value is a usage error (exit 2), like `search` / `eval`. The shared
+  `--as-of` parsing now lives in one helper (`_parse_as_of`), which
+  also accepts Typer's `OptionInfo` sentinel so chat's `/list` and
+  `/read` — which call the commands directly — keep working. Pinned
+  by tests in `tests/test_cli_asof_replay.py`.
+
 ## [0.27.1] - 2026-11-13
 
 ### Fixed

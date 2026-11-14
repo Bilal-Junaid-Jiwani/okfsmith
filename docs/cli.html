@@ -274,6 +274,9 @@ okfsmith list ./kb --format json | jq '.concepts[].id'
 
 # Only human-reviewed concepts
 okfsmith list ./kb --tier human-reviewed
+
+# Replay the list as it stood on 2025-06-01
+okfsmith list ./kb --as-of 2025-06-01
 </code></pre>
 <p>Real output (trimmed — the real table had 18 rows):</p>
 <pre class="codeblock" data-lang="text"><code>                      Concepts in kb
@@ -289,7 +292,7 @@ okfsmith list ./kb --tier human-reviewed
 </code></pre>
 <p>The <code>Valid</code> column shows the temporal status: <code>—</code> for concepts with no temporal fields, <code>current</code> / <code>expired</code> / <code>future</code> / <code>superseded</code> otherwise (see <a href="temporality.html">Temporal model</a>). JSON output adds <code>temporal_status</code> per concept.</p>
 <h3 id="list-options">Common options</h3>
-<div class="table-wrap"><table><thead><tr><th>Flag</th><th>What it does</th></tr></thead><tbody><tr><td>`--format &lt;text\</td><td>json&gt;`</td><td>Output format (default <code>text</code>).</td></tr><tr><td><code>--type &lt;str&gt;</code></td><td>Only concepts of this type.</td></tr><tr><td><code>--tier &lt;str&gt;</code></td><td>Only this trust tier: <code>unverified</code>, <code>machine-confirmed</code>, <code>human-reviewed</code>.</td></tr></tbody></table></div>
+<div class="table-wrap"><table><thead><tr><th>Flag</th><th>What it does</th></tr></thead><tbody><tr><td>`--format &lt;text\</td><td>json&gt;`</td><td>Output format (default <code>text</code>).</td></tr><tr><td><code>--type &lt;str&gt;</code></td><td>Only concepts of this type.</td></tr><tr><td><code>--tier &lt;str&gt;</code></td><td>Only this trust tier: <code>unverified</code>, <code>machine-confirmed</code>, <code>human-reviewed</code>.</td></tr><tr><td>`--as-of &lt;date\</td><td>datetime&gt;`</td><td>Replay the list at a past/future instant: validity windows and supersession chains are evaluated then, not now. JSON adds <code>as_of</code> (the instant evaluated).</td></tr></tbody></table></div>
 <details>
 <summary>Advanced</summary>
 
@@ -303,6 +306,9 @@ okfsmith list ./kb --tier human-reviewed
 </code></pre>
 <pre class="codeblock" data-lang="bash"><code>okfsmith read ./kb big/first-bundle
 okfsmith read ./kb big/first-bundle --format json
+
+# What was this concept's status on 2025-06-01?
+okfsmith read ./kb big/first-bundle --as-of 2025-06-01
 </code></pre>
 <p>Real output (frontmatter, then body):</p>
 <pre class="codeblock" data-lang="yaml"><code>---
@@ -332,8 +338,9 @@ Run `okfsmith init ./kb` to create a new bundle, then ingest documents. A bundle
 - [Second Bundle](second-bundle) — next section of big.md
 </code></pre>
 <p>When a concept carries temporal frontmatter (or is superseded by another concept), text output appends a one-line badge such as <code>[temporal: superseded by policy/refunds-v2]</code> or <code>[temporal: expired (valid_until 2025-06-30 has passed)]</code>; plain current concepts print exactly as before. JSON output adds <code>temporal_status</code>.</p>
+<p><code>--as-of &lt;date|datetime&gt;</code> replays the badge and the JSON status at a past/future instant (same replay as <code>search</code> and <code>list</code>); the JSON envelope also reports <code>as_of</code>.</p>
 <h3 id="read-options">Common options</h3>
-<div class="table-wrap"><table><thead><tr><th>Flag</th><th>What it does</th></tr></thead><tbody><tr><td>`--format &lt;text\</td><td>json&gt;`</td><td>Output format (default <code>text</code>).</td></tr></tbody></table></div>
+<div class="table-wrap"><table><thead><tr><th>Flag</th><th>What it does</th></tr></thead><tbody><tr><td>`--format &lt;text\</td><td>json&gt;`</td><td>Output format (default <code>text</code>).</td></tr><tr><td>`--as-of &lt;date\</td><td>datetime&gt;`</td><td>Replay the temporal badge/status at a past/future instant.</td></tr></tbody></table></div>
 <details>
 <summary>Advanced</summary>
 
@@ -400,6 +407,9 @@ okfsmith graph ./kb --format html
 
 # Mermaid diagram to stdout
 okfsmith graph ./kb --format mermaid
+
+# Replay the graph as it stood on 2025-06-01 (all formats, incl. html)
+okfsmith graph ./kb --as-of 2025-06-01
 </code></pre>
 <p>Real output:</p>
 <pre class="codeblock" data-lang="text"><code>18 concept(s), 0 link(s), 0 dead link(s).
@@ -411,7 +421,7 @@ Dead links (0):
   (none)
 </code></pre>
 <h3 id="graph-options">Common options</h3>
-<div class="table-wrap"><table><thead><tr><th>Flag</th><th>What it does</th></tr></thead><tbody><tr><td>`--format &lt;text\</td><td>json\</td><td>mermaid\</td><td>html&gt;`</td><td>Output format (default <code>text</code>). <code>html</code> writes an interactive visualization — colorblind-safe palette, backlinks, search.</td></tr><tr><td><code>--output &lt;path&gt;</code></td><td>Write to a file instead of stdout.</td></tr></tbody></table></div>
+<div class="table-wrap"><table><thead><tr><th>Flag</th><th>What it does</th></tr></thead><tbody><tr><td>`--format &lt;text\</td><td>json\</td><td>mermaid\</td><td>html&gt;`</td><td>Output format (default <code>text</code>). <code>html</code> writes an interactive visualization — colorblind-safe palette, backlinks, search.</td></tr><tr><td><code>--output &lt;path&gt;</code></td><td>Write to a file instead of stdout.</td></tr><tr><td>`--as-of &lt;date\</td><td>datetime&gt;`</td><td>Replay the graph at a past/future instant: node temporal status is evaluated then, not now. JSON adds <code>as_of</code>; the HTML viewer labels the replay ("as of …") in its header stats.</td></tr></tbody></table></div>
 <details>
 <summary>Advanced</summary>
 

@@ -97,6 +97,11 @@
       <details class="toc-mobile">
         <summary>On this page</summary>
         <ul class="toc-list">
+<li><a href="#v0-28-0">[0.28.0] — 2026-11-14</a>
+<ul class="toc-sub">
+<li><a href="#v0-28-0-added">Added</a></li>
+</ul>
+</li>
 <li><a href="#v0-27-1">[0.27.1] — 2026-11-13</a>
 <ul class="toc-sub">
 <li><a href="#v0-27-1-fixed">Fixed</a></li>
@@ -426,7 +431,13 @@
         </button>
       </div>
       <div class="prose">
-        <h2 id="v0-27-1">[0.27.1] — 2026-11-13</h2>
+        <h2 id="v0-28-0">[0.28.0] — 2026-11-14</h2>
+<h3 id="v0-28-0-added">Added</h3>
+<ul>
+<li><strong><code>list</code>, <code>read</code>, and <code>graph</code> gain <code>--as-of</code> temporal replay:</strong> <code>search</code> / <code>eval</code> / chat / MCP could already replay at a past/future instant, but the other three inventory surfaces evaluated temporal status only at <em>now</em> — "what did the bundle believe in 2019?" had no answer there. Now <code>okfsmith list ./kb --as-of 2025-06-01</code>, <code>okfsmith read ./kb &lt;id&gt; --as-of 2025-06-01</code>, and <code>okfsmith graph ./kb --as-of 2025-06-01</code> evaluate validity windows and supersession chains at that instant in every output format (text, JSON, Mermaid, and the HTML viewer). Each JSON envelope reports the evaluated instant as <code>as_of</code> (like <code>search</code>), and the HTML viewer labels a replay ("as of …") in its header stats so a replayed viewer never reads as the present; without the flag the viewer keeps its exact previous stats line. A garbage <code>--as-of</code> value is a usage error (exit 2), like <code>search</code> / <code>eval</code>. The shared <code>--as-of</code> parsing now lives in one helper (<code>_parse_as_of</code>), which also accepts Typer's <code>OptionInfo</code> sentinel so chat's <code>/list</code> and <code>/read</code> — which call the commands directly — keep working. Pinned by tests in <code>tests/test_cli_asof_replay.py</code>.
+</li>
+</ul>
+<h2 id="v0-27-1">[0.27.1] — 2026-11-13</h2>
 <h3 id="v0-27-1-fixed">Fixed</h3>
 <ul>
 <li><strong>Ingest job reported "done" before its junk-bundle cleanup ran</strong> — a zero-concept upload to a new bundle finished the job and only then removed the just-created empty directory, so a poller could observe "done" while the junk directory was still on disk (seen once on CI, ubuntu-latest / Python 3.13). The cleanup and registry refresh now run before <code>job.finish(...)</code>, so "done" is only published once the workspace is in its final state.
@@ -1048,6 +1059,11 @@
     <aside class="toc" aria-label="On this page">
       <p class="toc-title">On this page</p>
       <ul class="toc-list">
+<li><a href="#v0-28-0">[0.28.0] — 2026-11-14</a>
+<ul class="toc-sub">
+<li><a href="#v0-28-0-added">Added</a></li>
+</ul>
+</li>
 <li><a href="#v0-27-1">[0.27.1] — 2026-11-13</a>
 <ul class="toc-sub">
 <li><a href="#v0-27-1-fixed">Fixed</a></li>

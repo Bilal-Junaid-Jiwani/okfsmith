@@ -97,6 +97,13 @@ def _resolve_target(concept_id: str, raw: str) -> str | None:
 # ---------------------------------------------------------------------------
 
 
+def _short_dt(value: datetime) -> str:
+    """Format a replay instant compactly: date-only when midnight."""
+    if value.time().hour == 0 and value.time().minute == 0 and value.time().second == 0:
+        return value.date().isoformat()
+    return value.isoformat()
+
+
 def _jsonable(value: Any) -> Any:
     """Convert frontmatter values to JSON-serializable primitives."""
     if isinstance(value, (datetime, date)):
@@ -169,13 +176,16 @@ def _primary_section_id(
     return primary_section_id(ids, doc_id, _gen_at)
 
 
-def _build_model(bundle: Bundle) -> dict[str, Any]:
-    """Build the ``{"nodes": [...], "edges": [...]}`` model for the template."""
+def _build_model(bundle: Bundle, as_of: datetime | None = None) -> dict[str, Any]:
+    """Build the ``{"nodes": [...], "edges": [...]}`` model for the template.
+
+    Temporal status is evaluated at ``as_of`` when given, else now.
+    """
     from okfsmith.core.temporal import SupersessionIndex, utcnow
 
     concepts = list(bundle.iter_concepts())
     sindex = SupersessionIndex.from_bundle(bundle)
-    now = utcnow()
+    now = as_of if as_of is not None else utcnow()
     nodes = [_node_for(c, sindex, now) for c in concepts]
     ids = {n["id"] for n in nodes}
     by_id = {c.id: c for c in concepts}
@@ -900,16 +910,22 @@ if (nodes.length === 0) {
 """
 
 
-def render_html(bundle_root: str | Path, output: str | Path) -> Path:
+def render_html(
+    bundle_root: str | Path,
+    output: str | Path,
+    as_of: datetime | None = None,
+) -> Path:
     """Render *bundle_root* as a self-contained interactive graph at *output*.
 
     Reads every concept via :meth:`Bundle.load`, builds the node/edge model
     (edges from markdown links in bodies; dead links flagged), and writes a
     single ``viz.html`` file with all CSS and JavaScript inlined — no CDN, no
-    network. Returns the output :class:`Path`.
+    network. Temporal status is evaluated at ``as_of`` when given, else now;
+    a replay is labelled in the header stats so the viewer never reads as
+    the present. Returns the output :class:`Path`.
     """
     bundle = Bundle.load(bundle_root)
-    model = _build_model(bundle)
+    model = _build_model(bundle, as_of=as_of)
 
     data_json = json.dumps(model, ensure_ascii=False, separators=(",", ":"))
     # Never allow a literal </script> inside the embedded JSON payload.
@@ -929,6 +945,7 @@ def render_html(bundle_root: str | Path, output: str | Path) -> Path:
             if non_current
             else ""
         )
+        + (f" &middot; as of {_short_dt(as_of)}" if as_of is not None else "")
     )
     title = html.escape(Path(bundle_root).name or "bundle")
     aria_label = (
