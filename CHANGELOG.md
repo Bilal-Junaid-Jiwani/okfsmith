@@ -5,6 +5,21 @@ follow SemVer.
 
 ## [Unreleased]
 
+## [0.28.1] - 2026-11-14
+
+### Fixed
+
+- **CI-only test failure in the 0.28.0 replay tests:** the
+  invalid-`--as-of` test asserted the `BadParameter` wording verbatim,
+  but on GitHub Actions Typer colorizes and wraps its rich error
+  panel (it forces terminal output when `GITHUB_ACTIONS` is set), so
+  the plain substring never matched — 1 of 12 CI test jobs failed
+  while the suite passed locally (`TERM=dumb` disables color there).
+  The test now strips ANSI escapes and collapses whitespace before
+  asserting the wording. No shipped code changed; the 0.28.0 feature
+  itself was already green everywhere else (install-check and Pages
+  passed on the 0.28.0 commit).
+
 ## [0.28.0] - 2026-11-14
 
 ### Added

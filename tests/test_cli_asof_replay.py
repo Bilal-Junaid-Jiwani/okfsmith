@@ -33,6 +33,18 @@ from okfsmith.viz import render_html
 
 runner = CliRunner()
 
+
+def _plain(output: str) -> str:
+    """Strip ANSI escapes and collapse whitespace in CLI output.
+
+    On GitHub Actions Typer colorizes and wraps its rich error panel
+    (it forces terminal output when ``GITHUB_ACTIONS`` is set), so a
+    verbatim message substring never matches; the wording is what the
+    test pins, not the wrapping.
+    """
+    return " ".join(re.sub(r"\x1b\[[0-9;]*m", "", output).split())
+
+
 _OLD = """---
 title: Old Policy
 type: Note
@@ -153,7 +165,10 @@ def test_list_as_of_invalid_value_is_usage_error(tmp_path: Path):
     root = _temporal_bundle(tmp_path)
     result = runner.invoke(app, ["list", str(root), "--as-of", "not-a-date"])
     assert result.exit_code == 2
-    assert "--as-of 'not-a-date' is not an ISO-8601 date or datetime." in result.output
+    assert (
+        "--as-of 'not-a-date' is not an ISO-8601 date or datetime."
+        in _plain(result.output)
+    )
 
 
 def test_list_as_of_text_shows_replayed_valid_column(tmp_path: Path):
