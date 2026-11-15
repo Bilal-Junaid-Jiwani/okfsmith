@@ -199,6 +199,9 @@ class TestBundles:
             "body", "sources", "provenance",
             # 0.21.0: same temporal fields the /search hits carry.
             "temporal_status", "superseded_by",
+            # 0.29.0: the instant the status was evaluated at (?as_of=
+            # replay, else now).
+            "as_of",
         }
         assert detail["title"] == "Dashboard QA Notes"
         # The detail response carries the same explicit trust/type
@@ -338,7 +341,12 @@ class TestBundles:
         c, headers = client
         bid = _bundle_id(c, headers)
         graph = c.get(f"/api/v1/bundles/{bid}/graph", headers=headers).json()
-        assert set(graph) == {"nodes", "edges", "truncated"}
+        assert set(graph) == {
+            "nodes", "edges", "truncated",
+            # 0.29.0: the instant the node statuses were evaluated at
+            # (?as_of= replay, else now).
+            "as_of",
+        }
         node_ids = {n["id"] for n in graph["nodes"]}
         assert node_ids == {"source/dashboard-qa-notes", "source/packing-section"}
         for node in graph["nodes"]:
@@ -572,6 +580,115 @@ class TestSearchTemporal:
         assert "policy-v1" in ids
         assert "policy-v2" in ids
         assert payload["superseded_hidden"] == 0
+
+
+class TestReadEndpointsAsOfReplay:
+    """``?as_of=`` temporal replay on the three bundle read endpoints.
+
+    ``GET /api/v1/search`` (and ``/snapshot``) already replayed at a
+    past/future instant, but the concepts listing, the concept detail,
+    and the graph evaluated temporal status only at *now* — "what did
+    the bundle believe in October 2026?" had no answer there, even
+    though the CLI's ``list`` / ``read`` / ``graph`` gained ``--as-of``
+    in 0.28.0. All three now accept ``?as_of=`` and report the
+    evaluated instant as ``as_of`` in the envelope, like ``/search``.
+    """
+
+    def test_listing_replays_past_state(self, client, workspace):
+        _write_search_temporal_pair(workspace / "kb")
+        c, headers = client
+        bid = _bundle_id(c, headers)
+        payload = c.get(
+            f"/api/v1/bundles/{bid}/concepts",
+            params={"as_of": "2026-10-01"},
+            headers=headers,
+        ).json()
+        # Before policy-v2's valid_from (2026-10-20) the old policy was
+        # still current and the new one was not yet valid — the exact
+        # opposite of the at-now listing.
+        by_id = {item["id"]: item for item in payload["items"]}
+        assert by_id["policy-v1"]["temporal_status"] == "current"
+        assert by_id["policy-v1"]["superseded_by"] is None
+        assert by_id["policy-v2"]["temporal_status"] == "not_yet_valid"
+        assert by_id["policy-v2"]["superseded_by"] is None
+        assert payload["as_of"].startswith("2026-10-01")
+
+    def test_detail_replays_past_state(self, client, workspace):
+        _write_search_temporal_pair(workspace / "kb")
+        c, headers = client
+        bid = _bundle_id(c, headers)
+        old = c.get(
+            f"/api/v1/bundles/{bid}/concepts/policy-v1",
+            params={"as_of": "2026-10-01"},
+            headers=headers,
+        ).json()
+        assert old["temporal_status"] == "current"
+        assert old["superseded_by"] is None
+        assert old["as_of"].startswith("2026-10-01")
+        new = c.get(
+            f"/api/v1/bundles/{bid}/concepts/policy-v2",
+            params={"as_of": "2026-10-01"},
+            headers=headers,
+        ).json()
+        assert new["temporal_status"] == "not_yet_valid"
+        assert new["superseded_by"] is None
+
+    def test_graph_replays_past_state(self, client, workspace):
+        _write_search_temporal_pair(workspace / "kb")
+        c, headers = client
+        bid = _bundle_id(c, headers)
+        graph = c.get(
+            f"/api/v1/bundles/{bid}/graph",
+            params={"as_of": "2026-10-01"},
+            headers=headers,
+        ).json()
+        by_id = {n["id"]: n for n in graph["nodes"]}
+        assert by_id["policy-v1"]["temporal_status"] == "current"
+        assert by_id["policy-v1"]["superseded_by"] is None
+        assert by_id["policy-v2"]["temporal_status"] == "not_yet_valid"
+        assert graph["as_of"].startswith("2026-10-01")
+
+    def test_as_of_invalid_value_is_400(self, client, workspace):
+        _write_search_temporal_pair(workspace / "kb")
+        c, headers = client
+        bid = _bundle_id(c, headers)
+        for path in (
+            f"/api/v1/bundles/{bid}/concepts",
+            f"/api/v1/bundles/{bid}/concepts/policy-v1",
+            f"/api/v1/bundles/{bid}/graph",
+        ):
+            r = c.get(path, params={"as_of": "not-a-date"}, headers=headers)
+            assert r.status_code == 400, path
+            _error_shape(r.json())
+            assert r.json()["error"] == "bad-as-of", path
+
+    def test_as_of_blank_is_ignored(self, client, workspace):
+        _write_search_temporal_pair(workspace / "kb")
+        c, headers = client
+        bid = _bundle_id(c, headers)
+        payload = c.get(
+            f"/api/v1/bundles/{bid}/concepts",
+            params={"as_of": "  "},
+            headers=headers,
+        ).json()
+        by_id = {item["id"]: item for item in payload["items"]}
+        assert by_id["policy-v1"]["temporal_status"] == "superseded"
+        assert by_id["policy-v1"]["superseded_by"] == "policy-v2"
+
+    def test_default_envelope_reports_as_of(self, client, workspace):
+        _write_search_temporal_pair(workspace / "kb")
+        c, headers = client
+        bid = _bundle_id(c, headers)
+        listing = c.get(
+            f"/api/v1/bundles/{bid}/concepts", headers=headers
+        ).json()
+        assert "as_of" in listing
+        detail = c.get(
+            f"/api/v1/bundles/{bid}/concepts/policy-v1", headers=headers
+        ).json()
+        assert "as_of" in detail
+        graph = c.get(f"/api/v1/bundles/{bid}/graph", headers=headers).json()
+        assert "as_of" in graph
 
 
 def _write_search_filter_trio(bundle_dir: Path) -> None:

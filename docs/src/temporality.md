@@ -93,6 +93,15 @@ The response envelope always carries the `as_of` instant the partitioning
 was evaluated at and `superseded_hidden` (summed across bundles when the
 endpoint sweeps `bundle_id=all`).
 
+The same replay works on the dashboard's three bundle read endpoints —
+the concepts listing (`GET /api/v1/bundles/{id}/concepts`), the concept
+detail (`GET /api/v1/bundles/{id}/concepts/{concept_id}`), and the graph
+(`GET /api/v1/bundles/{id}/graph`): pass `?as_of=2025-06-01` and each
+`temporal_status` / `superseded_by` is evaluated at that instant, with
+the envelope reporting the instant as `as_of`. Without it they evaluate
+at now, as before; a blank `as_of` is ignored and an unparseable one is
+the same `400 bad-as-of`.
+
 ## Where temporal status shows up
 
 | Command | Surface |
@@ -103,7 +112,7 @@ endpoint sweeps `bundle_id=all`).
 | `graph` | Text report lists non-current concepts; Mermaid labels mark them; JSON nodes carry `temporal_status` / `superseded_by`; the HTML viewer strikes non-current nodes through and badges them in the detail panel. `--as-of` replays all four formats; JSON adds `as_of`, HTML labels the replay in its header stats. |
 | `validate` | Advisory warnings W016–W020 (never affect conformance) |
 | chat / MCP | The shared search engine applies the same ranking — temporal behavior is identical everywhere. The MCP `search` and `list` tools carry the same status on each row: a non-current hit/row shows `_(superseded by `<id>`)_`, `_(expired)_`, or `_(not yet valid)_`, evaluated at the `as_of` replay instant when one is given, so an agent caller never mistakes history for live knowledge; current rows carry no note. |
-| dashboard | `GET /api/v1/search` accepts `?as_of=` (ISO-8601 date or datetime) and `?include_superseded=`; the JSON envelope reports the `as_of` instant used and `superseded_hidden`, like the CLI, and each hit carries `type`, `trust_tier`, `temporal_status`, `superseded_by`, and `sources` (evaluated at the replay instant). The concept detail endpoint (`GET /api/v1/bundles/{id}/concepts/{concept_id}`) carries the same `temporal_status` and `superseded_by`, evaluated at now, and both detail views pill a non-current status. The concepts listing endpoint (`GET /api/v1/bundles/{id}/concepts`) carries the same `temporal_status` and `superseded_by` on every item, evaluated at now. The graph endpoint (`GET /api/v1/bundles/{id}/graph`) carries the same `temporal_status` and `superseded_by` on every node, evaluated at now, and the graph canvas rings a non-current node with a dashed outline (explained in the legend when one is present), so history reads as history without clicking a node open. The dashboard chat's `/search` and `/list` slash commands show those sources — and the temporal label (`Superseded by <id>`, `Expired`, `Not yet valid`) — on each citation chip's tooltip, so a cited concept's origin file and its status are one hover away |
+| dashboard | `GET /api/v1/search` accepts `?as_of=` (ISO-8601 date or datetime) and `?include_superseded=`; the JSON envelope reports the `as_of` instant used and `superseded_hidden`, like the CLI, and each hit carries `type`, `trust_tier`, `temporal_status`, `superseded_by`, and `sources` (evaluated at the replay instant). The concept detail endpoint (`GET /api/v1/bundles/{id}/concepts/{concept_id}`) carries the same `temporal_status` and `superseded_by`, and both detail views pill a non-current status. The concepts listing endpoint (`GET /api/v1/bundles/{id}/concepts`) carries the same `temporal_status` and `superseded_by` on every item. The graph endpoint (`GET /api/v1/bundles/{id}/graph`) carries the same `temporal_status` and `superseded_by` on every node, and the graph canvas rings a non-current node with a dashed outline (explained in the legend when one is present), so history reads as history without clicking a node open. All three read endpoints accept `?as_of=` to replay those statuses at a past/future instant (the dashboard analogue of the CLI's `--as-of`); each envelope reports the instant as `as_of`, and without it they evaluate at now. A blank `as_of` is ignored; an unparseable one is a `400 bad-as-of`, like `/search`. The dashboard chat's `/search` and `/list` slash commands show those sources — and the temporal label (`Superseded by <id>`, `Expired`, `Not yet valid`) — on each citation chip's tooltip, so a cited concept's origin file and its status are one hover away |
 
 ## Sync preserves temporal metadata
 

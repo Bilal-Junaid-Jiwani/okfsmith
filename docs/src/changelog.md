@@ -4,6 +4,28 @@ eyebrow: Troubleshooting
 description: Release history for okfsmith — what changed in each version, what's coming next, and upgrade notes. Follows Keep a Changelog and Semantic Versioning.
 ---
 
+## [0.29.0] — 2026-11-15 {#v0-29-0}
+
+### Added {#v0-29-0-added}
+
+- **Dashboard read endpoints gain `?as-of=` temporal replay:**
+  `GET /api/v1/search` (and `/snapshot`) could already replay at a
+  past/future instant, but the concepts listing
+  (`GET /api/v1/bundles/{id}/concepts`), the concept detail
+  (`GET /api/v1/bundles/{id}/concepts/{concept_id}`), and the graph
+  (`GET /api/v1/bundles/{id}/graph`) evaluated temporal status only
+  at *now* — "what did the bundle believe in October 2026?" had no
+  answer there, even though the CLI's `list` / `read` / `graph`
+  gained `--as-of` in 0.28.0. All three now accept `?as_of=` (ISO-8601
+  date or datetime) and evaluate validity windows and supersession
+  chains at that instant; each envelope reports the evaluated instant
+  as `as_of`, like `/search`. A blank `as_of` is ignored (evaluates
+  at now, as before); an unparseable one is a `400 bad-as-of`, the
+  same error the search endpoint already returns. The shared parsing
+  now lives in one helper (`_replay_at`), which `/search` uses too.
+  Pinned by tests in `tests/test_dashboard_api.py`
+  (`TestReadEndpointsAsOfReplay`).
+
 ## [0.28.1] — 2026-11-14 {#v0-28-1}
 
 ### Fixed {#v0-28-1-fixed}

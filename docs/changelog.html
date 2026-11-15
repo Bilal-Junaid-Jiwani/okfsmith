@@ -97,6 +97,11 @@
       <details class="toc-mobile">
         <summary>On this page</summary>
         <ul class="toc-list">
+<li><a href="#v0-29-0">[0.29.0] — 2026-11-15</a>
+<ul class="toc-sub">
+<li><a href="#v0-29-0-added">Added</a></li>
+</ul>
+</li>
 <li><a href="#v0-28-1">[0.28.1] — 2026-11-14</a>
 <ul class="toc-sub">
 <li><a href="#v0-28-1-fixed">Fixed</a></li>
@@ -436,7 +441,13 @@
         </button>
       </div>
       <div class="prose">
-        <h2 id="v0-28-1">[0.28.1] — 2026-11-14</h2>
+        <h2 id="v0-29-0">[0.29.0] — 2026-11-15</h2>
+<h3 id="v0-29-0-added">Added</h3>
+<ul>
+<li><strong>Dashboard read endpoints gain <code>?as-of=</code> temporal replay:</strong> <code>GET /api/v1/search</code> (and <code>/snapshot</code>) could already replay at a past/future instant, but the concepts listing (<code>GET /api/v1/bundles/{id}/concepts</code>), the concept detail (<code>GET /api/v1/bundles/{id}/concepts/{concept_id}</code>), and the graph (<code>GET /api/v1/bundles/{id}/graph</code>) evaluated temporal status only at <em>now</em> — "what did the bundle believe in October 2026?" had no answer there, even though the CLI's <code>list</code> / <code>read</code> / <code>graph</code> gained <code>--as-of</code> in 0.28.0. All three now accept <code>?as_of=</code> (ISO-8601 date or datetime) and evaluate validity windows and supersession chains at that instant; each envelope reports the evaluated instant as <code>as_of</code>, like <code>/search</code>. A blank <code>as_of</code> is ignored (evaluates at now, as before); an unparseable one is a <code>400 bad-as-of</code>, the same error the search endpoint already returns. The shared parsing now lives in one helper (<code>_replay_at</code>), which <code>/search</code> uses too. Pinned by tests in <code>tests/test_dashboard_api.py</code> (<code>TestReadEndpointsAsOfReplay</code>).
+</li>
+</ul>
+<h2 id="v0-28-1">[0.28.1] — 2026-11-14</h2>
 <h3 id="v0-28-1-fixed">Fixed</h3>
 <ul>
 <li><strong>CI-only test failure in the 0.28.0 replay tests:</strong> the invalid-<code>--as-of</code> test asserted the <code>BadParameter</code> wording verbatim, but on GitHub Actions Typer colorizes and wraps its rich error panel (it forces terminal output when <code>GITHUB_ACTIONS</code> is set), so the plain substring never matched — 1 of 12 CI test jobs failed while the suite passed locally (<code>TERM=dumb</code> disables color there). The test now strips ANSI escapes and collapses whitespace before asserting the wording. No shipped code changed; the 0.28.0 feature itself was already green everywhere else (install-check and Pages passed on the 0.28.0 commit).
@@ -1070,6 +1081,11 @@
     <aside class="toc" aria-label="On this page">
       <p class="toc-title">On this page</p>
       <ul class="toc-list">
+<li><a href="#v0-29-0">[0.29.0] — 2026-11-15</a>
+<ul class="toc-sub">
+<li><a href="#v0-29-0-added">Added</a></li>
+</ul>
+</li>
 <li><a href="#v0-28-1">[0.28.1] — 2026-11-14</a>
 <ul class="toc-sub">
 <li><a href="#v0-28-1-fixed">Fixed</a></li>

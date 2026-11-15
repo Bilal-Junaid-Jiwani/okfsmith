@@ -60,6 +60,33 @@ def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _replay_at(as_of: str | None) -> datetime:
+    """Replay instant for a dashboard ``?as_of=`` query parameter.
+
+    Blank (or absent) means "now", exactly like the CLI's ``--as-of``
+    default; an unparseable value is a 400 ``bad-as-of`` — the same
+    code, message, and hint the ``/search`` endpoint already uses, so
+    every dashboard read endpoint fails the same way on a bad replay
+    instant instead of silently returning the present. Shared by
+    ``/search`` and the three bundle read endpoints (concepts listing,
+    concept detail, graph), which used to evaluate temporal status only
+    at now.
+    """
+    from okfsmith.core import temporal as _temporal
+
+    if as_of is None or not as_of.strip():
+        return _temporal.utcnow()
+    moment = _temporal.parse_temporal(as_of)
+    if moment is None:
+        raise err(
+            "bad-as-of",
+            f"Query 'as_of' {as_of!r} is not an ISO-8601 date or datetime.",
+            "Pass e.g. ?as_of=2025-06-01 or ?as_of=2025-06-01T12:00:00Z.",
+            400,
+        )
+    return moment
+
+
 def _parse_iso(value: str | None, field: str) -> datetime:
     if not value or not value.strip():
         raise err("bad-request", f"'{field}' is required.", f"Pass an ISO-8601 datetime for '{field}'.", 400)
@@ -482,6 +509,12 @@ def create_app(workspace: Path, token: str) -> FastAPI:
             "because this listing already uses `tier` for its own "
             "high/medium/low recency axis.",
         ),
+        as_of: str | None = Query(
+            default=None,
+            description="ISO-8601 date/datetime: replay validity windows and "
+            "supersession at this instant (the dashboard analogue of "
+            "`okfsmith list --as-of`).",
+        ),
         page: int = Query(default=1, ge=1),
         per_page: int = Query(default=50, ge=1, le=200),
     ):
@@ -514,10 +547,13 @@ def create_app(workspace: Path, token: str) -> FastAPI:
         # expired, or not-yet-valid concept exactly like a current one,
         # so the chat's /list chips — built from this listing — hovered
         # with no hint of status. One index per request, not per item.
+        # ?as_of= replays the statuses at that instant (the dashboard
+        # analogue of `okfsmith list --as-of`); without it the listing
+        # evaluates at now, as before.
         from okfsmith.core import temporal as _temporal
 
         sindex = _temporal.SupersessionIndex.from_bundle(bundle)
-        now = _temporal.utcnow()
+        replay_at = _replay_at(as_of)
         items = []
         for concept in bundle.iter_concepts():
             ctier = _tier_of(concept.frontmatter)
@@ -540,7 +576,7 @@ def create_app(workspace: Path, token: str) -> FastAPI:
                 ).isoformat()
             except OSError:
                 updated = None
-            status = sindex.status(concept, now)
+            status = sindex.status(concept, replay_at)
             items.append(
                 {
                     "id": concept.id,
@@ -556,10 +592,24 @@ def create_app(workspace: Path, token: str) -> FastAPI:
             )
         total = len(items)
         start = (page - 1) * per_page
-        return {"items": items[start: start + per_page], "total": total, "page": page}
+        return {
+            "items": items[start: start + per_page],
+            "total": total,
+            "page": page,
+            "as_of": replay_at.isoformat(),
+        }
 
     @app.get(f"{API}/bundles/{{bundle_id}}/concepts/{{concept_id:path}}")
-    async def get_concept(bundle_id: str, concept_id: str):
+    async def get_concept(
+        bundle_id: str,
+        concept_id: str,
+        as_of: str | None = Query(
+            default=None,
+            description="ISO-8601 date/datetime: replay validity windows and "
+            "supersession at this instant (the dashboard analogue of "
+            "`okfsmith read --as-of`).",
+        ),
+    ):
         from okfsmith.core import temporal as _temporal
 
         bundle, _ = _load_bundle_or_404(bundle_id)
@@ -573,8 +623,11 @@ def create_app(workspace: Path, token: str) -> FastAPI:
         # concept with no hint whether it was current, superseded (and
         # by what), expired, or not yet valid — a superseded concept
         # opened from the graph looked identical to a current one.
+        # ?as_of= replays the status at that instant; without it the
+        # detail evaluates at now, as before.
+        replay_at = _replay_at(as_of)
         status = _temporal.SupersessionIndex.from_bundle(bundle).status(
-            concept, _temporal.utcnow()
+            concept, replay_at
         )
         return {
             "id": concept.id,
@@ -582,6 +635,7 @@ def create_app(workspace: Path, token: str) -> FastAPI:
             "tier": _tier_of(concept.frontmatter),
             "temporal_status": status.name,
             "superseded_by": status.superseded_by,
+            "as_of": replay_at.isoformat(),
             # Same explicit fields the listing and /search responses
             # already carry: the detail views (graph panel, concept
             # modal) used to show only the opaque high/medium/low
@@ -597,7 +651,15 @@ def create_app(workspace: Path, token: str) -> FastAPI:
         }
 
     @app.get(f"{API}/bundles/{{bundle_id}}/graph")
-    async def get_graph(bundle_id: str):
+    async def get_graph(
+        bundle_id: str,
+        as_of: str | None = Query(
+            default=None,
+            description="ISO-8601 date/datetime: replay validity windows and "
+            "supersession at this instant (the dashboard analogue of "
+            "`okfsmith graph --as-of`).",
+        ),
+    ):
         from okfsmith.viz import _build_model
 
         bundle, _ = _load_bundle_or_404(bundle_id)
@@ -611,17 +673,19 @@ def create_app(workspace: Path, token: str) -> FastAPI:
         # expired, or not-yet-valid concept exactly like a current one,
         # so a node that is history looked identical to live knowledge
         # until clicked open. One index per request, not per node.
+        # ?as_of= replays the node statuses at that instant; without it
+        # the graph evaluates at now, as before.
         from okfsmith.core import temporal as _temporal
 
         sindex = _temporal.SupersessionIndex.from_bundle(bundle)
-        now = _temporal.utcnow()
+        replay_at = _replay_at(as_of)
         nodes = []
         for n in kept:
             concept = bundle.get(n["id"])
             if concept is None:
                 status_name, superseded_by = "current", None
             else:
-                status = sindex.status(concept, now)
+                status = sindex.status(concept, replay_at)
                 status_name, superseded_by = status.name, status.superseded_by
             nodes.append(
                 {
@@ -637,7 +701,12 @@ def create_app(workspace: Path, token: str) -> FastAPI:
             for e in model.get("edges", [])
             if e.get("from") in kept_ids and e.get("to") in kept_ids
         ]
-        return {"nodes": nodes, "edges": edges, "truncated": truncated}
+        return {
+            "nodes": nodes,
+            "edges": edges,
+            "truncated": truncated,
+            "as_of": replay_at.isoformat(),
+        }
 
     @app.get(f"{API}/bundles/{{bundle_id}}/snapshot")
     async def get_snapshot(bundle_id: str, as_of: str | None = Query(default=None)):
@@ -712,19 +781,9 @@ def create_app(workspace: Path, token: str) -> FastAPI:
         query = (q or "").strip()
         if not query:
             raise err("bad-query", "Query 'q' must not be empty.", "Pass ?q=<keywords>.", 400)
-        moment = None
-        if as_of is not None and as_of.strip():
-            moment = _temporal.parse_temporal(as_of)
-            if moment is None:
-                raise err(
-                    "bad-as-of",
-                    f"Query 'as_of' {as_of!r} is not an ISO-8601 date or datetime.",
-                    "Pass e.g. ?as_of=2025-06-01 or ?as_of=2025-06-01T12:00:00Z.",
-                    400,
-                )
         # One replay instant for every bundle: honest labeling in the
         # envelope, and identical partitioning across the "all" sweep.
-        replay_at = moment if moment is not None else _temporal.utcnow()
+        replay_at = _replay_at(as_of)
         # Filters mirror the CLI's --type / --tier (case-insensitive in the
         # engine); blank values are ignored, an unknown trust tier is a 400
         # like a bad as_of, never a silent empty result.
