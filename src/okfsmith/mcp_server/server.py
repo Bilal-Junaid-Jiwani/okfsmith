@@ -1464,6 +1464,7 @@ class BundleTools:
         max_chunks: int = 50,
         max_tokens: int | None = None,
         continuation_token: str | None = None,
+        as_of: str | None = None,
     ) -> str:
         """List every concept in the bundle: id, type, trust tier, and title.
 
@@ -1484,7 +1485,17 @@ class BundleTools:
 
         `tier_filter` sits after `limit` in the signature so the historic
         positional calls `list(filter_type, limit)` keep working
-        unchanged (see ``test_old_signatures_unchanged``).
+        unchanged (see ``test_old_signatures_unchanged``). `as_of` sits
+        last for the same reason: the historic positional calls
+        `list(filter_type, limit, tier_filter, max_chunks, max_tokens,
+        continuation_token)` keep working unchanged.
+
+        `as_of` (ISO-8601 date or datetime, the MCP analogue of the
+        CLI's ``--as-of`` flag and the dashboard listing's ``?as_of=``
+        parameter) replays validity and supersession at that instant —
+        e.g. ask what the bundle believed on a past date; an unparseable
+        value returns a clean error, never an exception, and a blank
+        value is ignored (evaluates at now, as before).
 
         Evidence budgets: `max_chunks` caps the concept rows per response
         (default 50, hard cap 50; the rows are the budget — there are no
@@ -1496,10 +1507,21 @@ class BundleTools:
         Returns a markdown list ordered by concept id. For the full text of
         any concept, pass its id to `get`. A non-current concept carries
         its temporal status on its row — e.g. `_(superseded by
-        `policy-v2`)_` — so history never reads as live knowledge;
-        current concepts carry no note.
+        `policy-v2`)_` — evaluated at the `as_of` replay instant when one
+        is given, so history never reads as live knowledge; current
+        concepts carry no note. The listing title names the replay
+        instant when one is given, like the CLI's JSON envelope `as_of`.
         """
         self._ensure_fresh_bundle()
+        moment: datetime | None = None
+        if as_of is not None and str(as_of).strip():
+            moment = _temporal.parse_temporal(as_of)
+            if moment is None:
+                return (
+                    f"Error: `as_of` {as_of!r} is not an ISO-8601 date "
+                    "or datetime — pass e.g. `2025-06-01` or "
+                    "`2025-06-01T12:00:00Z`."
+                )
         tier_filter = (
             tier_filter.strip() or ""
             if isinstance(tier_filter, str)
@@ -1544,7 +1566,9 @@ class BundleTools:
         # Temporal status (0.25.0): a non-current concept reads exactly
         # like a current one without its note — the same gap the
         # dashboard listing closed in 0.23.0. Current rows stay bare.
-        now = _temporal.utcnow()
+        # The note is evaluated at the replay instant when as_of is
+        # given, never at now (0.30.0).
+        now = moment if moment is not None else _temporal.utcnow()
         units = []
         for c in concepts:
             line = f"- {_concept_label(c)}"
@@ -1553,6 +1577,10 @@ class BundleTools:
                 line += f" _({note})_"
             units.append(line)
         title = f"Concepts ({len(units)})"
+        if moment is not None:
+            # Honest replay label: the instant the temporal partitioning was
+            # evaluated at, matching the CLI's JSON envelope `as_of`.
+            title += f", as of {moment.isoformat()}"
         return self._render_paged(
             title=title,
             whole=f"# {title}\n\n" + "\n".join(units),

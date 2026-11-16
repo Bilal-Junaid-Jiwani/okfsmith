@@ -369,6 +369,87 @@ class TestSearchAsOf:
         assert "superseded concept(s) hidden" not in out
 
 
+class TestListAsOf:
+    """MCP ``list`` temporal replay (``as_of``).
+
+    Parity with the ``okfsmith list --as-of`` CLI flag (0.28.0) and the
+    dashboard listing's ``?as_of=`` parameter (0.29.0): until now the MCP
+    ``list`` tool evaluated temporal status only at now, so an agent
+    asking "what did the bundle believe in October 2026?" got the
+    present's answers on every row. Same bundle as ``TestSearchAsOf``:
+    ``policy-v1`` superseded by ``policy-v2``, whose ``valid_from`` is
+    2026-10-20.
+    """
+
+    @pytest.fixture()
+    def temporal_tools(self, tmp_path: Path) -> BundleTools:
+        bundle = Bundle(tmp_path)
+        bundle.write_concept(
+            "policy-v1",
+            {"title": "Refund Policy v1", "type": "policy"},
+            "The old refund policy allows returns within 14 days of purchase.",
+        )
+        bundle.write_concept(
+            "policy-v2",
+            {
+                "title": "Refund Policy v2",
+                "type": "policy",
+                "supersedes": ["policy-v1"],
+                "valid_from": "2026-10-20",
+            },
+            "The new refund policy allows returns within 30 days of purchase.",
+        )
+        return BundleTools(bundle)
+
+    @staticmethod
+    def _line(out: str, concept_id: str) -> str:
+        return next(
+            line
+            for line in out.splitlines()
+            if line.startswith(f"- **{concept_id}**")
+        )
+
+    def test_as_of_replays_past_state(self, temporal_tools: BundleTools) -> None:
+        # Before policy-v2's valid_from, the old policy was the current one.
+        out = temporal_tools.list(as_of="2026-10-01")
+        assert "superseded" not in self._line(out, "policy-v1")
+        assert "not yet valid" in self._line(out, "policy-v2")
+        # the replay instant is labeled honestly, like the CLI envelope
+        assert "as of 2026-10-01" in out
+
+    def test_as_of_future_keeps_supersession(
+        self, temporal_tools: BundleTools
+    ) -> None:
+        out = temporal_tools.list(as_of="2027-01-01")
+        assert "superseded by `policy-v2`" in self._line(out, "policy-v1")
+        assert "superseded" not in self._line(out, "policy-v2")
+
+    def test_as_of_accepts_datetime(self, temporal_tools: BundleTools) -> None:
+        out = temporal_tools.list(as_of="2026-10-01T12:00:00Z")
+        assert "superseded" not in self._line(out, "policy-v1")
+        assert "not yet valid" in self._line(out, "policy-v2")
+
+    def test_as_of_invalid_value_returns_error_not_exception(
+        self, temporal_tools: BundleTools
+    ) -> None:
+        # the tools' "never an exception" contract covers as_of too
+        out = temporal_tools.list(as_of="not-a-date")
+        assert out.startswith("Error:")
+        assert "ISO-8601" in out
+
+    def test_as_of_blank_is_ignored(self, temporal_tools: BundleTools) -> None:
+        out = temporal_tools.list(as_of="  ")
+        assert "superseded by `policy-v2`" in self._line(out, "policy-v1")
+
+    def test_as_of_combines_with_filters(
+        self, temporal_tools: BundleTools
+    ) -> None:
+        out = temporal_tools.list(filter_type="policy", as_of="2026-10-01")
+        assert "policy-v1" in out
+        assert "policy-v2" in out
+        assert "superseded" not in self._line(out, "policy-v1")
+
+
 class TestSearchListTemporalStatus:
     """MCP ``search`` hits and ``list`` rows show temporal status (0.25.0).
 

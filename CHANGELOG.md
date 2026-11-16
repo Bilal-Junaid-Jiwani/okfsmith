@@ -5,6 +5,25 @@ follow SemVer.
 
 ## [Unreleased]
 
+## [0.30.0] - 2026-11-16
+
+### Added
+
+- **MCP `list` tool gains `as_of` temporal replay:**
+  `search` could already replay at a past/future instant, and the CLI's
+  `list --as-of` (0.28.0) and the dashboard listing's `?as_of=` (0.29.0)
+  could too — but the MCP `list` tool evaluated temporal status only
+  at *now*, so an agent asking "what did the bundle believe in October
+  2026?" got the present's answers on every row. `list` now accepts
+  `as_of` (ISO-8601 date or datetime) and evaluates validity windows
+  and supersession chains at that instant; the listing title reports
+  the evaluated instant ("Concepts (N), as of ..."), like the CLI's
+  JSON envelope `as_of`. A blank `as_of` is ignored (evaluates at now,
+  as before); an unparseable one returns a clean error, never an
+  exception — the same wording `search` already returns. The parameter
+  sits last in the signature so historic positional calls keep working.
+  Pinned by tests in `tests/test_mcp.py` (`TestListAsOf`).
+
 ## [0.29.0] - 2026-11-15
 
 ### Added
