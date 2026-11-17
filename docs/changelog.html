@@ -97,6 +97,11 @@
       <details class="toc-mobile">
         <summary>On this page</summary>
         <ul class="toc-list">
+<li><a href="#v0-31-0">[0.31.0] — 2026-11-17</a>
+<ul class="toc-sub">
+<li><a href="#v0-31-0-added">Added</a></li>
+</ul>
+</li>
 <li><a href="#v0-30-0">[0.30.0] — 2026-11-16</a>
 <ul class="toc-sub">
 <li><a href="#v0-30-0-added">Added</a></li>
@@ -446,7 +451,13 @@
         </button>
       </div>
       <div class="prose">
-        <h2 id="v0-30-0">[0.30.0] — 2026-11-16</h2>
+        <h2 id="v0-31-0">[0.31.0] — 2026-11-17</h2>
+<h3 id="v0-31-0-added">Added</h3>
+<ul>
+<li><strong>MCP <code>get</code> tool gains <code>as_of</code> temporal replay — and now flags non-current concepts:</strong> <code>search</code> and <code>list</code> could already replay at a past/future instant (0.30.0), and the CLI's <code>read --as-of</code> (0.28.0) and the dashboard concept detail's <code>?as_of=</code> (0.29.0) could too — but the MCP <code>get</code> tool returned the document bare even for a superseded concept, so an agent reading one concept in full got no temporal status at all and no way to ask what the bundle believed about it at a past date. <code>get</code> now accepts <code>as_of</code> (ISO-8601 date or datetime) and evaluates validity windows and supersession chains at that instant; a non-current concept carries a note line under the document ("_Note: <strong>policy-v1</strong> is superseded by <code>policy-v2</code>._"), evaluated at the replay instant when one is given and at now otherwise, and the replay instant is labeled on the note (or on a "_Replayed as of …._" line when the concept is current at that instant), like the CLI's JSON envelope <code>as_of</code>. A blank <code>as_of</code> is ignored (evaluates at now, as before); an unparseable one returns a clean error, never an exception — the same wording <code>list</code> and <code>search</code> already return. The parameter sits last in the signature so historic positional calls keep working, and current concepts still read byte-identical to before. Pinned by tests in <code>tests/test_mcp.py</code> (<code>TestGetAsOf</code>).
+</li>
+</ul>
+<h2 id="v0-30-0">[0.30.0] — 2026-11-16</h2>
 <h3 id="v0-30-0-added">Added</h3>
 <ul>
 <li><strong>MCP <code>list</code> tool gains <code>as_of</code> temporal replay:</strong> <code>search</code> could already replay at a past/future instant, and the CLI's <code>list --as-of</code> (0.28.0) and the dashboard listing's <code>?as_of=</code> (0.29.0) could too — but the MCP <code>list</code> tool evaluated temporal status only at <em>now</em>, so an agent asking "what did the bundle believe in October 2026?" got the present's answers on every row. <code>list</code> now accepts <code>as_of</code> (ISO-8601 date or datetime) and evaluates validity windows and supersession chains at that instant; the listing title reports the evaluated instant ("Concepts (N), as of ..."), like the CLI's JSON envelope <code>as_of</code>. A blank <code>as_of</code> is ignored (evaluates at now, as before); an unparseable one returns a clean error, never an exception — the same wording <code>search</code> already returns. The parameter sits last in the signature so historic positional calls keep working. Pinned by tests in <code>tests/test_mcp.py</code> (<code>TestListAsOf</code>).
@@ -1092,6 +1103,11 @@
     <aside class="toc" aria-label="On this page">
       <p class="toc-title">On this page</p>
       <ul class="toc-list">
+<li><a href="#v0-31-0">[0.31.0] — 2026-11-17</a>
+<ul class="toc-sub">
+<li><a href="#v0-31-0-added">Added</a></li>
+</ul>
+</li>
 <li><a href="#v0-30-0">[0.30.0] — 2026-11-16</a>
 <ul class="toc-sub">
 <li><a href="#v0-30-0-added">Added</a></li>

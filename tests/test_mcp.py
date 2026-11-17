@@ -450,6 +450,91 @@ class TestListAsOf:
         assert "superseded" not in self._line(out, "policy-v1")
 
 
+class TestGetAsOf:
+    """MCP ``get`` temporal replay (``as_of``).
+
+    Parity with the ``okfsmith read --as-of`` CLI flag (0.28.0) and the
+    dashboard concept detail's ``?as_of=`` parameter (0.29.0): until now
+    the MCP ``get`` tool returned the document bare even for a superseded
+    concept — an agent reading one concept in full got no temporal status
+    at all, and no way to ask what the bundle believed about it at a past
+    instant. Same bundle as ``TestSearchAsOf``: ``policy-v1`` superseded
+    by ``policy-v2``, whose ``valid_from`` is 2026-10-20.
+    """
+
+    @pytest.fixture()
+    def temporal_tools(self, tmp_path: Path) -> BundleTools:
+        bundle = Bundle(tmp_path)
+        bundle.write_concept(
+            "policy-v1",
+            {"title": "Refund Policy v1", "type": "policy"},
+            "The old refund policy allows returns within 14 days of purchase.",
+        )
+        bundle.write_concept(
+            "policy-v2",
+            {
+                "title": "Refund Policy v2",
+                "type": "policy",
+                "supersedes": ["policy-v1"],
+                "valid_from": "2026-10-20",
+            },
+            "The new refund policy allows returns within 30 days of purchase.",
+        )
+        return BundleTools(bundle)
+
+    def test_get_shows_temporal_note_at_now(
+        self, temporal_tools: BundleTools
+    ) -> None:
+        # No as_of: the superseded concept is flagged at now, like list.
+        out = temporal_tools.get("policy-v1")
+        assert "superseded by `policy-v2`" in out
+        assert "14 days of purchase" in out
+        # A current concept stays bare (byte-identical default output).
+        out2 = temporal_tools.get("policy-v2")
+        assert "superseded" not in out2 and "Note:" not in out2
+        assert "30 days of purchase" in out2
+
+    def test_as_of_replays_past_state(self, temporal_tools: BundleTools) -> None:
+        # Before policy-v2's valid_from, the old policy was the current one.
+        out = temporal_tools.get("policy-v1", as_of="2026-10-01")
+        assert "superseded" not in out
+        assert "14 days of purchase" in out
+        # The replay instant is labeled honestly, like the CLI envelope.
+        assert "as of 2026-10-01" in out
+        # The not-yet-valid successor is flagged at the replay instant.
+        out2 = temporal_tools.get("policy-v2", as_of="2026-10-01")
+        assert "not yet valid" in out2
+        assert "as of 2026-10-01" in out2
+
+    def test_as_of_future_keeps_supersession(
+        self, temporal_tools: BundleTools
+    ) -> None:
+        out = temporal_tools.get("policy-v1", as_of="2027-01-01")
+        assert "superseded by `policy-v2`" in out
+        assert "as of 2027-01-01" in out
+        assert "superseded" not in temporal_tools.get(
+            "policy-v2", as_of="2027-01-01"
+        )
+
+    def test_as_of_accepts_datetime(self, temporal_tools: BundleTools) -> None:
+        out = temporal_tools.get("policy-v1", as_of="2026-10-01T12:00:00Z")
+        assert "superseded" not in out
+        assert "as of 2026-10-01" in out
+
+    def test_as_of_invalid_value_returns_error_not_exception(
+        self, temporal_tools: BundleTools
+    ) -> None:
+        # the tools' "never an exception" contract covers as_of too
+        out = temporal_tools.get("policy-v1", as_of="not-a-date")
+        assert out.startswith("Error:")
+        assert "ISO-8601" in out
+
+    def test_as_of_blank_is_ignored(self, temporal_tools: BundleTools) -> None:
+        out = temporal_tools.get("policy-v1", as_of="  ")
+        assert "superseded by `policy-v2`" in out
+        assert "as of" not in out
+
+
 class TestSearchListTemporalStatus:
     """MCP ``search`` hits and ``list`` rows show temporal status (0.25.0).
 

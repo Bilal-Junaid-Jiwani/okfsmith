@@ -4,6 +4,32 @@ eyebrow: Troubleshooting
 description: Release history for okfsmith — what changed in each version, what's coming next, and upgrade notes. Follows Keep a Changelog and Semantic Versioning.
 ---
 
+## [0.31.0] — 2026-11-17 {#v0-31-0}
+
+### Added {#v0-31-0-added}
+
+- **MCP `get` tool gains `as_of` temporal replay — and now flags
+  non-current concepts:**
+  `search` and `list` could already replay at a past/future instant
+  (0.30.0), and the CLI's `read --as-of` (0.28.0) and the dashboard
+  concept detail's `?as_of=` (0.29.0) could too — but the MCP `get`
+  tool returned the document bare even for a superseded concept, so
+  an agent reading one concept in full got no temporal status at all
+  and no way to ask what the bundle believed about it at a past date.
+  `get` now accepts `as_of` (ISO-8601 date or datetime) and evaluates
+  validity windows and supersession chains at that instant; a
+  non-current concept carries a note line under the document
+  ("_Note: **policy-v1** is superseded by `policy-v2`._"), evaluated
+  at the replay instant when one is given and at now otherwise, and
+  the replay instant is labeled on the note (or on a "_Replayed as of
+  …._" line when the concept is current at that instant), like the
+  CLI's JSON envelope `as_of`. A blank `as_of` is ignored (evaluates
+  at now, as before); an unparseable one returns a clean error, never
+  an exception — the same wording `list` and `search` already return.
+  The parameter sits last in the signature so historic positional
+  calls keep working, and current concepts still read byte-identical
+  to before. Pinned by tests in `tests/test_mcp.py` (`TestGetAsOf`).
+
 ## [0.30.0] — 2026-11-16 {#v0-30-0}
 
 ### Added {#v0-30-0-added}

@@ -1806,6 +1806,7 @@ class BundleTools:
         max_chunks: int = 50,
         max_tokens: int | None = None,
         continuation_token: str | None = None,
+        as_of: str | None = None,
     ) -> str:
         """Read one concept in full: its YAML frontmatter followed by its markdown body.
 
@@ -1814,6 +1815,27 @@ class BundleTools:
         metadata — `type`, `title`, `description`, `tags`, trust info
         (`generated` / `verified`), and `sources` — and the body is the
         knowledge content itself.
+
+        A non-current concept carries its temporal status on a note line
+        under the document — e.g. `_Note: **policy-v1** is superseded by
+        `policy-v2`._` — so a superseded concept read in full never reads
+        as live knowledge; current concepts carry no note. (Until 0.31.0
+        `get` returned the document bare even for a superseded concept —
+        the same gap `list` closed in 0.25.0.)
+
+        `as_of` sits last in the signature so the historic positional
+        calls `get(concept_id, max_chunks, max_tokens, continuation_token)`
+        keep working unchanged (see ``test_old_signatures_unchanged``).
+        `as_of` (ISO-8601 date or datetime, the MCP analogue of the CLI's
+        ``read --as-of`` flag and the dashboard concept detail's
+        ``?as_of=`` parameter) replays validity and supersession at that
+        instant — e.g. ask what the bundle believed about one concept on
+        a past date; the note is evaluated at the replay instant when one
+        is given, never at now, and the replay instant is labeled on the
+        note (or on a `_Replayed as of …._` line when the concept is
+        current at that instant), like the CLI's JSON envelope `as_of`.
+        An unparseable value returns a clean error, never an exception,
+        and a blank value is ignored (evaluates at now, as before).
 
         Evidence budgets: `max_chunks` caps the 50-line text chunks returned
         (default 50, hard cap 50), `max_tokens` is an approximate output
@@ -1833,9 +1855,40 @@ class BundleTools:
                 "Use `list` to see all concept ids or `search` to find one "
                 "by keyword."
             )
+        moment: datetime | None = None
+        if as_of is not None and str(as_of).strip():
+            moment = _temporal.parse_temporal(as_of)
+            if moment is None:
+                return (
+                    f"Error: `as_of` {as_of!r} is not an ISO-8601 date "
+                    "or datetime — pass e.g. `2025-06-01` or "
+                    "`2025-06-01T12:00:00Z`."
+                )
+        # Temporal status (0.31.0): a superseded concept read in full used
+        # to look exactly like a current one. The note is evaluated at the
+        # replay instant when as_of is given, never at now. Current
+        # concepts stay bare (byte-identical default output).
+        now = moment if moment is not None else _temporal.utcnow()
         whole = _fm.serialize_frontmatter(concept.frontmatter, concept.body)
+        note = self._temporal_note(concept, now)
+        if note:
+            line = f"_Note: **{concept_id}** is {note}._"
+            if moment is not None:
+                # Honest replay label: the instant the status was evaluated
+                # at, matching the CLI's JSON envelope `as_of`.
+                line = f"_Note: **{concept_id}** is {note} (as of {moment.isoformat()})._"
+            whole += f"\n\n{line}"
+        elif moment is not None:
+            # The fast path returns `whole` byte-identical, so the replay
+            # label must live in the document itself, not only in the
+            # paged title below — a replayed read never reads as the
+            # present, even when the concept is current at that instant.
+            whole += f"\n\n_Replayed as of {moment.isoformat()}._"
+        title = f"Get {concept_id}"
+        if moment is not None:
+            title += f", as of {moment.isoformat()}"
         return self._render_paged(
-            title=f"Get {concept_id}",
+            title=title,
             whole=whole,
             sections=[(None, _text_chunks(whole))],
             max_chunks=max_chunks,
