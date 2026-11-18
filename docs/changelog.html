@@ -97,6 +97,11 @@
       <details class="toc-mobile">
         <summary>On this page</summary>
         <ul class="toc-list">
+<li><a href="#v0-32-0">[0.32.0] — 2026-11-18</a>
+<ul class="toc-sub">
+<li><a href="#v0-32-0-added">Added</a></li>
+</ul>
+</li>
 <li><a href="#v0-31-0">[0.31.0] — 2026-11-17</a>
 <ul class="toc-sub">
 <li><a href="#v0-31-0-added">Added</a></li>
@@ -451,7 +456,13 @@
         </button>
       </div>
       <div class="prose">
-        <h2 id="v0-31-0">[0.31.0] — 2026-11-17</h2>
+        <h2 id="v0-32-0">[0.32.0] — 2026-11-18</h2>
+<h3 id="v0-32-0-added">Added</h3>
+<ul>
+<li><strong><code>validate</code> gains <code>--as-of</code> temporal replay — the last CLI surface to get it:</strong> <code>search</code>, <code>list</code>, <code>read</code>, <code>graph</code>, and <code>eval</code> could already replay at a past/future instant (0.28.0), the dashboard read endpoints could too (0.29.0), and the MCP <code>list</code> / <code>get</code> tools followed (0.30.0 / 0.31.0) — but <code>validate</code> evaluated its two clock-dependent warnings only at <em>now</em>, so "was this bundle conformant, and stale, in June 2025?" had no answer. <code>okfsmith validate ./kb --as-of 2025-06-01</code> now evaluates W006 (content stale: <code>stale_after</code> has passed) and W020 (<code>last_verified</code> lies in the future) at that instant instead of now; every other rule is time-independent, so a replay changes only those two codes. The JSON envelope reports the evaluated instant as <code>as_of</code> when the flag is given (and omits the key otherwise, so plain output is byte-identical to before), and text output labels a replay ("Validated as of …") so it never reads as the present. A garbage <code>--as-of</code> is a usage error (exit 2), like the other replay flags. The validator library gains the same replay as <code>check(as_of=...)</code>, so <code>run_checks</code> callers can replay too without touching the CLI. Pinned by tests in <code>tests/test_cli_asof_replay.py</code> (<code>TestValidateAsOf</code>) and <code>tests/test_temporal.py</code> (<code>test_check_as_of_replays_clock_dependent_warnings</code>).
+</li>
+</ul>
+<h2 id="v0-31-0">[0.31.0] — 2026-11-17</h2>
 <h3 id="v0-31-0-added">Added</h3>
 <ul>
 <li><strong>MCP <code>get</code> tool gains <code>as_of</code> temporal replay — and now flags non-current concepts:</strong> <code>search</code> and <code>list</code> could already replay at a past/future instant (0.30.0), and the CLI's <code>read --as-of</code> (0.28.0) and the dashboard concept detail's <code>?as_of=</code> (0.29.0) could too — but the MCP <code>get</code> tool returned the document bare even for a superseded concept, so an agent reading one concept in full got no temporal status at all and no way to ask what the bundle believed about it at a past date. <code>get</code> now accepts <code>as_of</code> (ISO-8601 date or datetime) and evaluates validity windows and supersession chains at that instant; a non-current concept carries a note line under the document ("_Note: <strong>policy-v1</strong> is superseded by <code>policy-v2</code>._"), evaluated at the replay instant when one is given and at now otherwise, and the replay instant is labeled on the note (or on a "_Replayed as of …._" line when the concept is current at that instant), like the CLI's JSON envelope <code>as_of</code>. A blank <code>as_of</code> is ignored (evaluates at now, as before); an unparseable one returns a clean error, never an exception — the same wording <code>list</code> and <code>search</code> already return. The parameter sits last in the signature so historic positional calls keep working, and current concepts still read byte-identical to before. Pinned by tests in <code>tests/test_mcp.py</code> (<code>TestGetAsOf</code>).
@@ -1103,6 +1114,11 @@
     <aside class="toc" aria-label="On this page">
       <p class="toc-title">On this page</p>
       <ul class="toc-list">
+<li><a href="#v0-32-0">[0.32.0] — 2026-11-18</a>
+<ul class="toc-sub">
+<li><a href="#v0-32-0-added">Added</a></li>
+</ul>
+</li>
 <li><a href="#v0-31-0">[0.31.0] — 2026-11-17</a>
 <ul class="toc-sub">
 <li><a href="#v0-31-0-added">Added</a></li>

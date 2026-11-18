@@ -650,8 +650,12 @@ def _warn_malformed_datetimes(doc: _Doc) -> list[Finding]:
     return findings
 
 
-def _warn_stale(doc: _Doc) -> list[Finding]:
-    """W006 — ``now >= stale_after`` (UTC comparison, §5.5). Informational only."""
+def _warn_stale(doc: _Doc, now: datetime) -> list[Finding]:
+    """W006 — ``now >= stale_after`` (UTC comparison, §5.5). Informational only.
+
+    *now* is the instant the staleness is evaluated at — wall-clock now,
+    or a replay instant when the caller validates ``--as-of`` a past date.
+    """
     assert doc.fm is not None
     value = doc.fm.get("stale_after")
     if value is None:
@@ -659,7 +663,7 @@ def _warn_stale(doc: _Doc) -> list[Finding]:
     ok, moment = _parse_timestamp(value)
     if not ok or moment is None:
         return []  # malformed values are reported as W011
-    if datetime.now(timezone.utc) >= moment:
+    if now >= moment:
         return [
             Finding(
                 "W006",
@@ -886,8 +890,15 @@ def _warn_last_verified_future(doc: _Doc, now: datetime) -> list[Finding]:
 # ---------------------------------------------------------------------------
 
 
-def run_checks(root: Path) -> tuple[list[Finding], list[Finding]]:
-    """Run every rule over the bundle at *root*; returns ``(errors, warnings)``."""
+def run_checks(root: Path, as_of: datetime | None = None) -> tuple[list[Finding], list[Finding]]:
+    """Run every rule over the bundle at *root*; returns ``(errors, warnings)``.
+
+    *as_of* replays the clock-dependent warnings (W006 staleness, W020
+    future ``last_verified``) at that instant instead of now — the
+    validator analogue of the CLI's ``--as-of`` replay on the read
+    surfaces. Every other rule is time-independent, so a replay changes
+    only those two codes.
+    """
     # Resolve once so the symlink-containment checks compare like with like.
     root = root.resolve()
     concepts: list[_Doc] = []
@@ -964,8 +975,12 @@ def run_checks(root: Path) -> tuple[list[Finding], list[Finding]]:
         warnings.extend(_warn_footnote_unresolved(doc, source_ids))
     for _doc, w005, _w008, _w015, _source_ids in per_doc_sources:  # W005
         warnings.extend(w005)
+    # Clock-dependent warnings (W006 staleness, W020 future
+    # `last_verified`) evaluate at the replay instant when one is given,
+    # else at now.
+    now = as_of if as_of is not None else datetime.now(timezone.utc)
     for doc in ok_docs:  # W006
-        warnings.extend(_warn_stale(doc))
+        warnings.extend(_warn_stale(doc, now))
     warnings.extend(w007_findings)  # W007
     for _doc, _w005, w008, _w015, _source_ids in per_doc_sources:  # W008
         warnings.extend(w008)
@@ -974,8 +989,6 @@ def run_checks(root: Path) -> tuple[list[Finding], list[Finding]]:
     for doc in ok_docs:  # W010
         warnings.extend(_warn_attested_runtime(doc))
     # Temporal advisories (okfsmith W016–W020; never affect conformance).
-    # The only clock read besides W006's staleness check: `now` for W020.
-    now = datetime.now(timezone.utc)
     concept_ids = {doc.rel[: -len(".md")] for doc in ok_docs}
     temporal_index = _temporal.SupersessionIndex(
         (doc.rel[: -len(".md")], doc.fm) for doc in ok_docs

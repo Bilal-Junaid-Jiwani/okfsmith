@@ -5,6 +5,32 @@ follow SemVer.
 
 ## [Unreleased]
 
+## [0.32.0] - 2026-11-18
+
+### Added
+
+- **`validate` gains `--as-of` temporal replay — the last CLI surface
+  to get it:** `search`, `list`, `read`, `graph`, and `eval` could
+  already replay at a past/future instant (0.28.0), the dashboard read
+  endpoints could too (0.29.0), and the MCP `list` / `get` tools
+  followed (0.30.0 / 0.31.0) — but `validate` evaluated its two
+  clock-dependent warnings only at *now*, so "was this bundle
+  conformant, and stale, in June 2025?" had no answer. `okfsmith
+  validate ./kb --as-of 2025-06-01` now evaluates W006 (content stale:
+  `stale_after` has passed) and W020 (`last_verified` lies in the
+  future) at that instant instead of now; every other rule is
+  time-independent, so a replay changes only those two codes. The JSON
+  envelope reports the evaluated instant as `as_of` when the flag is
+  given (and omits the key otherwise, so plain output is byte-identical
+  to before), and text output labels a replay ("Validated as of …") so
+  it never reads as the present. A garbage `--as-of` is a usage error
+  (exit 2), like the other replay flags. The validator library gains
+  the same replay as `check(as_of=...)`, so `run_checks` callers —
+  dashboard jobs, MCP write-back gating — can replay too without
+  touching the CLI. Pinned by tests in
+  `tests/test_cli_asof_replay.py` (`TestValidateAsOf`) and
+  `tests/test_temporal.py` (`test_check_as_of_replays_clock_dependent_warnings`).
+
 ## [0.31.0] - 2026-11-17
 
 ### Added

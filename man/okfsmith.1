@@ -1,4 +1,4 @@
-.TH OKFSMITH 1 "November 2026" "okfsmith 0.31.0" "User Commands"
+.TH OKFSMITH 1 "November 2026" "okfsmith 0.32.0" "User Commands"
 .SH NAME
 okfsmith \- forge messy documents into OKF v0.2 knowledge bundles
 .SH SYNOPSIS
@@ -54,10 +54,13 @@ re-scans on a timer (Ctrl-C stops);
 .B \-\-dry\-run
 reports without writing.
 .TP
-.B validate \fIBUNDLE\fR [\-\-format text|json] [\-\-strict]
+.B validate \fIBUNDLE\fR [\-\-format text|json] [\-\-strict] [\-\-as-of DATE]
 Check OKF \(sc11 conformance. Exit 0 means conformant.
 .B \-\-strict
 also fails on warnings.
+.B \-\-as-of
+replays the clock-dependent warnings (W006 staleness, W020 future
+last_verified) at a past or future instant instead of now.
 .TP
 .B list \fIBUNDLE\fR [\-\-format text|json] [\-\-tier \fITIER\fR]
 List concepts, optionally filtered by trust tier

@@ -327,3 +327,149 @@ def test_graph_html_without_as_of_has_no_replay_label(tmp_path: Path):
     text = render_html(root, tmp_path / "viz.html").read_text(encoding="utf-8")
     assert "as of" not in text
     assert _node(_embedded_model(text), "old-offer")["temporal_status"] == "expired"
+
+
+# ---------------------------------------------------------------------------
+# validate (0.32.0)
+# ---------------------------------------------------------------------------
+#
+# ``validate`` was the last CLI surface without ``--as-of``: every read
+# surface could replay at a past instant, but the two clock-dependent
+# warnings — W006 (``stale_after`` has passed) and W020 (``last_verified``
+# in the future) — were always evaluated at now, so "was this bundle
+# stale in June 2025?" had no answer. These tests pin the replay:
+#
+# - W006 / W020 are evaluated at the ``--as-of`` instant: a concept stale
+#   now reads fresh at a replay before its ``stale_after``, and a
+#   ``last_verified`` in the past reads "in the future" at a replay
+#   before it.
+# - every other rule is time-independent: W017 (empty validity window)
+#   fires at any instant.
+# - the JSON envelope names the evaluated instant (``as_of``) only when
+#   the flag is given; without it the envelope is byte-identical to
+#   before, and text output gains a "Validated as of …" line only on a
+#   replay.
+# - a garbage ``--as-of`` is a usage error (exit 2), like list/read/graph.
+
+_STALE = """---
+title: Old Memo
+type: Note
+stale_after: 2026-01-01T00:00:00+00:00
+---
+# Old Memo
+
+Body.
+"""
+
+_VERIFIED = """---
+title: Checked Note
+type: Note
+last_verified: 2026-06-01T00:00:00+00:00
+---
+# Checked Note
+
+Body.
+"""
+
+_EMPTY_WINDOW = """---
+title: Impossible Window
+type: Note
+valid_from: 2026-03-31T12:00:00+00:00
+valid_until: 2026-03-01T00:00:00+00:00
+---
+# Impossible Window
+
+Body.
+"""
+
+
+def _validate_bundle(tmp_path: Path) -> Path:
+    return _make_bundle(
+        tmp_path,
+        {
+            "index.md": "# I\n",
+            "old-memo.md": _STALE,
+            "checked-note.md": _VERIFIED,
+            "impossible-window.md": _EMPTY_WINDOW,
+        },
+    )
+
+
+def _warning_codes(payload: dict) -> dict[str, list[str]]:
+    """Map each warning code to the files it was filed on."""
+    codes: dict[str, list[str]] = {}
+    for warning in payload["warnings"]:
+        codes.setdefault(warning["code"], []).append(warning["file"])
+    return codes
+
+
+def test_validate_as_of_replays_w006_staleness(tmp_path: Path):
+    root = _validate_bundle(tmp_path)
+    # At now (2026-11-18) the memo's stale_after (2026-01-01) has passed.
+    result = runner.invoke(app, ["validate", str(root), "--format", "json"])
+    assert result.exit_code == 0, result.output
+    assert "W006" in _warning_codes(json.loads(result.output))
+    # Replayed to June 2025, before stale_after, the same memo is fresh.
+    result = runner.invoke(
+        app, ["validate", str(root), "--as-of", "2025-06-01", "--format", "json"]
+    )
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["as_of"] == "2025-06-01T00:00:00+00:00"
+    assert "W006" not in _warning_codes(payload)
+
+
+def test_validate_as_of_replays_w020_future_verification(tmp_path: Path):
+    root = _validate_bundle(tmp_path)
+    # At now the note's last_verified (2026-06-01) is in the past: no W020.
+    result = runner.invoke(app, ["validate", str(root), "--format", "json"])
+    assert result.exit_code == 0, result.output
+    assert "W020" not in _warning_codes(json.loads(result.output))
+    # Replayed to January 2026, that verification lies in the future.
+    result = runner.invoke(
+        app, ["validate", str(root), "--as-of", "2026-01-01", "--format", "json"]
+    )
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["as_of"] == "2026-01-01T00:00:00+00:00"
+    assert _warning_codes(payload).get("W020") == ["checked-note.md"]
+
+
+def test_validate_as_of_leaves_time_independent_warnings_alone(tmp_path: Path):
+    root = _validate_bundle(tmp_path)
+    # W017 (empty validity window) is structural, not clock-dependent.
+    for args in ([], ["--as-of", "2025-06-01"], ["--as-of", "2030-01-01"]):
+        result = runner.invoke(
+            app, ["validate", str(root), *args, "--format", "json"]
+        )
+        assert result.exit_code == 0, result.output
+        assert _warning_codes(json.loads(result.output)).get("W017") == [
+            "impossible-window.md"
+        ]
+
+
+def test_validate_without_as_of_has_no_as_of_key(tmp_path: Path):
+    root = _validate_bundle(tmp_path)
+    result = runner.invoke(app, ["validate", str(root), "--format", "json"])
+    assert result.exit_code == 0, result.output
+    assert "as_of" not in json.loads(result.output)
+
+
+def test_validate_as_of_text_labels_replay(tmp_path: Path):
+    root = _validate_bundle(tmp_path)
+    result = runner.invoke(app, ["validate", str(root), "--as-of", "2025-06-01"])
+    assert result.exit_code == 0, result.output
+    assert "Validated as of 2025-06-01T00:00:00+00:00." in result.output
+    result = runner.invoke(app, ["validate", str(root)])
+    assert result.exit_code == 0, result.output
+    assert "Validated as of" not in result.output
+
+
+def test_validate_as_of_invalid_value_is_usage_error(tmp_path: Path):
+    root = _validate_bundle(tmp_path)
+    result = runner.invoke(app, ["validate", str(root), "--as-of", "not-a-date"])
+    assert result.exit_code == 2
+    assert (
+        "--as-of 'not-a-date' is not an ISO-8601 date or datetime."
+        in _plain(result.output)
+    )

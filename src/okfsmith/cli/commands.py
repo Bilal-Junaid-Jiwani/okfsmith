@@ -266,21 +266,34 @@ def _load_bundle_for_read(bundle_path: Path) -> Bundle:
         ) from None
 
 
-def _check_with_bundle(check: Any, bundle_path: Path, bundle_obj: Bundle) -> Any:
+def _check_with_bundle(
+    check: Any,
+    bundle_path: Path,
+    bundle_obj: Bundle,
+    as_of: Any = None,
+) -> Any:
     """Run ``validate.check()``, reusing the already-loaded bundle (M17).
 
     The validator agent adds a keyword-only ``bundle`` parameter to
     ``check()``; older implementations accept only the path. Passing the
     loaded bundle avoids parsing every file's frontmatter twice.
+    ``as_of`` is forwarded the same way when the validator accepts it,
+    so ``validate --as-of`` replays the clock-dependent warnings.
     """
     try:
-        use_bundle_kwarg = "bundle" in inspect.signature(check).parameters
+        params = inspect.signature(check).parameters
+        use_bundle_kwarg = "bundle" in params
+        use_as_of_kwarg = "as_of" in params
     except (TypeError, ValueError):
         use_bundle_kwarg = False
+        use_as_of_kwarg = False
     try:
+        kwargs: dict[str, Any] = {}
         if use_bundle_kwarg:
-            return check(bundle_path, bundle=bundle_obj)
-        return check(bundle_path)
+            kwargs["bundle"] = bundle_obj
+        if use_as_of_kwarg and as_of is not None:
+            kwargs["as_of"] = as_of
+        return check(bundle_path, **kwargs)
     except BundleError as exc:
         raise CliError(
             "io-error",
@@ -1276,6 +1289,14 @@ def validate(
     output_format: ValidateFormat = typer.Option(
         ValidateFormat.text, "--format", help="Output format: text or json."
     ),
+    # NOTE: ``as_of`` stays last — the flag replays the clock-dependent
+    # warnings (W006 staleness, W020 future `last_verified`) at a past or
+    # future instant instead of now, like the read surfaces' `--as-of`.
+    as_of: str | None = typer.Option(
+        None,
+        "--as-of",
+        help="Replay validation at an ISO-8601 date or datetime.",
+    ),
 ) -> None:
     """Validate a bundle against OKF v0.2 (E001–E004 / W001–W020).
 
@@ -1283,17 +1304,25 @@ def validate(
     temporal-model advisories (valid_from / valid_until / supersedes /
     last_verified). Warnings never affect conformance.
 
+    ``--as-of`` replays the two clock-dependent warnings — W006 (content
+    stale: ``stale_after`` has passed) and W020 (``last_verified`` lies in
+    the future) — at that instant instead of now, so an audit can ask
+    "was this bundle conformant, and stale, in June 2025?" Every other
+    rule is time-independent, so a replay changes only those two codes.
+
     \b
     Examples:
         okfsmith validate ./kb
         okfsmith validate ./kb --format json
         okfsmith validate ./kb --strict
+        okfsmith validate ./kb --as-of 2025-06-01
     """
     as_json = output_format == "json"
     try:
         _require_bundle_dir(bundle)
     except CliError as exc:
         _handle_cli_error(exc, as_json)
+    moment = _parse_as_of(as_of)
     # check(bundle_path) -> ValidationReport with .errors / .warnings as
     # Finding objects; serialize each via Finding.as_dict().
     check = _lazy_attr("okfsmith.validate", "check")
@@ -1303,14 +1332,14 @@ def validate(
     # error [io-error], never a traceback.
     bundle_path = bundle
     bundle_obj = _load_bundle_for_read(bundle_path)
-    result = _check_with_bundle(check, bundle_path, bundle_obj)
+    result = _check_with_bundle(check, bundle_path, bundle_obj, as_of=moment)
     errors = [finding.as_dict() for finding in result.errors]
     warnings = [finding.as_dict() for finding in result.warnings]
     n_concepts = sum(1 for _ in bundle_obj.iter_concepts())
 
     if as_json:
         status = "invalid" if errors or (strict and warnings) else "conformant"
-        _dump_json({
+        envelope: dict[str, Any] = {
             "status": status,
             # L25: the count key is standardized on "count"; "concepts" is a
             # deprecated alias kept for back-compat.
@@ -1320,9 +1349,14 @@ def validate(
             "warning_count": len(warnings),
             "errors": errors,
             "warnings": warnings,
-        })
+        }
+        if moment is not None:
+            envelope["as_of"] = moment.isoformat()
+        _dump_json(envelope)
     else:
         _print_report(errors, warnings, strict=strict)
+        if moment is not None:
+            typer.echo(f"Validated as of {moment.isoformat()}.")
 
     if errors or (strict and warnings):
         raise typer.Exit(code=1)

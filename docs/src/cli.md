@@ -392,6 +392,10 @@ okfsmith validate ./kb --strict
 
 # Machine-readable, for CI
 okfsmith validate ./kb --format json
+
+# Replay the two clock-dependent warnings (W006 staleness, W020 future
+# `last_verified`) at a past instant instead of now
+okfsmith validate ./kb --as-of 2025-06-01
 ```
 
 Real output — a conformant bundle exits with code 0 (verified with `--strict` too):
@@ -415,6 +419,7 @@ Conformant: no errors, no warnings.
 |---|---|
 | `--format <text\|json>` | Output format (default `text`). |
 | `--strict` | Treat warnings as failures. |
+| `--as-of <date\|datetime>` | Replay W006 / W020 at that instant instead of now. |
 
 > [!TIP]
 > What E001–E004 / W001–W006 mean and how to fix each one is on [Validation & error codes](validation.html).

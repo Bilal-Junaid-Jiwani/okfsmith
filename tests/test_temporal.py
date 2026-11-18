@@ -382,6 +382,35 @@ class TestValidatorTemporal:
         assert len(w020) == 1
         assert "in the future" in w020[0].message
 
+    def test_check_as_of_replays_clock_dependent_warnings(self, tmp_path):
+        # 0.32.0: check(as_of=...) replays W006 / W020 at that instant.
+        # The memo is stale now (stale_after 2026-01-01 has passed) but was
+        # fresh in June 2025; the note's last_verified (2026-06-01) is in
+        # the past now but lay in the future in January 2026.
+        bundle = _bundle(
+            tmp_path,
+            {
+                "a": {
+                    "type": "Note",
+                    "title": "A",
+                    "stale_after": "2026-01-01T00:00:00+00:00",
+                },
+                "b": {
+                    "type": "Note",
+                    "title": "B",
+                    "last_verified": "2026-06-01T00:00:00+00:00",
+                },
+            },
+        )
+        now_report = check(bundle.root)
+        assert len(_codes(now_report, "W006")) == 1
+        assert _codes(now_report, "W020") == []
+        past_report = check(bundle.root, as_of=_dt(2025, 6, 1))
+        assert _codes(past_report, "W006") == []
+        early_report = check(bundle.root, as_of=_dt(2026, 1, 1))
+        assert len(_codes(early_report, "W020")) == 1
+        assert len(_codes(early_report, "W006")) == 1
+
     def test_clean_temporal_fields_no_warnings(self, tmp_path):
         bundle = _bundle(
             tmp_path,

@@ -63,6 +63,16 @@ okfsmith read ./kb policy/refunds --as-of 2025-06-01  # badge as of then
 okfsmith graph ./kb --as-of 2025-06-01                # node status as of then
 ```
 
+And on `validate` — the two clock-dependent warnings, W006 (content
+stale: `stale_after` has passed) and W020 (`last_verified` lies in the
+future), are evaluated at the replay instant instead of now, so an audit
+can ask "was this bundle stale in June 2025?". Every other validation
+rule is time-independent, so a replay changes only those two codes:
+
+```bash
+okfsmith validate ./kb --as-of 2025-06-01 --format json  # W006 / W020 as of then
+```
+
 Each JSON envelope reports the `as_of` instant evaluated; the HTML
 viewer labels a replay ("as of …") in its header stats, so a replayed
 viewer never reads as the present.

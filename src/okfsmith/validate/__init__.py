@@ -17,6 +17,7 @@ Pure and deterministic: stdlib + pyyaml only, no network, no LLM.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 
 from okfsmith.core.bundle import Bundle
@@ -78,7 +79,10 @@ class ValidationReport:
 
 
 def check(
-    bundle_path: str | Path | None = None, *, bundle: Bundle | None = None
+    bundle_path: str | Path | None = None,
+    *,
+    bundle: Bundle | None = None,
+    as_of: datetime | None = None,
 ) -> ValidationReport:
     """Validate the OKF bundle at *bundle_path* and return a :class:`ValidationReport`.
 
@@ -91,6 +95,13 @@ def check(
     file's frontmatter a second time. The report is identical to
     ``check(bundle.root)`` because the checks still read from disk. When both
     are given, *bundle* wins.
+
+    *as_of* replays the clock-dependent warnings (W006 staleness, W020
+    future ``last_verified``) at that instant instead of now — the
+    validator analogue of the CLI's ``--as-of`` replay on the read
+    surfaces. Every other rule is time-independent, so a replay changes
+    only those two codes. ``None`` (the default) evaluates at now, as
+    before.
 
     Raises:
         ValueError: if neither *bundle_path* nor *bundle* is given, or if the
@@ -106,7 +117,7 @@ def check(
         raise ValueError("check() requires a bundle_path or a pre-loaded bundle")
     if root.exists() and not root.is_dir():
         raise ValueError(f"bundle_path must be a directory, got: {root}")
-    errors, warnings = _rules.run_checks(root)
+    errors, warnings = _rules.run_checks(root, as_of=as_of)
     return ValidationReport(errors=errors, warnings=warnings)
 
 
