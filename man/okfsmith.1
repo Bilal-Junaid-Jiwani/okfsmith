@@ -1,4 +1,4 @@
-.TH OKFSMITH 1 "November 2026" "okfsmith 0.32.0" "User Commands"
+.TH OKFSMITH 1 "November 2026" "okfsmith 0.33.0" "User Commands"
 .SH NAME
 okfsmith \- forge messy documents into OKF v0.2 knowledge bundles
 .SH SYNOPSIS
@@ -109,12 +109,15 @@ Check dependencies, optional extras, Ollama reachability, temp-dir
 writability, and the resolved LLM backend (provider, base URL, model,
 key status — the key itself is never shown).
 .TP
-.B chat \\fR[\\fIBUNDLE\\fR] [\\-\\-model \\fINAME\\fR] [\\-\\-provider \\fINAME\\fR] [\\-\\-api\\-base \\fIURL\\fR] [\\-\\-api\\-key \\fIKEY\\fR] [\\-\\-no\\-llm]
+.B chat \\fR[\\fIBUNDLE\\fR] [\\-\\-model \\fINAME\\fR] [\\-\\-provider \\fINAME\\fR] [\\-\\-api\\-base \\fIURL\\fR] [\\-\\-api\\-key \\fIKEY\\fR] [\\-\\-no\\-llm] [\\-\\-as\\-of \\fIDATE\\fR]
 Interactive Q&A over the bundle (REPL): plain-language questions answered
 with concept-id citations, plus slash commands
 .RI ( /help ,
 /ingest, /list, /read, /search, /validate, /graph, /doctor, /model, /clear,
 /exit ).
+With \-\-as\-of \fIDATE\fR the whole session replays at a past/future
+instant: answers and /list, /read, /search, /validate, and /graph evaluate
+validity windows and supersession chains at that instant instead of now.
 Generative answers via Ollama, any \-\-provider preset
 .RI ( openrouter ,
 groq, mistral, deepseek, together, fireworks, deepinfra, anyscale,

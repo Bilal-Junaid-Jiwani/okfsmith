@@ -55,6 +55,10 @@ What you're looking at:
 > [!TIP]
 > For generative (LLM) answers, either start Ollama locally or pass a hosted provider: `okfsmith chat ./kb --provider openrouter --model anthropic/claude-sonnet-4`. Set your key as an env var — never as a flag: `export OKFSMITH_API_KEY=your-key-here`. See [Providers](providers.html).
 
+## Temporal replay — the whole session at a past instant
+
+`okfsmith chat ./kb --as-of 2025-06-01` replays the entire session at that instant: answers, `/list`, `/read`, `/search` (when it carries no `--as-of` of its own), `/validate`, and `/graph` evaluate validity windows and supersession chains then instead of now. A per-query `/search --as-of` still wins over the session instant. The banner labels the replay ("Replaying as of …") so an answer never reads as the present, and a garbage `--as-of` is a usage error (exit 2) — the same contract as the other replay flags. See [Temporality](temporality.html).
+
 ## Asking questions
 
 Start typing. Plain English goes to the question-answer path; lines starting with `/` are slash commands:
@@ -107,7 +111,7 @@ Extractive mode: excerpts above, no generative summary. Use /read <id> for the f
 | `/ingest <path> [--recursive]` | Ingest a file or directory into the bundle. |
 | `/list [--type <type>] [--tier <tier>]` | List concepts in the bundle, optionally narrowed to one concept type (`--type`) or trust tier (`--tier`) — the same filters as `okfsmith list`, the MCP `list` tool, and the dashboard listing. |
 | `/read <id>` | Print a concept in full. |
-| `/search <keywords> [--as-of <date>] [--include-superseded] [--type <type>] [--tier <tier>] [--limit <n>]` | Keyword-search concepts, optionally replayed at a past/future instant (`--as-of`, ISO-8601 date or datetime), with superseded concepts shown (`--include-superseded`), narrowed to one concept type (`--type`) or trust tier (`--tier`), or capped at `<n>` results (`--limit` / `-n`, default 10) — the same temporal replay, filters, and limit as `okfsmith search`, the MCP `search` tool, and the dashboard search. |
+| `/search <keywords> [--as-of <date>] [--include-superseded] [--type <type>] [--tier <tier>] [--limit <n>]` | Keyword-search concepts, optionally replayed at a past/future instant (`--as-of`, ISO-8601 date or datetime), with superseded concepts shown (`--include-superseded`), narrowed to one concept type (`--type`) or trust tier (`--tier`), or capped at `<n>` results (`--limit` / `-n`, default 10) — the same temporal replay, filters, and limit as `okfsmith search`, the MCP `search` tool, and the dashboard search. A `--as-of` here wins over the session replay instant (`chat --as-of`); without one, `/search` uses it. |
 | `/validate` | Validate the bundle against OKF v0.2. |
 | `/graph` | Show the concept link graph. |
 | `/doctor` | Check the environment. |

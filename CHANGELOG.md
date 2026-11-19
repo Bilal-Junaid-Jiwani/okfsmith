@@ -5,6 +5,33 @@ follow SemVer.
 
 ## [Unreleased]
 
+## [0.33.0] - 2026-11-19
+
+### Added
+
+- **`chat` gains `--as-of` temporal replay — the last interactive surface
+  to get it:** `search`, `list`, `read`, `graph`, and `eval` could
+  already replay at a past/future instant (0.28.0), the dashboard read
+  endpoints could too (0.29.0), the MCP `list` / `get` tools followed
+  (0.30.0 / 0.31.0), `validate` followed (0.32.0), and the dashboard
+  chat session already accepted `as_of` — but the interactive CLI chat
+  answered every question at *now*: its `/search` slash command had a
+  per-query `--as-of`, yet the Q&A retrieval itself, `/list`, `/read`,
+  `/validate`, and `/graph` had no session replay at all, so "what did
+  the bundle say about refunds in October 2026?" had no answer in a
+  chat session. `okfsmith chat ./kb --as-of 2026-10-01` now replays the
+  whole session at that instant: answers, `/list`, `/read`, `/search`
+  when it carries no `--as-of` of its own, `/validate`, and `/graph`
+  evaluate validity windows and supersession chains at that instant
+  instead of now (a per-query `--as-of` still wins over the session
+  instant). The banner labels the replay instant ("Replaying as of
+  …") and the no-match message does too, so an answer never reads as
+  the present. A garbage `--as-of` is a usage error (exit 2), like the
+  other replay flags. The session engine gains the same replay as
+  `ChatSession(as_of=...)` / `run_chat(as_of=...)`, so programmatic
+  callers can replay too without touching the CLI. Pinned by tests in
+  `tests/test_chat_asof_replay.py`.
+
 ## [0.32.0] - 2026-11-18
 
 ### Added

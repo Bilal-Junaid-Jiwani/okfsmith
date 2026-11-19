@@ -2153,6 +2153,14 @@ def chat(
         help="Extractive mode: answer from keyword-matched concept excerpts, "
         "no LLM involved.",
     ),
+    as_of: str | None = typer.Option(
+        None,
+        "--as-of",
+        help="Replay the whole session at a past/future instant (ISO-8601 date or "
+        "datetime): answers, /list, /read, /search (when it carries no "
+        "--as-of of its own), /validate, and /graph evaluate validity "
+        "windows and supersession chains at that instant instead of now.",
+    ),
 ) -> None:
     """Chat with a bundle in natural language (Claude Code / Gemini CLI style).
 
@@ -2160,6 +2168,15 @@ def chat(
     ``[concept-id]`` citations. With no reachable LLM it stays useful in
     extractive mode. Slash commands expose bundle operations inline —
     type ``/help`` inside the chat to see them.
+
+    ``--as-of`` replays the whole session at a past/future instant: answers,
+    ``/list``, ``/read``, ``/search`` (when it carries no ``--as-of`` of
+    its own), ``/validate``, and ``/graph`` evaluate validity windows and
+    supersession chains at that instant instead of now — the last interactive
+    surface to gain temporal replay, matching ``search`` / ``list`` / ``read`` /
+    ``validate`` / ``graph``, the MCP tools, and the dashboard. The banner
+    labels the replay instant so an answer never reads as the present, and a
+    garbage ``--as-of`` is a usage error (exit 2).
 
     Any hosted model works via ``--provider`` presets — ``openrouter``
     is the flagship: one key routes to hundreds of models
@@ -2176,6 +2193,7 @@ def chat(
     Examples:
         okfsmith chat ./kb
         okfsmith chat ./kb --no-llm
+        okfsmith chat ./kb --as-of 2025-06-01 --no-llm
         okfsmith chat ./kb --model qwen3:8b
         export OKFSMITH_API_KEY=... OKFSMITH_PROVIDER=groq
         okfsmith chat ./kb --model llama-3.3-70b-versatile
@@ -2202,6 +2220,7 @@ def chat(
             )
     if api_key is not None:
         _warn_api_key_flag()
+    moment = _parse_as_of(as_of)
     root = _require_bundle_dir(bundle or Path("."))
     from okfsmith.cli import chat as _chat_engine
     from okfsmith.extract.llm import LLMError as _LLMError
@@ -2214,6 +2233,7 @@ def chat(
             provider=provider,
             api_base=api_base,
             api_key=api_key,
+            as_of=moment,
         )
     except BundleError as exc:
         # C8: chat-adjacent bundle read — unreadable files fail cleanly.

@@ -217,6 +217,7 @@ writability.
 ```bash
 okfsmith chat ./kb                 # REPL; Ollama if reachable, else extractive
 okfsmith chat ./kb --no-llm        # extractive mode: concept excerpts, no LLM
+okfsmith chat ./kb --as-of 2025-06-01 --no-llm   # whole session replays at that instant
 okfsmith chat ./kb --model qwen3:8b
 okfsmith chat ./kb --provider openrouter --model anthropic/claude-sonnet-4
 printf '/list\n/exit\n' | okfsmith chat ./kb   # scriptable via stdin
@@ -224,7 +225,11 @@ printf '/list\n/exit\n' | okfsmith chat ./kb   # scriptable via stdin
 
 Ask questions in plain language; answers carry `[concept-id]` citations and a
 Sources footer. Follow-ups ("tell me more", "uska source kya hai") resolve
-against the recent conversation. Slash commands: `/help`, `/ingest <path>`
+against the recent conversation. `--as-of <ISO-8601 date or datetime>` replays
+the whole session at that instant — answers, `/list`, `/read`, `/search` (when
+it carries no `--as-of` of its own), `/validate`, and `/graph` evaluate validity
+windows and supersession chains then instead of now; the banner labels the
+replay instant so an answer never reads as the present. Slash commands: `/help`, `/ingest <path>`
 (`--recursive` supported), `/list`, `/read <id>`, `/search <keywords>`,
 `/validate`, `/graph`, `/doctor`, `/model [name]`, `/clear`, `/exit` (`/quit`
 too). Line history persists at `~/.okfsmith/history`; Ctrl-C cancels the

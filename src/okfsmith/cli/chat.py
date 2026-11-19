@@ -18,6 +18,7 @@ import os
 import re
 import shlex
 from collections.abc import Callable
+from datetime import datetime
 from pathlib import Path
 
 from rich.console import Console
@@ -52,6 +53,24 @@ except ImportError:  # ``okfsmith.search`` ships in a parallel workstream
     from okfsmith.mcp_server import server as _mcp_server
 
     _search_bundle = _mcp_server.rank_concepts
+
+
+def _search_bundle_at(
+    bundle: Bundle, query: str, limit: int, as_of: datetime | None
+) -> list[tuple[float, Concept]]:
+    """Search *bundle*, replayed at *as_of* when one is given.
+
+    Plain ``None`` takes the legacy call shape so output stays
+    byte-identical to before. The legacy ``rank_concepts`` fallback has
+    no temporal support, so on that (unshipped) path a replay degrades
+    to a plain search rather than raising inside the REPL.
+    """
+    if as_of is None:
+        return _search_bundle(bundle, query, limit)
+    try:
+        return _search_bundle(bundle, query, limit, as_of=as_of)  # type: ignore[call-arg]
+    except TypeError:
+        return _search_bundle(bundle, query, limit)
 
 try:
     import readline  # noqa: F401  (stdlib; absent on Windows without pyreadline)
@@ -261,6 +280,7 @@ class ChatSession:
         provider: str | None = None,
         api_base: str | None = None,
         api_key: str | None = None,
+        as_of: datetime | None = None,
         console: Console | None = None,
     ) -> None:
         self.bundle = bundle
@@ -274,6 +294,13 @@ class ChatSession:
         self.llm_provider = provider
         self.llm_api_base = api_base
         self.llm_api_key = api_key
+        #: Session replay instant (``chat --as-of``): every retrieval in
+        #: the session — answers, ``/list``, ``/read``, ``/search`` when
+        #: it carries no ``--as-of`` of its own, ``/validate``, and
+        #: ``/graph`` — evaluates validity windows and supersession
+        #: chains at this instant instead of now. ``None`` means now,
+        #: exactly like the other replay flags.
+        self.as_of = as_of
         self.console = console or Console()
         #: Recent (role, content) turns fed back to the LLM as context.
         self.history: list[dict] = []
@@ -323,6 +350,16 @@ class ChatSession:
             f"Bundle: [cyan]{escape(self.bundle_label)}[/cyan] "
             f"([cyan]{self.n_concepts()} concepts[/cyan]) · {self._backend_info()}",
         )
+        if self.as_of is not None:
+            # Label the replay so an answer never reads as the present —
+            # the same labelling the CLI's ``--as-of`` flags and the
+            # dashboard chat session use ("Validated as of …" / note line).
+            print_styled(
+                c,
+                f"[dim]Replaying as of {escape(self.as_of.isoformat())} — "
+                "answers, /list, /read, /search, /validate, and /graph "
+                "evaluate the bundle at that instant.[/dim]",
+            )
         if self.backend is None:
             print_styled(
                 c,
@@ -375,7 +412,7 @@ class ChatSession:
     # -- answering --------------------------------------------------------
     def answer(self, question: str) -> str:
         """Answer *question*; returns the text shown (useful for tests)."""
-        hits = _search_bundle(self.bundle, question, TOP_K)
+        hits = _search_bundle_at(self.bundle, question, TOP_K, self.as_of)
         fallback = False
         if not hits and self.last_concepts:
             # Follow-up ("tell me more", "uska source kya hai"): the new
@@ -384,11 +421,19 @@ class ChatSession:
             fallback = True
         concepts = [c for _, c in hits]
         if not concepts:
-            msg = (
-                f"I couldn't find anything in '{self.bundle_label}' about that. "
-                "Try /search with broader keywords, /list to browse, or "
-                "/ingest to add the missing material."
-            )
+            if self.as_of is not None:
+                msg = (
+                    f"I couldn't find anything in '{self.bundle_label}' "
+                    f"about that as of {self.as_of.isoformat()}. Try "
+                    "/search with broader keywords, /list to browse, or "
+                    "/ingest to add the missing material."
+                )
+            else:
+                msg = (
+                    f"I couldn't find anything in '{self.bundle_label}' about that. "
+                    "Try /search with broader keywords, /list to browse, or "
+                    "/ingest to add the missing material."
+                )
             self.console.print(f"[yellow]{escape(msg)}[/yellow]")
             return msg
         if fallback:
@@ -706,6 +751,9 @@ def _slash_list(session: ChatSession, arg: str) -> None:
         return
     # Pass every option explicitly: calling a Typer command function
     # directly leaves OptionInfo sentinels in place of unset options.
+    # The session replay instant goes in the ``as_of`` slot (last), so
+    # /list evaluates statuses at the session instant, like the CLI's
+    # ``list --as-of``; ``None`` means now, as before.
     _run_cli(
         session,
         _cmd.list_concepts,
@@ -713,6 +761,7 @@ def _slash_list(session: ChatSession, arg: str) -> None:
         type_filter,
         tier_filter,
         _cmd.ValidateFormat.text,
+        session.as_of,
     )
 
 
@@ -721,8 +770,16 @@ def _slash_read(session: ChatSession, arg: str) -> None:
         return
     from okfsmith.cli import commands as _cmd
 
+    # The session replay instant goes in the ``as_of`` slot (last), so
+    # /read evaluates the temporal badge at the session instant, like
+    # the CLI's ``read --as-of``; ``None`` means now, as before.
     _run_cli(
-        session, _cmd.read, session.bundle_root, arg, _cmd.ValidateFormat.text
+        session,
+        _cmd.read,
+        session.bundle_root,
+        arg,
+        _cmd.ValidateFormat.text,
+        session.as_of,
     )
 
 
@@ -848,6 +905,7 @@ def _slash_search(session: ChatSession, arg: str) -> None:
     tools = BundleTools(session.bundle)
     if (
         as_of is None
+        and session.as_of is None
         and not include_superseded
         and type_filter is None
         and tier_filter is None
@@ -876,15 +934,19 @@ def _slash_search(session: ChatSession, arg: str) -> None:
     # exception" contract), so render it directly. ``max_chunks`` tracks
     # the limit so a raised limit actually shows more results: the tool's
     # evidence budget would otherwise cap the rendered page at 10 items
-    # (its hard cap of 50 still applies above that).
+    # (its hard cap of 50 still applies above that). A per-query ``--as-of``
+    # wins over the session replay instant; without one the session
+    # instant is the default, so a replayed session's /search never
+    # silently answers at now.
     effective_limit = limit if limit is not None else _SEARCH_DEFAULT_LIMIT
+    effective_as_of = as_of if as_of is not None else session.as_of
     session.console.print(
         Markdown(
             tools.search(
                 keywords,
                 limit=effective_limit,
                 include_superseded=include_superseded,
-                as_of=as_of,
+                as_of=effective_as_of,
                 type_filter=type_filter,
                 tier_filter=tier_filter,
                 max_chunks=effective_limit,
@@ -896,16 +958,34 @@ def _slash_search(session: ChatSession, arg: str) -> None:
 def _slash_validate(session: ChatSession, _arg: str) -> None:
     from okfsmith.cli import commands as _cmd
 
+    # The session replay instant goes in the ``as_of`` slot (last), so
+    # /validate evaluates W006 / W020 at the session instant, like the
+    # CLI's ``validate --as-of``; ``None`` means now, as before.
     _run_cli(
-        session, _cmd.validate, session.bundle_root, False, _cmd.ValidateFormat.text
+        session,
+        _cmd.validate,
+        session.bundle_root,
+        False,
+        _cmd.ValidateFormat.text,
+        session.as_of,
     )
 
 
 def _slash_graph(session: ChatSession, _arg: str) -> None:
     from okfsmith.cli import commands as _cmd
 
+    # The session replay instant goes in the ``as_of`` slot (last), so
+    # /graph evaluates node statuses at the session instant, like the
+    # CLI's ``graph --as-of``; ``None`` means now, as before. ``force``
+    # is passed explicitly (its default) so the positional slots line up.
     _run_cli(
-        session, _cmd.graph, session.bundle_root, _cmd.GraphFormat.text, None
+        session,
+        _cmd.graph,
+        session.bundle_root,
+        _cmd.GraphFormat.text,
+        None,
+        False,
+        session.as_of,
     )
 
 
@@ -1031,7 +1111,7 @@ _SLASH_HELP: list[tuple[str, Callable, str]] = [
     ("ingest <path> [--recursive]", _slash_ingest, "Ingest a file or directory into the bundle."),
     ("list [--type TYPE] [--tier TIER]", _slash_list, "List concepts in the bundle, optionally narrowed by type / trust tier."),
     ("read <id>", _slash_read, "Print a concept in full."),
-    ("search <query> [--as-of DATE] [--include-superseded] [--type TYPE] [--tier TIER] [--limit N]", _slash_search, "Keyword-search concepts, optionally replayed at a past/future instant, narrowed by type / trust tier, or capped at N results (--limit / -n)."),
+    ("search <query> [--as-of DATE] [--include-superseded] [--type TYPE] [--tier TIER] [--limit N]", _slash_search, "Keyword-search concepts, optionally replayed at a past/future instant, narrowed by type / trust tier, or capped at N results (--limit / -n). A --as-of here wins over the session replay instant; without one, /search uses it."),
     ("validate", _slash_validate, "Validate the bundle against OKF v0.2."),
     ("graph", _slash_graph, "Show the concept link graph."),
     ("doctor", _slash_doctor, "Check the environment."),
@@ -1065,6 +1145,7 @@ def run_chat(
     provider: str | None = None,
     api_base: str | None = None,
     api_key: str | None = None,
+    as_of: datetime | None = None,
 ) -> int:
     """Load the bundle, resolve the backend, and run the REPL."""
     bundle = Bundle.load(bundle_root)
@@ -1081,5 +1162,6 @@ def run_chat(
         provider=provider,
         api_base=api_base,
         api_key=api_key,
+        as_of=as_of,
     )
     return session.run()
