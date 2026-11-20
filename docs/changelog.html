@@ -97,6 +97,11 @@
       <details class="toc-mobile">
         <summary>On this page</summary>
         <ul class="toc-list">
+<li><a href="#v0-34-0">[0.34.0] — 2026-11-20</a>
+<ul class="toc-sub">
+<li><a href="#v0-34-0-added">Added</a></li>
+</ul>
+</li>
 <li><a href="#v0-33-0">[0.33.0] — 2026-11-19</a>
 <ul class="toc-sub">
 <li><a href="#v0-33-0-added">Added</a></li>
@@ -461,7 +466,13 @@
         </button>
       </div>
       <div class="prose">
-        <h2 id="v0-33-0">[0.33.0] — 2026-11-19</h2>
+        <h2 id="v0-34-0">[0.34.0] — 2026-11-20</h2>
+<h3 id="v0-34-0-added">Added</h3>
+<ul>
+<li><strong>MCP <code>traverse</code> and <code>provenance</code> tools gain <code>as_of</code> temporal replay — the last MCP read tools to get it:</strong> <code>search</code> and <code>list</code> could already replay at a past/future instant (0.30.0), <code>get</code> followed (0.31.0), and the CLI's <code>graph --as-of</code> (0.28.0) and the dashboard graph's <code>?as_of=</code> (0.29.0) could too — but the MCP <code>traverse</code> tool hid superseded concepts, sorted by currency, and annotated temporal notes all at <em>now</em>, and <code>provenance</code> stamped its temporal status line at <em>now</em> as well, so an agent walking the link graph or tracing a concept's provenance at a past date got the present's partitioning. Both tools now accept <code>as_of</code> (ISO-8601 date or datetime) as their last parameter and evaluate validity windows and supersession chains at that instant; the replay instant is labeled ("_Replayed as of …._") so a replay never reads as the present. A blank <code>as_of</code> is ignored (evaluates at now, as before); an unparseable one returns a clean error, never an exception — the same wording <code>list</code> / <code>search</code> / <code>get</code> already return. Pinned by tests in <code>tests/test_mcp.py</code> (<code>TestTraverseAsOf</code>, <code>TestProvenanceAsOf</code>).
+</li>
+</ul>
+<h2 id="v0-33-0">[0.33.0] — 2026-11-19</h2>
 <h3 id="v0-33-0-added">Added</h3>
 <ul>
 <li><strong><code>chat</code> gains <code>--as-of</code> temporal replay — the last interactive surface to get it:</strong> <code>search</code>, <code>list</code>, <code>read</code>, <code>graph</code>, and <code>eval</code> could already replay at a past/future instant (0.28.0), the dashboard read endpoints could too (0.29.0), the MCP <code>list</code> / <code>get</code> tools followed (0.30.0 / 0.31.0), <code>validate</code> followed (0.32.0), and the dashboard chat session already accepted <code>as_of</code> — but the interactive CLI chat answered every question at <em>now</em>: its <code>/search</code> slash command had a per-query <code>--as-of</code>, yet the Q&amp;A retrieval itself, <code>/list</code>, <code>/read</code>, <code>/validate</code>, and <code>/graph</code> had no session replay at all, so "what did the bundle say about refunds in October 2026?" had no answer in a chat session. <code>okfsmith chat ./kb --as-of 2026-10-01</code> now replays the whole session at that instant: answers, <code>/list</code>, <code>/read</code>, <code>/search</code> when it carries no <code>--as-of</code> of its own, <code>/validate</code>, and <code>/graph</code> evaluate validity windows and supersession chains at that instant instead of now (a per-query <code>--as-of</code> still wins over the session instant). The banner labels the replay instant ("Replaying as of …") and the no-match message does too, so an answer never reads as the present. A garbage <code>--as-of</code> is a usage error (exit 2), like the other replay flags. The session engine gains the same replay as <code>ChatSession(as_of=...)</code> / <code>run_chat(as_of=...)</code>, so programmatic callers can replay too without touching the CLI. Pinned by tests in <code>tests/test_chat_asof_replay.py</code>.
@@ -1125,6 +1136,11 @@
     <aside class="toc" aria-label="On this page">
       <p class="toc-title">On this page</p>
       <ul class="toc-list">
+<li><a href="#v0-34-0">[0.34.0] — 2026-11-20</a>
+<ul class="toc-sub">
+<li><a href="#v0-34-0-added">Added</a></li>
+</ul>
+</li>
 <li><a href="#v0-33-0">[0.33.0] — 2026-11-19</a>
 <ul class="toc-sub">
 <li><a href="#v0-33-0-added">Added</a></li>

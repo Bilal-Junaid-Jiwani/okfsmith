@@ -1998,6 +1998,7 @@ class BundleTools:
         max_chunks: int = 10,
         max_tokens: int | None = None,
         continuation_token: str | None = None,
+        as_of: str | None = None,
     ) -> str:
         """Walk the concept link graph outward from one concept (breadth-first).
 
@@ -2012,7 +2013,14 @@ class BundleTools:
         never traversed through); pass `include_superseded=True` to reveal
         them. Within each depth level, current concepts sort before
         expired/not-yet-valid ones. The walk is cycle-safe (a visited set)
-        and deterministic (links expand in target-id order).
+        and deterministic (links expand in target-id order). `as_of`
+        (ISO-8601 date or datetime, the MCP analogue of the CLI's
+        ``--as-of`` flag and the dashboard graph's ``?as_of=`` parameter)
+        replays validity and supersession at that instant — e.g. ask which
+        concepts a policy linked to before it was superseded; an unparseable
+        value returns a clean error, never an exception, and a blank one is
+        ignored (evaluates at now, as before). The replay instant is labeled
+        on a note line, like the CLI's JSON envelope `as_of`.
 
         Evidence budgets: `max_chunks` caps the concepts per response
         (default 10, hard cap 50 — the `## Depth N` headers and the result
@@ -2032,10 +2040,21 @@ class BundleTools:
                 "Use `list` to see all concept ids or `search` to find one "
                 "by keyword."
             )
+        moment: datetime | None = None
+        if as_of is not None and str(as_of).strip():
+            moment = _temporal.parse_temporal(as_of)
+            if moment is None:
+                return (
+                    f"Error: `as_of` {as_of!r} is not an ISO-8601 date "
+                    "or datetime — pass e.g. `2025-06-01` or "
+                    "`2025-06-01T12:00:00Z`."
+                )
         requested_depth = _coerce_limit(depth, 1)
         max_depth = min(requested_depth, _MAX_TRAVERSE_DEPTH)
         filt = str(relation_filter).strip().lower() if relation_filter else ""
-        now = _temporal.utcnow()
+        # The currency partitioning is evaluated at the replay instant when
+        # as_of is given, never at now (0.34.0).
+        now = moment if moment is not None else _temporal.utcnow()
 
         visited = {concept.id}
         levels: list[list[tuple[str, str, Concept]]] = []
@@ -2078,6 +2097,10 @@ class BundleTools:
             frontier = next_frontier
 
         notes: list[str] = []
+        if moment is not None:
+            # Honest replay label: the instant the temporal partitioning was
+            # evaluated at, matching the CLI's JSON envelope `as_of`.
+            notes.append(f"_Replayed as of {moment.isoformat()}._")
         start_note = self._temporal_note(concept, now)
         if start_note:
             notes.append(f"_Note: **{concept.id}** is {start_note}._")
@@ -2182,6 +2205,7 @@ class BundleTools:
         max_chunks: int = 50,
         max_tokens: int | None = None,
         continuation_token: str | None = None,
+        as_of: str | None = None,
     ) -> str:
         """Trace a concept's provenance: every claim back to its source.
 
@@ -2195,7 +2219,13 @@ class BundleTools:
         echoed. Malformed `sources` frontmatter (scalars, wrong types)
         degrades to best-effort rendering; a missing or corrupt sync state
         degrades to "no record" notes — this never crashes and never
-        raises.
+        raises. The concept's temporal status line is evaluated at the
+        `as_of` replay instant when one is given (ISO-8601 date or
+        datetime, the MCP analogue of the CLI's ``--as-of`` flag), so an
+        agent asking what a concept's status was on a past date gets that
+        date's answer, labeled `_Replayed as of …._`; an unparseable value
+        returns a clean error, never an exception, and a blank one is
+        ignored (evaluates at now, as before).
 
         Evidence budgets: `max_chunks` caps the rows per response (default
         50, hard cap 50 — section headers sit outside the budget),
@@ -2215,6 +2245,15 @@ class BundleTools:
                 "Use `list` to see all concept ids or `search` to find one "
                 "by keyword."
             )
+        moment: datetime | None = None
+        if as_of is not None and str(as_of).strip():
+            moment = _temporal.parse_temporal(as_of)
+            if moment is None:
+                return (
+                    f"Error: `as_of` {as_of!r} is not an ISO-8601 date "
+                    "or datetime — pass e.g. `2025-06-01` or "
+                    "`2025-06-01T12:00:00Z`."
+                )
         ingested, ingested_skipped = self._ingested_sources(concept.id)
         sources = _coerce_sources(concept.frontmatter)
         definitions = _footnote_definitions(concept.body)
@@ -2230,9 +2269,15 @@ class BundleTools:
             _concept_label(concept),
             f"_Path: `{rel_path}` · body sha256: `{_concept_sha256(concept)[:16]}…`_",
         ]
-        temporal_note = self._temporal_note(concept, _temporal.utcnow())
+        # The temporal status is evaluated at the replay instant when as_of
+        # is given, never at now (0.34.0).
+        now = moment if moment is not None else _temporal.utcnow()
+        temporal_note = self._temporal_note(concept, now)
         if temporal_note:
             notes.append(f"_Temporal status: {temporal_note}._")
+        if moment is not None:
+            # Honest replay label, matching the CLI's JSON envelope `as_of`.
+            notes.append(f"_Replayed as of {moment.isoformat()}._")
 
         source_rows = [f"- {_render_source_entry(entry)}" for entry in sources]
         ingested_header = f"## Ingested source records ({len(ingested)})"

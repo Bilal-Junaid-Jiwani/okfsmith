@@ -23,6 +23,8 @@ pip install "okfsmith[mcp]"
 | `search(query, limit=10)` | Keyword search over id / title / description / tags / body, ranked by field; a non-current hit carries its temporal status on its row, evaluated at the `as_of` replay instant when one is given |
 | `get(concept_id)` | Full concept: YAML frontmatter + markdown body; a non-current concept carries a note line under the document (e.g. `_Note: **policy-v1** is superseded by `policy-v2`._`), evaluated at the `as_of` replay instant when one is given |
 | `neighbors(concept_id)` | Outgoing links + incoming backlinks, with the link text as the relation note |
+| `traverse(concept_id, depth=1)` | Breadth-first walk of the link graph from one concept; superseded concepts hidden by default, current concepts sort first; optional `as_of` (ISO-8601 date/datetime) replays validity and supersession at that instant, labeled in the output |
+| `provenance(concept_id)` | Trace a concept's sources, ingested-source records, and footnote references; the concept's temporal status line is evaluated at the optional `as_of` replay instant when one is given, labeled in the output |
 
 Tool outputs are compact markdown (id, type, trust tier, title, one-line
 description), designed for progressive disclosure: `index` → `search`/`list`

@@ -5,6 +5,28 @@ follow SemVer.
 
 ## [Unreleased]
 
+## [0.34.0] - 2026-11-20
+
+### Added
+
+- **MCP `traverse` and `provenance` tools gain `as_of` temporal replay —
+  the last MCP read tools to get it:** `search` and `list` could already
+  replay at a past/future instant (0.30.0), `get` followed (0.31.0), and
+  the CLI's `graph --as-of` (0.28.0) and the dashboard graph's `?as_of=`
+  (0.29.0) could too — but the MCP `traverse` tool hid superseded
+  concepts, sorted by currency, and annotated temporal notes all at
+  *now*, and `provenance` stamped its temporal status line at *now* as
+  well, so an agent walking the link graph or tracing a concept's
+  provenance at a past date got the present's partitioning. Both tools
+  now accept `as_of` (ISO-8601 date or datetime) as their last parameter
+  and evaluate validity windows and supersession chains at that instant;
+  the replay instant is labeled ("_Replayed as of …._") so a replay
+  never reads as the present. A blank `as_of` is ignored (evaluates at
+  now, as before); an unparseable one returns a clean error, never an
+  exception — the same wording `list` / `search` / `get` already return.
+  Pinned by tests in `tests/test_mcp.py` (`TestTraverseAsOf`,
+  `TestProvenanceAsOf`).
+
 ## [0.33.0] - 2026-11-19
 
 ### Added

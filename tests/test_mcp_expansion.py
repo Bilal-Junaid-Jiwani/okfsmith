@@ -520,6 +520,8 @@ def test_old_signatures_unchanged() -> None:
     assert params(BundleTools.search)[1:3] == ["query", "limit"]
     assert params(BundleTools.get)[1:2] == ["concept_id"]
     assert params(BundleTools.neighbors)[1:2] == ["concept_id"]
+    assert params(BundleTools.traverse)[1:2] == ["concept_id"]
+    assert params(BundleTools.provenance)[1:2] == ["concept_id"]
 
 
 def test_old_positional_calls_still_work() -> None:
