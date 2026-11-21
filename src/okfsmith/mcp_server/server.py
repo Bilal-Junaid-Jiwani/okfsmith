@@ -3,8 +3,8 @@
 The bundle is loaded **once** at server startup; every read tool call
 afterwards reads from the in-memory :class:`~okfsmith.core.bundle.Bundle`.
 
-Eight tools are read-only (``index``, ``list``, ``search``, ``get``,
-``neighbors``, ``traverse``, ``provenance``, ``diff``). Four more provide
+Nine tools are read-only (``index``, ``list``, ``search``, ``get``,
+``neighbors``, ``traverse``, ``provenance``, ``diff``, ``validate``). Four more provide
 **governed write-back**: ``preview_write_concept`` (side-effect-free dry
 run), ``write_concept`` (create), ``update_concept`` (patch, with
 human-reviewed trust protection), and ``audit_log`` (read the append-only
@@ -1241,14 +1241,14 @@ def _verifier_names(frontmatter: Mapping) -> list[str]:
 
 
 class BundleTools:
-    """The twelve MCP tool functions, bound to one loaded bundle.
+    """The thirteen MCP tool functions, bound to one loaded bundle.
 
     Instances are created by :func:`build_server`; each method is registered
     as an MCP tool. They are also directly callable (as the tests do), with
     no MCP transport required.
 
-    Eight tools are read-only (``index``, ``list``, ``search``, ``get``,
-    ``neighbors``, ``traverse``, ``provenance``, ``diff``) and four provide
+    Nine tools are read-only (``index``, ``list``, ``search``, ``get``,
+    ``neighbors``, ``traverse``, ``provenance``, ``diff``, ``validate``) and four provide
     governed write-back (``preview_write_concept``, ``write_concept``,
     ``update_concept``, ``audit_log``) — see each method's docstring for
     the governance contract.
@@ -2442,6 +2442,124 @@ class BundleTools:
             continuation_token=continuation_token,
         )
 
+    # -- validate ------------------------------------------------------------
+    def validate(
+        self,
+        strict: bool = False,
+        as_of: str | None = None,
+        max_chunks: int = 50,
+        max_tokens: int | None = None,
+        continuation_token: str | None = None,
+    ) -> str:
+        """Validate the bundle against OKF v0.2 (E001–E004 / W001–W020).
+
+        The MCP analogue of the ``okfsmith validate`` CLI command — until
+        now an agent connected over MCP could read the bundle but could
+        not check it: conformance (missing frontmatter, a non-mapping
+        frontmatter, a bad ``type``, a misplaced index) and the advisory
+        warnings (broken links, unreachable concepts, missing recommended
+        fields, stale content) were CLI-only, so an agent had to shell out
+        to ask \"is this bundle conformant?\" The tool runs the same
+        :func:`okfsmith.validate.check` the CLI runs, over the same
+        on-disk bundle, so the verdict never disagrees with the CLI's.
+
+        `strict` treats warnings as failures, like the CLI's ``--strict``
+        flag. `as_of` (ISO-8601 date or datetime, the MCP analogue of the
+        CLI's ``--as-of`` flag) replays the two clock-dependent warnings —
+        W006 (content stale: ``stale_after`` has passed) and W020
+        (``last_verified`` lies in the future) — at that instant instead
+        of now, so an audit can ask \"was this bundle conformant, and
+        stale, in June 2025?\"; every other rule is time-independent, so a
+        replay changes only those two codes. The replay instant is labeled
+        in the output, like the CLI's ``Validated as of …`` line. A blank
+        `as_of` is ignored (evaluates at now, as before); an unparseable
+        one returns a clean error, never an exception — the same wording
+        `list` / `search` / `get` already return.
+
+        Evidence budgets: `max_chunks` caps the findings per response
+        (default 50, hard cap 50 — the status line, the section headers,
+        and the concept-count note sit outside the budget), `max_tokens`
+        is an approximate output budget (`None`/negative = unbounded;
+        `0` = no content, marker only), and `continuation_token` pages
+        through long finding lists. Read-only: nothing here modifies the
+        bundle.
+        """
+        self._ensure_fresh_bundle()
+        moment: datetime | None = None
+        if as_of is not None and str(as_of).strip():
+            moment = _temporal.parse_temporal(as_of)
+            if moment is None:
+                return (
+                    f"Error: `as_of` {as_of!r} is not an ISO-8601 date "
+                    "or datetime — pass e.g. `2025-06-01` or "
+                    "`2025-06-01T12:00:00Z`."
+                )
+        strict = _coerce_bool(strict)
+        # Lazy import: keep the module import graph identical to the
+        # write-back path's lazy imports of the validator.
+        from okfsmith.validate import check
+
+        report = check(bundle=self.bundle, as_of=moment)
+        errors = [finding.as_dict() for finding in report.errors]
+        warnings = [finding.as_dict() for finding in report.warnings]
+        n_concepts = sum(1 for _ in self.bundle.iter_concepts())
+
+        if errors:
+            status = (
+                f"INVALID: {len(errors)} error(s), "
+                f"{len(warnings)} warning(s)."
+            )
+        elif warnings and strict:
+            status = (
+                f"INVALID under --strict: {len(warnings)} warning(s) "
+                "treated as failures."
+            )
+        elif warnings:
+            status = f"Conformant with {len(warnings)} warning(s)."
+        else:
+            status = "Conformant: no errors, no warnings."
+
+        def _row(item: dict) -> str:
+            return (
+                f"- **{item.get('code', '?')}** — "
+                f"`{item.get('file', '?')}` — "
+                f"{item.get('message', '')}"
+            )
+
+        errors_header = f"## Errors ({len(errors)})"
+        warnings_header = f"## Warnings ({len(warnings)})"
+        error_rows = [_row(item) for item in errors]
+        warning_rows = [_row(item) for item in warnings]
+        whole_units = [
+            errors_header,
+            *(error_rows or ["_none_"]),
+            warnings_header,
+            *(warning_rows or ["_none_"]),
+        ]
+        # The status line is a note, not a section item: notes sit
+        # outside the evidence budget and appear on page 1 of a paged
+        # response, so the verdict is never dropped at a page boundary.
+        notes = [status, f"_{n_concepts} concept(s) checked._"]
+        if moment is not None:
+            # Honest replay label: the instant the clock-dependent
+            # warnings were evaluated at, matching the CLI's
+            # "Validated as of …" line.
+            notes.append(f"_Validated as of {moment.isoformat()}._")
+        title = "Bundle validation"
+        return self._render_paged(
+            title=title,
+            whole=f"# {title}\n\n" + "\n".join(notes) + "\n\n" + "\n".join(whole_units),
+            sections=[
+                (errors_header, error_rows),
+                (warnings_header, warning_rows),
+            ],
+            notes=notes,
+            max_chunks=max_chunks,
+            chunk_default=50,
+            max_tokens=max_tokens,
+            continuation_token=continuation_token,
+        )
+
     def _diff_against_sync_state(
         self, max_chunks: Any, max_tokens: Any, continuation_token: Any
     ) -> str:
@@ -3405,7 +3523,7 @@ class BundleTools:
 #: Tool names that never mutate the bundle.
 _READ_TOOL_NAMES = (
     "index", "list", "search", "get",
-    "neighbors", "traverse", "provenance", "diff",
+    "neighbors", "traverse", "provenance", "diff", "validate",
 )
 
 #: Tool names that can mutate the bundle (gated by ``allow_writes``).
@@ -3433,9 +3551,9 @@ def build_server(
     :class:`NotADirectoryError` if *bundle_path* is not a directory.
 
     Security defaults: the server is **read-only** unless
-    ``allow_writes=True`` — only the eight read-only tools (``index``,
+    ``allow_writes=True`` — only the nine read-only tools (``index``,
     ``list``, ``search``, ``get``, ``neighbors``, ``traverse``,
-    ``provenance``, ``diff``) are registered. Pass ``allow_writes=True`` to
+    ``provenance``, ``diff``, ``validate``) are registered. Pass ``allow_writes=True`` to
     also register the four governed write-back tools
     (``preview_write_concept``, ``write_concept``, ``update_concept``,
     ``audit_log``). Even with writes allowed, ``update_concept`` rejects an

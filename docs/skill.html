@@ -174,7 +174,7 @@ python3 scripts/validate.py ./kb
 
 # 4. mcp — serve the bundle to other agents over stdio
 okfsmith mcp ./kb
-# tools exposed: search, get, list, neighbors, index, traverse, provenance, diff
+# tools exposed: search, get, list, neighbors, index, traverse, provenance, diff, validate
 </code></pre>
 <p>Zip archives and Notion exports ingest the same way — e.g. <code>okfsmith ingest ./kb ./exports/notion-export.zip --no-llm</code>. Add <code>--recursive</code> when a source is a directory with subdirectories.</p>
 <p>Newly ingested concepts land as <code>unverified</code>; extraction Pass 2 promotes them to <code>machine-confirmed</code>; a human stamping <code>verified:</code> promotes them to <code>human-reviewed</code>.</p>

@@ -556,6 +556,7 @@ def test_build_server_registers_all_tools() -> None:
         "traverse",
         "provenance",
         "diff",
+        "validate",
         "preview_write_concept",
         "write_concept",
         "update_concept",

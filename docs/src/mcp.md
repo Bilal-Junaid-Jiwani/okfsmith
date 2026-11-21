@@ -1,14 +1,14 @@
 ---
 title: MCP server
 eyebrow: MCP
-description: Serve a knowledge bundle to AI agents over the Model Context Protocol — eight read tools plus four governed write-back tools, stdio/SSE/streamable-HTTP transports, client config examples.
+description: Serve a knowledge bundle to AI agents over the Model Context Protocol — nine read tools plus four governed write-back tools, stdio/SSE/streamable-HTTP transports, client config examples.
 ---
 
 ## MCP server
 
 `okfsmith mcp` exposes your knowledge bundle as an **MCP (Model Context
 Protocol) server** so AI agents — Claude Code, Claude Desktop, Cursor, Copilot,
-Gemini — can search and read your bundle directly. Eight of the twelve tools
+Gemini — can search and read your bundle directly. Nine of the thirteen tools
 are read-only. The other four are *governed write-back* tools: an agent can
 propose and write concepts, but every write lands at the `unverified` trust
 tier, is stamped with provenance, must pass the bundle validator, and is
@@ -30,7 +30,7 @@ okfsmith mcp ./kb
 ```
 
 The server starts on **stdio** (the standard transport: your MCP client
-launches it as a subprocess) and exposes twelve tools. Pick one:
+launches it as a subprocess) and exposes thirteen tools. Pick one:
 
 ```bash
 okfsmith mcp ./kb --transport stdio            # default
@@ -38,7 +38,7 @@ okfsmith mcp ./kb --transport sse              # Server-Sent Events
 okfsmith mcp ./kb --transport streamable-http  # streamable HTTP
 ```
 
-## The twelve tools
+## The thirteen tools
 
 Tool outputs are compact markdown (not giant JSON) — designed as an agent's
 reading UI. The intended flow is progressive disclosure: `index` → `search` →
@@ -56,6 +56,7 @@ reading UI. The intended flow is progressive disclosure: `index` → `search` �
 | `traverse` | Breadth-first neighborhood expansion over markdown links (depth ≤ 3, cycle-safe), with an optional `relation_filter` and currency-aware ordering — superseded concepts hidden by default. Optional `as_of` (ISO-8601 date/datetime) replays validity and supersession at that instant — the MCP analogue of the CLI's `--as-of` flag — and the replay instant is labeled in the output. |
 | `provenance` | Trace a concept's provenance chain: `sources[]` frontmatter → footnote references → the ingested-source manifest (`sync-state.json`) with source file and digest. The concept's temporal status line is evaluated at the optional `as_of` replay instant when one is given, and the replay instant is labeled. |
 | `diff` | Diff the bundle against another bundle directory (`against=`) or the `sync-state.json` snapshot: added / removed / changed concepts with body SHA-256. |
+| `validate` | Validate the bundle against OKF v0.2 (E001–E004 / W001–W020) — the MCP analogue of the `okfsmith validate` CLI command: conformance plus advisory warnings, with the concept count and the verdict up top. Optional `strict` treats warnings as failures, like the CLI's `--strict` flag. Optional `as_of` (ISO-8601 date/datetime) replays the two clock-dependent warnings — W006 (content stale) and W020 (`last_verified` in the future) — at that instant instead of now, and labels the replay instant (`_Validated as of …._`). |
 
 ### Governed write-back tools
 
@@ -142,8 +143,8 @@ Add okfsmith as an MCP server in your Claude Desktop config file
 }
 ```
 
-Restart Claude Desktop and the twelve tools (`index`, `list`, `search`, `get`,
-`neighbors`, `traverse`, `provenance`, `diff`, `preview_write_concept`,
+Restart Claude Desktop and the thirteen tools (`index`, `list`, `search`, `get`,
+`neighbors`, `traverse`, `provenance`, `diff`, `validate`, `preview_write_concept`,
 `write_concept`, `update_concept`, `audit_log`) appear in its tool list.
 
 <details>
@@ -163,7 +164,7 @@ Restart Claude Desktop and the twelve tools (`index`, `list`, `search`, `get`,
 </details>
 
 > [!TIP]
-> The eight read tools cannot modify your bundle. The four write-back tools
+> The nine read tools cannot modify your bundle. The four write-back tools
 > can create and update concepts, but only under governance: unverified
 > tier, validator gate, provenance stamp, audit log, and no silent overwrite
 > of human-reviewed work. Point the server at a bundle you care about only

@@ -158,7 +158,7 @@ def test_index_returns_root_index(tools: BundleTools) -> None:
 def test_build_server_registers_tools() -> None:
     import asyncio
 
-    # Security default: read-only — only the eight read tools registered.
+    # Security default: read-only — only the nine read tools registered.
     server = build_server(FIXTURE_BUNDLE)
     registered = asyncio.run(server._list_tools())
     tool_names = {t.name for t in registered}
@@ -171,6 +171,7 @@ def test_build_server_registers_tools() -> None:
         "traverse",
         "provenance",
         "diff",
+        "validate",
     }
     # docstrings are the agent's UI — every tool must carry one
     for tool in registered:
@@ -685,6 +686,86 @@ class TestProvenanceAsOf:
         out = temporal_tools.provenance("policy-v1", as_of="  ")
         assert "Temporal status: superseded by `policy-v2`" in out
         assert "Replayed as of" not in out
+
+
+class TestValidate:
+    """MCP ``validate`` tool (0.35.0).
+
+    The MCP analogue of the ``okfsmith validate`` CLI command: until now
+    an agent connected over MCP could read the bundle but could not check
+    it — conformance and the advisory warnings were CLI-only. The tool
+    runs the same ``okfsmith.validate.check`` the CLI runs, so the verdict
+    never disagrees with the CLI's; ``strict`` mirrors ``--strict`` and
+    ``as_of`` mirrors ``--as-of`` (0.32.0).
+    """
+
+    def test_conformant_bundle(self, tools: BundleTools) -> None:
+        out = tools.validate()
+        assert "Conformant: no errors, no warnings." in out
+        assert "_4 concept(s) checked._" in out
+        assert "## Errors (0)" in out
+        assert "## Warnings (0)" in out
+        assert "Validated as of" not in out
+
+    @pytest.fixture()
+    def stale_tools(self, tmp_path: Path) -> BundleTools:
+        bundle = Bundle(tmp_path)
+        bundle.write_concept(
+            "policy-v2",
+            {
+                "title": "Refund Policy v2",
+                "type": "policy",
+                "stale_after": "2026-01-01T00:00:00+00:00",
+            },
+            "The new refund policy allows returns within 30 days of purchase.",
+        )
+        return BundleTools(bundle)
+
+    def test_warnings_listed_and_strict_fails(self, stale_tools: BundleTools) -> None:
+        out = stale_tools.validate()
+        assert "Conformant with" in out
+        assert "**W006**" in out
+        assert "policy-v2.md" in out
+        assert "content is stale" in out
+        strict_out = stale_tools.validate(strict=True)
+        assert "INVALID under --strict" in strict_out
+        assert "**W006**" in strict_out
+
+    def test_as_of_replays_w006_staleness(self, stale_tools: BundleTools) -> None:
+        # At now (2026-11-21) the stale_after (2026-01-01) has passed.
+        assert "**W006**" in stale_tools.validate()
+        # Replayed to June 2025, before stale_after, the same memo is fresh.
+        out = stale_tools.validate(as_of="2025-06-01")
+        assert "**W006**" not in out
+        assert "Validated as of 2025-06-01" in out
+
+    def test_as_of_invalid_value_returns_error_not_exception(
+        self, stale_tools: BundleTools
+    ) -> None:
+        # the tools' "never an exception" contract covers as_of too
+        out = stale_tools.validate(as_of="not-a-date")
+        assert out.startswith("Error:")
+        assert "ISO-8601" in out
+
+    def test_as_of_blank_is_ignored(self, stale_tools: BundleTools) -> None:
+        out = stale_tools.validate(as_of="  ")
+        assert "**W006**" in out
+        assert "Validated as of" not in out
+
+    @pytest.fixture()
+    def broken_tools(self, tmp_path: Path) -> BundleTools:
+        (tmp_path / "index.md").write_text("# Index\n", encoding="utf-8")
+        (tmp_path / "bad.md").write_text(
+            "No frontmatter here.\n", encoding="utf-8"
+        )
+        return BundleTools(Bundle.load(tmp_path))
+
+    def test_errors_reported_as_invalid(self, broken_tools: BundleTools) -> None:
+        out = broken_tools.validate()
+        assert out.startswith("# Bundle validation")
+        assert "INVALID: 1 error(s)" in out
+        assert "**E001**" in out
+        assert "`bad.md`" in out
 
 
 class TestSearchListTemporalStatus:

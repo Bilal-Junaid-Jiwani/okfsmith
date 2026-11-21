@@ -25,6 +25,7 @@ pip install "okfsmith[mcp]"
 | `neighbors(concept_id)` | Outgoing links + incoming backlinks, with the link text as the relation note |
 | `traverse(concept_id, depth=1)` | Breadth-first walk of the link graph from one concept; superseded concepts hidden by default, current concepts sort first; optional `as_of` (ISO-8601 date/datetime) replays validity and supersession at that instant, labeled in the output |
 | `provenance(concept_id)` | Trace a concept's sources, ingested-source records, and footnote references; the concept's temporal status line is evaluated at the optional `as_of` replay instant when one is given, labeled in the output |
+| `validate(strict=False, as_of=None)` | Validate the bundle against OKF v0.2 (E001–E004 / W001–W020) — the MCP analogue of `okfsmith validate`: conformance plus advisory warnings, with the verdict up top; optional `strict` treats warnings as failures, and optional `as_of` (ISO-8601 date/datetime) replays the clock-dependent warnings W006/W020 at that instant, labeled in the output |
 
 Tool outputs are compact markdown (id, type, trust tier, title, one-line
 description), designed for progressive disclosure: `index` → `search`/`list`

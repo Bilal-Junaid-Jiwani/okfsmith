@@ -5,6 +5,36 @@ follow SemVer.
 
 ## [Unreleased]
 
+## [0.35.0] - 2026-11-21
+
+### Added
+
+- **New MCP `validate` tool — the MCP analogue of `okfsmith validate`:**
+  `index`, `list`, `search`, `get`, `neighbors`, `traverse`, `provenance`,
+  and `diff` could all read the bundle over MCP, but an agent connected
+  over MCP could not check it — conformance (E001–E004) and the advisory
+  warnings (W001–W020) were CLI-only, so an agent had to shell out to ask
+  "is this bundle conformant?" The new read-only `validate` tool runs the
+  same `okfsmith.validate.check` the CLI runs, over the same on-disk
+  bundle, so the verdict never disagrees with the CLI's: a status line up
+  top ("Conformant: no errors, no warnings." / "Conformant with N
+  warning(s)." / "INVALID: …"), then `## Errors` / `## Warnings` sections
+  with one row per finding (`code` — `file` — message), the concept count,
+  and evidence-budget paging (`max_chunks` / `max_tokens` /
+  `continuation_token`) like the other read tools. `strict` treats warnings
+  as failures, like the CLI's `--strict` flag, and `as_of` (ISO-8601 date or
+  datetime) replays the two clock-dependent warnings — W006 (content stale:
+  `stale_after` has passed) and W020 (`last_verified` lies in the future) —
+  at that instant instead of now, labeled "_Validated as of …._" like the
+  CLI's line, so an audit can ask "was this bundle conformant, and stale,
+  in June 2025?" A blank `as_of` is ignored (evaluates at now, as before);
+  an unparseable one returns a clean error, never an exception — the same
+  wording `list` / `search` / `get` already return. Pinned by tests in
+  `tests/test_mcp.py` (`TestValidate`). Docs: `mcp.md`, `cli.md`,
+  `temporality.md`, `skill.md`, and the MCP server README list the
+  thirteenth tool (nine read tools now); docs site rebuilt; website and
+  man-page version strings move to 0.35.0.
+
 ## [0.34.0] - 2026-11-20
 
 ### Added
