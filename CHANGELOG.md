@@ -5,6 +5,33 @@ follow SemVer.
 
 ## [Unreleased]
 
+## [0.36.0] - 2026-11-22
+
+### Added
+
+- **MCP `neighbors` gains `as_of` temporal replay:** `list`, `search`,
+  `get`, `traverse`, `provenance`, and `validate` could all replay
+  validity and supersession at a past or future instant, but `neighbors`
+  — the tool that shows a concept's outgoing links and incoming
+  backlinks — evaluated every temporal status at now, so an agent asking
+  "which concepts did this policy link to before it was superseded?" got
+  the present's answers on every row: a link to a superseded concept read
+  exactly like a link to a current one. The new optional `as_of`
+  (ISO-8601 date or datetime, last in the signature so historic
+  positional calls keep working) replays each row's temporal status at
+  that instant instead of now — an outgoing target or incoming source
+  that is non-current at the instant carries its status on its row
+  (`_(superseded by `policy-v2`)_` / `_(expired)_` / `_(not yet valid)_`),
+  the center concept carries a note line when it is non-current
+  (`_Note: **policy-v1** is superseded by `policy-v2`._`), and the replay
+  instant is labeled (`_Replayed as of …._`) like the other read tools.
+  A blank `as_of` is ignored (evaluates at now, as before); an
+  unparseable one returns a clean error, never an exception — the same
+  wording the other tools already return. Pinned by tests in
+  `tests/test_mcp.py` (`TestNeighborsAsOf`). Docs: `mcp.md`,
+  `temporality.md`, and the MCP server README describe the replay;
+  docs site rebuilt; website and man-page version strings move to 0.36.0.
+
 ## [0.35.0] - 2026-11-21
 
 ### Added

@@ -97,6 +97,11 @@
       <details class="toc-mobile">
         <summary>On this page</summary>
         <ul class="toc-list">
+<li><a href="#v0-36-0">[0.36.0] — 2026-11-22</a>
+<ul class="toc-sub">
+<li><a href="#v0-36-0-added">Added</a></li>
+</ul>
+</li>
 <li><a href="#v0-35-0">[0.35.0] — 2026-11-21</a>
 <ul class="toc-sub">
 <li><a href="#v0-35-0-added">Added</a></li>
@@ -471,7 +476,13 @@
         </button>
       </div>
       <div class="prose">
-        <h2 id="v0-35-0">[0.35.0] — 2026-11-21</h2>
+        <h2 id="v0-36-0">[0.36.0] — 2026-11-22</h2>
+<h3 id="v0-36-0-added">Added</h3>
+<ul>
+<li><strong>MCP <code>neighbors</code> gains <code>as_of</code> temporal replay:</strong> <code>list</code>, <code>search</code>, <code>get</code>, <code>traverse</code>, <code>provenance</code>, and <code>validate</code> could all replay validity and supersession at a past or future instant, but <code>neighbors</code> — the tool that shows a concept's outgoing links and incoming backlinks — evaluated every temporal status at now, so an agent asking "which concepts did this policy link to before it was superseded?" got the present's answers on every row: a link to a superseded concept read exactly like a link to a current one. The new optional <code>as_of</code> (ISO-8601 date or datetime, last in the signature so historic positional calls keep working) replays each row's temporal status at that instant instead of now — an outgoing target or incoming source that is non-current at the instant carries its status on its row (<code>_(superseded by </code>policy-v2<code>)_</code> / <code>_(expired)_</code> / <code>_(not yet valid)_</code>), the center concept carries a note line when it is non-current (<code>_Note: **policy-v1** is superseded by </code>policy-v2<code>._</code>), and the replay instant is labeled (<code>_Replayed as of …._</code>) like the other read tools. A blank <code>as_of</code> is ignored (evaluates at now, as before); an unparseable one returns a clean error, never an exception — the same wording the other tools already return. Pinned by tests in <code>tests/test_mcp.py</code> (<code>TestNeighborsAsOf</code>). Docs: <code>mcp.md</code>, <code>temporality.md</code>, and the MCP server README describe the replay; docs site rebuilt; website and man-page version strings move to 0.36.0.
+</li>
+</ul>
+<h2 id="v0-35-0">[0.35.0] — 2026-11-21</h2>
 <h3 id="v0-35-0-added">Added</h3>
 <ul>
 <li><strong>New MCP <code>validate</code> tool — the MCP analogue of <code>okfsmith validate</code>:</strong> <code>index</code>, <code>list</code>, <code>search</code>, <code>get</code>, <code>neighbors</code>, <code>traverse</code>, <code>provenance</code>, and <code>diff</code> could all read the bundle over MCP, but an agent connected over MCP could not check it — conformance (E001–E004) and the advisory warnings (W001–W020) were CLI-only, so an agent had to shell out to ask "is this bundle conformant?" The new read-only <code>validate</code> tool runs the same <code>okfsmith.validate.check</code> the CLI runs, over the same on-disk bundle, so the verdict never disagrees with the CLI's: a status line up top ("Conformant: no errors, no warnings." / "Conformant with N warning(s)." / "INVALID: …"), then <code>## Errors</code> / <code>## Warnings</code> sections with one row per finding (<code>code</code> — <code>file</code> — message), the concept count, and evidence-budget paging (<code>max_chunks</code> / <code>max_tokens</code> / <code>continuation_token</code>) like the other read tools. <code>strict</code> treats warnings as failures, like the CLI's <code>--strict</code> flag, and <code>as_of</code> (ISO-8601 date or datetime) replays the two clock-dependent warnings — W006 (content stale: <code>stale_after</code> has passed) and W020 (<code>last_verified</code> lies in the future) — at that instant instead of now, labeled "_Validated as of …._" like the CLI's line, so an audit can ask "was this bundle conformant, and stale, in June 2025?" A blank <code>as_of</code> is ignored (evaluates at now, as before); an unparseable one returns a clean error, never an exception — the same wording <code>list</code> / <code>search</code> / <code>get</code> already return. Pinned by tests in <code>tests/test_mcp.py</code> (<code>TestValidate</code>). Docs: <code>mcp.md</code>, <code>cli.md</code>, <code>temporality.md</code>, <code>skill.md</code>, and the MCP server README list the thirteenth tool (nine read tools now); docs site rebuilt; website and man-page version strings move to 0.35.0.
@@ -1147,6 +1158,11 @@
     <aside class="toc" aria-label="On this page">
       <p class="toc-title">On this page</p>
       <ul class="toc-list">
+<li><a href="#v0-36-0">[0.36.0] — 2026-11-22</a>
+<ul class="toc-sub">
+<li><a href="#v0-36-0-added">Added</a></li>
+</ul>
+</li>
 <li><a href="#v0-35-0">[0.35.0] — 2026-11-21</a>
 <ul class="toc-sub">
 <li><a href="#v0-35-0-added">Added</a></li>

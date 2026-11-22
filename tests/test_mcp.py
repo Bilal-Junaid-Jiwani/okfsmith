@@ -616,6 +616,130 @@ class TestTraverseAsOf:
         assert "Replayed as of" not in out
 
 
+class TestNeighborsAsOf:
+    """MCP ``neighbors`` temporal replay (``as_of``).
+
+    Until now the MCP ``neighbors`` tool annotated nothing: an agent
+    asking "which concepts does this policy link to?" got the present's
+    answers on every row — a link to a superseded concept read exactly
+    like a link to a current one, and there was no way to ask what the
+    neighborhood looked like at a past instant. Same bundle as
+    ``TestTraverseAsOf`` plus an ``old-note`` superseded by ``new-note``,
+    so both directions (outgoing target, incoming source) can be
+    superseded at now and current at the replay instant.
+    """
+
+    @pytest.fixture()
+    def temporal_tools(self, tmp_path: Path) -> BundleTools:
+        bundle = Bundle(tmp_path)
+        bundle.write_concept(
+            "hub",
+            {"title": "Policy Hub", "type": "policy"},
+            "See [the old policy](policy-v1) and [the new policy](policy-v2).",
+        )
+        bundle.write_concept(
+            "policy-v1",
+            {"title": "Refund Policy v1", "type": "policy"},
+            "The old refund policy allows returns within 14 days of "
+            "purchase. See [the hub](hub).",
+        )
+        bundle.write_concept(
+            "policy-v2",
+            {
+                "title": "Refund Policy v2",
+                "type": "policy",
+                "supersedes": ["policy-v1"],
+                "valid_from": "2026-10-20",
+            },
+            "The new refund policy allows returns within 30 days of purchase.",
+        )
+        bundle.write_concept(
+            "old-note",
+            {"title": "Old Note", "type": "note"},
+            "Background: see [the old policy](policy-v1).",
+        )
+        bundle.write_concept(
+            "new-note",
+            {
+                "title": "New Note",
+                "type": "note",
+                "supersedes": ["old-note"],
+                "valid_from": "2026-10-20",
+            },
+            "Background, updated.",
+        )
+        return BundleTools(bundle)
+
+    @staticmethod
+    def _row(out: str, concept_id: str, section: str) -> str:
+        # Rows live under "## Outgoing (N)" / "## Incoming (N)"; the same
+        # id can appear in both sections, so scope the lookup.
+        head, _, rest = out.partition(f"## {section}")
+        assert head != out or rest, f"section {section} missing"
+        return next(
+            line
+            for line in rest.splitlines()
+            if line.startswith(f"- **{concept_id}**")
+        )
+
+    def test_default_annotates_at_now(self, temporal_tools: BundleTools) -> None:
+        out = temporal_tools.neighbors("hub")
+        # Outgoing: the superseded target is flagged at now.
+        assert "superseded by `policy-v2`" in self._row(out, "policy-v1", "Outgoing")
+        assert "superseded" not in self._row(out, "policy-v2", "Outgoing")
+        assert "not yet valid" not in self._row(out, "policy-v2", "Outgoing")
+        # The current center concept carries no note; no replay label.
+        assert "Note:" not in out
+        assert "Replayed as of" not in out
+        # Incoming: the superseded source is flagged too.
+        out2 = temporal_tools.neighbors("policy-v1")
+        assert "Note: **policy-v1** is superseded by `policy-v2`." in out2
+        assert "superseded by `new-note`" in self._row(out2, "old-note", "Incoming")
+        assert "superseded" not in self._row(out2, "hub", "Incoming")
+
+    def test_as_of_replays_past_state(self, temporal_tools: BundleTools) -> None:
+        # Before policy-v2's valid_from, the old policy was the current one.
+        out = temporal_tools.neighbors("hub", as_of="2026-10-01")
+        assert "superseded" not in self._row(out, "policy-v1", "Outgoing")
+        assert "not yet valid" in self._row(out, "policy-v2", "Outgoing")
+        # the replay instant is labeled honestly, like the CLI envelope
+        assert "Replayed as of 2026-10-01" in out
+        # The center concept and the incoming source replay too.
+        out2 = temporal_tools.neighbors("policy-v1", as_of="2026-10-01")
+        assert "Note:" not in out2
+        assert "superseded" not in self._row(out2, "old-note", "Incoming")
+        assert "Replayed as of 2026-10-01" in out2
+
+    def test_as_of_future_keeps_supersession(
+        self, temporal_tools: BundleTools
+    ) -> None:
+        out = temporal_tools.neighbors("hub", as_of="2027-01-01")
+        assert "superseded by `policy-v2`" in self._row(out, "policy-v1", "Outgoing")
+        assert "superseded" not in self._row(out, "policy-v2", "Outgoing")
+        assert "Replayed as of 2027-01-01" in out
+        out2 = temporal_tools.neighbors("policy-v1", as_of="2027-01-01")
+        assert "superseded by `new-note`" in self._row(out2, "old-note", "Incoming")
+
+    def test_as_of_accepts_datetime(self, temporal_tools: BundleTools) -> None:
+        out = temporal_tools.neighbors("hub", as_of="2026-10-01T12:00:00Z")
+        assert "superseded" not in self._row(out, "policy-v1", "Outgoing")
+        assert "not yet valid" in self._row(out, "policy-v2", "Outgoing")
+        assert "Replayed as of 2026-10-01" in out
+
+    def test_as_of_invalid_value_returns_error_not_exception(
+        self, temporal_tools: BundleTools
+    ) -> None:
+        # the tools' "never an exception" contract covers as_of too
+        out = temporal_tools.neighbors("hub", as_of="not-a-date")
+        assert out.startswith("Error:")
+        assert "ISO-8601" in out
+
+    def test_as_of_blank_is_ignored(self, temporal_tools: BundleTools) -> None:
+        out = temporal_tools.neighbors("hub", as_of="  ")
+        assert "superseded by `policy-v2`" in self._row(out, "policy-v1", "Outgoing")
+        assert "Replayed as of" not in out
+
+
 class TestProvenanceAsOf:
     """MCP ``provenance`` temporal replay (``as_of``).
 

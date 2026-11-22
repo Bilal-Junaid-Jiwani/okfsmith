@@ -1904,6 +1904,7 @@ class BundleTools:
         max_chunks: int = 50,
         max_tokens: int | None = None,
         continuation_token: str | None = None,
+        as_of: str | None = None,
     ) -> str:
         """Show a concept's outgoing links and incoming backlinks.
 
@@ -1913,6 +1914,22 @@ class BundleTools:
         shown with its id, type, and the link text — which is the
         prose-derived description of the relation (e.g. "computed by [the
         revenue computation](/computations/revenue)").
+
+        `as_of` sits last in the signature so the historic positional
+        calls `neighbors(concept_id, max_chunks, max_tokens,
+        continuation_token)` keep working unchanged (see
+        ``test_old_signatures_unchanged``).
+
+        `as_of` (ISO-8601 date or datetime) replays validity and
+        supersession at that instant, like the other read tools' `as_of`
+        — e.g. ask which concepts a policy linked to before it was
+        superseded; an unparseable value returns a clean error, never an
+        exception, and a blank one is ignored (evaluates at now, as
+        before). Each row carries the linked concept's temporal status at
+        the replay instant — e.g. `_(superseded by `policy-v2`)_` — so
+        history never reads as live knowledge; current concepts carry no
+        note. The replay instant is labeled on a note line, like the
+        CLI's JSON envelope `as_of`.
 
         Evidence budgets: `max_chunks` caps the link rows per response
         (default 50, hard cap 50 — the `## Outgoing`/`## Incoming` headers
@@ -1931,6 +1948,18 @@ class BundleTools:
                 "Use `list` to see all concept ids or `search` to find one "
                 "by keyword."
             )
+        moment: datetime | None = None
+        if as_of is not None and str(as_of).strip():
+            moment = _temporal.parse_temporal(as_of)
+            if moment is None:
+                return (
+                    f"Error: `as_of` {as_of!r} is not an ISO-8601 date "
+                    "or datetime — pass e.g. `2025-06-01` or "
+                    "`2025-06-01T12:00:00Z`."
+                )
+        # Temporal status is evaluated at the replay instant when as_of
+        # is given, never at now (0.36.0).
+        now = moment if moment is not None else _temporal.utcnow()
 
         outgoing: list[tuple[str, str]] = []
         for text, target in _LINK_RE.findall(concept.body):
@@ -1957,10 +1986,21 @@ class BundleTools:
         def _fmt_out(linked_id: str, text: str) -> str:
             linked = self.bundle.get(linked_id)
             label = _concept_label(linked) if linked else f"**{linked_id}** (missing)"
-            return f"- {label} — linked as: \"{text}\""
+            line = f"- {label} — linked as: \"{text}\""
+            if linked is not None:
+                note = self._temporal_note(linked, now)
+                if note:
+                    line += f" _({note})_"
+            return line
 
         def _fmt_in(source_id: str, source_type: str, text: str) -> str:
-            return f"- **{source_id}** (`{source_type}`) — linked as: \"{text}\""
+            line = f"- **{source_id}** (`{source_type}`) — linked as: \"{text}\""
+            source = self.bundle.get(source_id)
+            if source is not None:
+                note = self._temporal_note(source, now)
+                if note:
+                    line += f" _({note})_"
+            return line
 
         out_header = f"## Outgoing ({len(outgoing)})"
         in_header = f"## Incoming ({len(incoming)})"
@@ -1976,11 +2016,23 @@ class BundleTools:
             in_header,
             *(in_rows or ["_No incoming links._"]),
         ]
+        notes: list[str] = []
+        if moment is not None:
+            # Honest replay label: the instant the temporal statuses were
+            # evaluated at, matching the CLI's JSON envelope `as_of`.
+            notes.append(f"_Replayed as of {moment.isoformat()}._")
+        start_note = self._temporal_note(concept, now)
+        if start_note:
+            notes.append(f"_Note: **{concept.id}** is {start_note}._")
         title = f"Links for {concept_id}"
+        head = [f"# {title}", ""]
+        if notes:
+            head.extend([*notes, ""])
         return self._render_paged(
             title=title,
-            whole=f"# {title}\n\n" + "\n".join(whole_units),
+            whole="\n".join(head + whole_units),
             sections=[(out_header, out_rows), (in_header, in_rows)],
+            notes=notes,
             max_chunks=max_chunks,
             chunk_default=50,
             max_tokens=max_tokens,
