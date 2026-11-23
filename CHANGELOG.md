@@ -5,6 +5,37 @@ follow SemVer.
 
 ## [Unreleased]
 
+## [0.37.0] - 2026-11-23
+
+### Added
+
+- **MCP `diff` gains `as_of` temporal replay:** `diff` was the last
+  MCP read tool without one (`index` returns raw `index.md` text, so
+  replay does not apply there) — every other read tool could replay
+  validity and supersession at a past or future instant, but `diff`
+  evaluated every temporal status at now, so an agent asking "what
+  changed before this policy was superseded?" got the present's
+  answers on every row: an added replacement read exactly like a live
+  concept and a removed original read exactly like a current one. The
+  new optional `as_of` (ISO-8601 date or datetime, last in the
+  signature so historic positional calls keep working) replays each
+  row's temporal status at that instant instead of now — an added,
+  removed, or changed concept that is non-current at the instant
+  carries its status on its row (`_(superseded by `policy-v2`)_` /
+  `_(expired)_` / `_(not yet valid)_`), and the replay instant is
+  labeled (`_Replayed as of …._`) like the other read tools. Removed
+  concepts are evaluated against the combined supersession graph of
+  both bundles, so a superseder that only exists in the current bundle
+  still counts; in the sync-state mode a removed concept has no
+  frontmatter on file, so its row carries no note. A blank `as_of` is
+  ignored (evaluates at now, as before); an unparseable one returns a
+  clean error, never an exception — the same wording the other tools
+  already return. Pinned by tests in `tests/test_mcp_expansion.py`
+  (`TestDiffAsOf`, both `against` and sync-state modes). Docs:
+  `mcp.md`, `temporality.md`, and the MCP server README describe the
+  replay (and the README gains the previously missing `diff` row);
+  docs site rebuilt; website and man-page version strings move to 0.37.0.
+
 ## [0.36.0] - 2026-11-22
 
 ### Added

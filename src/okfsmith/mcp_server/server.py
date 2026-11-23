@@ -1385,13 +1385,25 @@ class BundleTools:
                 )
         return "\n".join(lines)
 
-    def _temporal_note(self, concept: Concept, now: Any) -> str | None:
+    def _temporal_note(
+        self,
+        concept: Concept,
+        now: Any,
+        index: Any = None,
+    ) -> str | None:
         """Human note for a non-current temporal status; ``None`` when current.
 
-        Never raises: temporal fields are untrusted frontmatter (P2).
+        Evaluated against *index* (a :class:`SupersessionIndex`) when one
+        is given, else against this bundle's own index — the ``diff`` tool
+        passes the combined index of both compared bundles, so a concept
+        removed from the current bundle is still judged against the
+        supersession graph that knows its superseder. Never raises:
+        temporal fields are untrusted frontmatter (P2).
         """
         try:
-            status = self._sindex.status(concept, now)
+            status = (index if index is not None else self._sindex).status(
+                concept, now
+            )
         except Exception:
             return None
         if status.name == "current":
@@ -2388,6 +2400,7 @@ class BundleTools:
         max_chunks: int = 50,
         max_tokens: int | None = None,
         continuation_token: str | None = None,
+        as_of: str | None = None,
     ) -> str:
         """Diff this bundle against a previous state: added/removed/changed concepts.
 
@@ -2407,6 +2420,24 @@ class BundleTools:
         directory nor a usable snapshot, returns a clean error explaining
         how to call it.
 
+        `as_of` (ISO-8601 date or datetime, last in the signature so
+        historic positional calls keep working) replays validity and
+        supersession at that instant, like the other read tools' `as_of`:
+        a non-current concept carries its temporal status on its row
+        (`_(superseded by `policy-v2`)_` / `_(expired)_` /
+        `_(not yet valid)_`), evaluated at the replay instant when one is
+        given and at now otherwise, so a diff never reads history as live
+        knowledge — e.g. ask what changed before a policy was superseded
+        and the added replacement reads `_(not yet valid)_` while the
+        removed original reads current. Removed concepts are evaluated
+        against the combined supersession graph of both bundles, so a
+        superseder that only exists in the current bundle still counts;
+        in the sync-state mode a removed concept has no frontmatter on
+        file, so its row carries no note. The replay instant is labeled
+        (`_Replayed as of …._`). A blank `as_of` is ignored (evaluates at
+        now, as before); an unparseable one returns a clean error, never
+        an exception — the same wording the other tools already return.
+
         Evidence budgets: `max_chunks` caps the rows per response (default
         50, hard cap 50 — the `## Added`/`## Removed`/`## Changed` headers
         and the comparison note sit outside the budget), `max_tokens` is an
@@ -2419,9 +2450,21 @@ class BundleTools:
         full-disk walk.
         """
         self._ensure_fresh_bundle()
+        moment: datetime | None = None
+        if as_of is not None and str(as_of).strip():
+            moment = _temporal.parse_temporal(as_of)
+            if moment is None:
+                return (
+                    f"Error: `as_of` {as_of!r} is not an ISO-8601 date "
+                    "or datetime — pass e.g. `2025-06-01` or "
+                    "`2025-06-01T12:00:00Z`."
+                )
+        # Temporal status is evaluated at the replay instant when as_of
+        # is given, never at now (0.37.0).
+        now = moment if moment is not None else _temporal.utcnow()
         if against is None:
             return self._diff_against_sync_state(
-                max_chunks, max_tokens, continuation_token
+                max_chunks, max_tokens, continuation_token, moment
             )
         if not isinstance(against, (str, Path)) or not str(against).strip():
             return "Error: `against` must be a path to a bundle directory."
@@ -2445,24 +2488,36 @@ class BundleTools:
             if _concept_sha256(current[cid]) != _concept_sha256(previous[cid])
             or _concept_title(current[cid]) != _concept_title(previous[cid])
         )
+        # The supersession graph spans both bundles: a removed concept's
+        # superseder usually lives only in the current bundle, and the
+        # current bundle's own index early-returns "current" for ids it
+        # does not contain — so evaluate every row against the combined
+        # index (current frontmatter wins on a shared id).
+        combined = _temporal.SupersessionIndex(
+            [(cid, c.frontmatter or {}) for cid, c in {**previous, **current}.items()]
+        )
+
+        def _note(concept: Concept) -> str:
+            note = self._temporal_note(concept, now, index=combined)
+            return f" _({note})_" if note else ""
 
         added_header = f"## Added ({len(added)})"
         removed_header = f"## Removed ({len(removed)})"
         changed_header = f"## Changed ({len(changed)})"
         added_rows = [
             f"- **{cid}** — {_concept_title(current[cid])} — "
-            f"sha256 `{_concept_sha256(current[cid])[:12]}…`"
+            f"sha256 `{_concept_sha256(current[cid])[:12]}…`{_note(current[cid])}"
             for cid in added
         ]
         removed_rows = [
             f"- **{cid}** — {_concept_title(previous[cid])} — "
-            f"sha256 `{_concept_sha256(previous[cid])[:12]}…`"
+            f"sha256 `{_concept_sha256(previous[cid])[:12]}…`{_note(previous[cid])}"
             for cid in removed
         ]
         changed_rows = [
             f"- **{cid}** — {_concept_title(current[cid])} — "
             f"`{_concept_sha256(previous[cid])[:12]}…` → "
-            f"`{_concept_sha256(current[cid])[:12]}…`"
+            f"`{_concept_sha256(current[cid])[:12]}…`{_note(current[cid])}"
             for cid in changed
         ]
         # "_none_" fillers appear only in the unpaged `whole`: in the paged
@@ -2478,6 +2533,10 @@ class BundleTools:
         ]
 
         notes = [f"_Comparing the current bundle against `{other_root}`._"]
+        if moment is not None:
+            # Honest replay label: the instant the temporal statuses were
+            # evaluated at, matching the CLI's JSON envelope `as_of`.
+            notes.append(f"_Replayed as of {moment.isoformat()}._")
         title = "Bundle diff"
         return self._render_paged(
             title=title,
@@ -2613,9 +2672,23 @@ class BundleTools:
         )
 
     def _diff_against_sync_state(
-        self, max_chunks: Any, max_tokens: Any, continuation_token: Any
+        self,
+        max_chunks: Any,
+        max_tokens: Any,
+        continuation_token: Any,
+        moment: datetime | None = None,
     ) -> str:
-        """``diff()`` with no ``against``: compare against the sync snapshot."""
+        """``diff()`` with no ``against``: compare against the sync snapshot.
+
+        *moment* is the ``as_of`` replay instant when one was given
+        (``None`` = evaluate at now). Added/changed rows carry the
+        concept's temporal status at that instant, like the ``against``
+        mode; removed rows cannot — the snapshot records ids only, and a
+        removed concept has no frontmatter left to evaluate.
+        """
+        # Temporal status is evaluated at the replay instant when as_of
+        # is given, never at now (0.37.0).
+        now = moment if moment is not None else _temporal.utcnow()
         state = _load_sync_state(self.bundle)
         if state is None:
             return (
@@ -2668,17 +2741,23 @@ class BundleTools:
                     changed.append((cid, rel, old_sha, new_sha))
                     break
 
+        def _note(concept: Concept) -> str:
+            note = self._temporal_note(concept, now)
+            return f" _({note})_" if note else ""
+
         added_header = f"## Added ({len(added)})"
         removed_header = f"## Removed ({len(removed)})"
         changed_header = f"## Changed ({len(changed)})"
         added_rows = [
             f"- **{cid}** — {_concept_title(current[cid])} — "
-            f"sha256 `{_concept_sha256(current[cid])[:12]}…`"
+            f"sha256 `{_concept_sha256(current[cid])[:12]}…`{_note(current[cid])}"
             for cid in added
         ]
         # Removed concepts are gone from the bundle: no title or body sha
         # is available, so the entry says so honestly instead of rendering
         # a bare id (consistent dash-shape with the other sections).
+        # No temporal note either: the snapshot records ids only, and
+        # there is no frontmatter left to evaluate a status from.
         removed_rows = [
             f"- **{cid}** — _removed from the bundle (title/sha unavailable)_"
             for cid in removed
@@ -2686,7 +2765,7 @@ class BundleTools:
         changed_rows = [
             f"- **{cid}** — {_concept_title(current[cid])} — "
             f"source `{rel}` changed "
-            f"(`{old_sha[:12]}…` → `{new_sha[:12]}…`)"
+            f"(`{old_sha[:12]}…` → `{new_sha[:12]}…`){_note(current[cid])}"
             for cid, rel, old_sha, new_sha in changed
         ]
         whole_units = [
@@ -2702,6 +2781,10 @@ class BundleTools:
             "_Comparing against the `sync-state.json` snapshot "
             f"({record_count} source record(s))._"
         ]
+        if moment is not None:
+            # Honest replay label: the instant the temporal statuses were
+            # evaluated at, matching the CLI's JSON envelope `as_of`.
+            notes.append(f"_Replayed as of {moment.isoformat()}._")
         if untrusted:
             plural = "entries" if untrusted != 1 else "entry"
             notes.append(

@@ -394,6 +394,161 @@ def test_diff_corrupt_sync_state_clean_error(tmp_path: Path) -> None:
     assert "sync-state.json" in out
 
 
+class TestDiffAsOf:
+    """MCP ``diff`` temporal replay (``as_of``).
+
+    Until now the MCP ``diff`` tool — the last read tool without it —
+    annotated nothing: an agent asking "what changed before this policy
+    was superseded?" got the present's answers on every row, so an added
+    replacement read exactly like a live concept and a removed original
+    read exactly like a current one. Same bundle shape as
+    ``TestNeighborsAsOf``: ``policy-v1`` removed, ``policy-v2``
+    (superseding it, ``valid_from`` 2026-10-20) added, and ``edit``
+    changed with a ``valid_until`` of 2026-11-01 — so all three sections
+    can be non-current at now and current at the replay instant.
+    """
+
+    @staticmethod
+    def _bundles(tmp_path: Path) -> tuple[Path, Path]:
+        _write_bundle(
+            tmp_path / "old",
+            {
+                "policy-v1.md": _concept_doc(
+                    "Refund Policy v1", "The old refund policy.\n"
+                ),
+                "gone.md": _concept_doc("Gone", "Will be removed.\n"),
+                "edit.md": _concept_doc("Edit", "Original body.\n"),
+            },
+        )
+        _write_bundle(
+            tmp_path / "new",
+            {
+                "policy-v2.md": _concept_doc(
+                    "Refund Policy v2",
+                    "The new refund policy.\n",
+                    'supersedes: ["policy-v1"]\nvalid_from: "2026-10-20"\n',
+                ),
+                "edit.md": _concept_doc(
+                    "Edit",
+                    "Changed body.\n",
+                    'valid_until: "2026-11-01"\n',
+                ),
+                "keep.md": _concept_doc("Keep", "Brand new.\n"),
+            },
+        )
+        return tmp_path / "old", tmp_path / "new"
+
+    @staticmethod
+    def _row(out: str, concept_id: str) -> str:
+        return next(
+            line
+            for line in out.splitlines()
+            if line.startswith(f"- **{concept_id}**")
+        )
+
+    def test_default_annotates_at_now(self, tmp_path: Path) -> None:
+        old_root, new_root = self._bundles(tmp_path)
+        tools = BundleTools(Bundle.load(new_root))
+        out = tools.diff(against=str(old_root))
+        # Removed: the superseder lives only in the current bundle, so
+        # the row is still flagged — the combined supersession graph.
+        assert "superseded by `policy-v2`" in self._row(out, "policy-v1")
+        assert "superseded" not in self._row(out, "gone")
+        # Changed: expired at now.
+        assert "_(expired)_" in self._row(out, "edit")
+        # Added: the replacement is current at now.
+        assert "superseded" not in self._row(out, "policy-v2")
+        assert "not yet valid" not in self._row(out, "policy-v2")
+        assert "Replayed as of" not in out
+
+    def test_as_of_replays_past_state(self, tmp_path: Path) -> None:
+        old_root, new_root = self._bundles(tmp_path)
+        tools = BundleTools(Bundle.load(new_root))
+        # Before policy-v2's valid_from, the old policy was current and
+        # the replacement was not yet valid; the edit was still in window.
+        out = tools.diff(against=str(old_root), as_of="2026-10-01")
+        assert "not yet valid" in self._row(out, "policy-v2")
+        assert "superseded" not in self._row(out, "policy-v1")
+        assert "expired" not in self._row(out, "edit")
+        assert "Replayed as of 2026-10-01" in out
+
+    def test_as_of_future_keeps_supersession(self, tmp_path: Path) -> None:
+        old_root, new_root = self._bundles(tmp_path)
+        tools = BundleTools(Bundle.load(new_root))
+        out = tools.diff(against=str(old_root), as_of="2027-01-01")
+        assert "superseded by `policy-v2`" in self._row(out, "policy-v1")
+        assert "_(expired)_" in self._row(out, "edit")
+        assert "Replayed as of 2027-01-01" in out
+
+    def test_as_of_accepts_datetime(self, tmp_path: Path) -> None:
+        old_root, new_root = self._bundles(tmp_path)
+        tools = BundleTools(Bundle.load(new_root))
+        out = tools.diff(against=str(old_root), as_of="2026-10-01T12:00:00Z")
+        assert "not yet valid" in self._row(out, "policy-v2")
+        assert "superseded" not in self._row(out, "policy-v1")
+        assert "Replayed as of 2026-10-01" in out
+
+    def test_as_of_invalid_value_returns_error_not_exception(
+        self, tmp_path: Path
+    ) -> None:
+        old_root, new_root = self._bundles(tmp_path)
+        tools = BundleTools(Bundle.load(new_root))
+        out = tools.diff(against=str(old_root), as_of="not-a-date")
+        assert out.startswith("Error:")
+        assert "ISO-8601" in out
+
+    def test_as_of_blank_is_ignored(self, tmp_path: Path) -> None:
+        old_root, new_root = self._bundles(tmp_path)
+        tools = BundleTools(Bundle.load(new_root))
+        out = tools.diff(against=str(old_root), as_of="  ")
+        assert "superseded by `policy-v2`" in self._row(out, "policy-v1")
+        assert "Replayed as of" not in out
+
+    def test_as_of_sync_state_mode(self, tmp_path: Path) -> None:
+        kb = tmp_path / "kb"
+        _write_bundle(
+            kb,
+            {
+                "a.md": _concept_doc(
+                    "Aye", "body a\n", 'valid_until: "2026-11-01"\n'
+                ),
+                "b.md": _concept_doc("Bee", "body b\n"),
+            },
+        )
+        src_a = kb / "src_a.md"
+        src_a.write_text("v1 content", encoding="utf-8")
+        digest_v1 = hashlib.sha256(b"v1 content").hexdigest()
+        state_dir = kb / ".okfsmith"
+        state_dir.mkdir(parents=True, exist_ok=True)
+        (state_dir / "sync-state.json").write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "sources": {
+                        "src_a.md": {
+                            "sha256": digest_v1,
+                            "concepts": ["a", "vanished"],
+                            "size": 10,
+                        }
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        src_a.write_text("v2 content", encoding="utf-8")
+        tools = BundleTools(Bundle.load(kb))
+        out = tools.diff()
+        # Changed: expired at now; added: current; removed: no
+        # frontmatter survives, so no note — only the honest marker.
+        assert "_(expired)_" in self._row(out, "a")
+        assert "expired" not in self._row(out, "b")
+        assert "title/sha unavailable" in self._row(out, "vanished")
+        assert "Replayed as of" not in out
+        out = tools.diff(as_of="2026-10-01")
+        assert "expired" not in self._row(out, "a")
+        assert "Replayed as of 2026-10-01" in out
+
+
 # ---------------------------------------------------------------------------
 # evidence budgets: max_chunks / max_tokens / continuation_token
 # ---------------------------------------------------------------------------
@@ -522,6 +677,7 @@ def test_old_signatures_unchanged() -> None:
     assert params(BundleTools.neighbors)[1:2] == ["concept_id"]
     assert params(BundleTools.traverse)[1:2] == ["concept_id"]
     assert params(BundleTools.provenance)[1:2] == ["concept_id"]
+    assert params(BundleTools.diff)[1:2] == ["against"]
 
 
 def test_old_positional_calls_still_work() -> None:
