@@ -366,6 +366,83 @@ def test_manifest_corrupt_is_empty(tmp_path: Path):
     assert dedup.already_ingested(bundle, "0" * 64) is False
 
 
+def test_record_ingested_concurrent_no_lost_records(tmp_path: Path):
+    """Regression (audit F1): parallel record_ingested calls into one bundle
+    must not lose records or tear the manifest.
+
+    Pre-fix, record_ingested did an unlocked load -> mutate -> write_text:
+    barrier-released thread pairs lost one record in ~2/3 of rounds and
+    overlapping writes could leave corrupt JSON that load_manifest then
+    silently degraded to {} (all dedup state gone). The dashboard's
+    4-worker job pool reaches this via concurrent ingests into one bundle.
+    """
+    import threading
+
+    bundle = Bundle(tmp_path / "bundle")
+    rounds, workers = 30, 2
+    errors: list[BaseException] = []
+
+    def record(barrier: threading.Barrier, r: int, tag: str) -> None:
+        try:
+            barrier.wait(timeout=10)
+            dedup.record_ingested(bundle, f"{r:02d}-{tag}", f"{tag}.txt")
+        except BaseException as exc:  # noqa: B036 - collected, asserted below
+            errors.append(exc)
+
+    for r in range(rounds):
+        barrier = threading.Barrier(workers)
+        threads = [
+            threading.Thread(target=record, args=(barrier, r, tag))
+            for tag in ("aaaa", "bbbb")
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=30)
+
+    assert errors == []
+    sources = dedup.load_manifest(bundle)
+    expected = {f"{r:02d}-{tag}" for r in range(rounds) for tag in ("aaaa", "bbbb")}
+    assert set(sources) == expected  # no lost updates, manifest never corrupt
+
+
+def test_record_unrecord_concurrent_consistent(tmp_path: Path):
+    """Concurrent record + unrecord on one bundle leave a valid manifest
+    whose contents match some serial interleaving (no torn writes)."""
+    import threading
+
+    bundle = Bundle(tmp_path / "bundle")
+    keep = [f"keep-{i}" for i in range(10)]
+    gone = [f"gone-{i}" for i in range(10)]
+    for d in keep + gone:
+        dedup.record_ingested(bundle, d, "seed.txt")
+    errors: list[BaseException] = []
+
+    def unrecord() -> None:
+        try:
+            for d in gone:
+                assert dedup.unrecord_digest(bundle, d) is True
+        except BaseException as exc:  # noqa: B036 - collected, asserted below
+            errors.append(exc)
+
+    def record() -> None:
+        try:
+            for i in range(10):
+                dedup.record_ingested(bundle, f"new-{i}", "new.txt")
+        except BaseException as exc:  # noqa: B036 - collected, asserted below
+            errors.append(exc)
+
+    threads = [threading.Thread(target=unrecord), threading.Thread(target=record)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=30)
+
+    assert errors == []
+    sources = dedup.load_manifest(bundle)
+    assert set(sources) == set(keep) | {f"new-{i}" for i in range(10)}
+
+
 def test_txt_and_md_parse_without_office_extra(tmp_path: Path, monkeypatch):
     """Regression: moving MarkItDown to the `office` extra must not break
     .md/.txt ingestion on a base install. Simulate 'markitdown not

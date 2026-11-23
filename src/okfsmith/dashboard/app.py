@@ -1458,8 +1458,11 @@ def create_app(workspace: Path, token: str) -> FastAPI:
         if result.dry_run:
             detail = "dry run — " + detail
         job.extra["summary"] = summary
-        job.finish("done", detail=detail)
+        # Refresh BEFORE job.finish (same rule as _ingest_worker): "done"
+        # is polled by clients, so the registry must already reflect the
+        # sync's changes when a poller observes it.
         registry.refresh()
+        job.finish("done", detail=detail)
 
     @app.post(f"{API}/sync/runs", status_code=202)
     async def post_sync_run(request: Request):

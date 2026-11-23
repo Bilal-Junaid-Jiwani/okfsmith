@@ -4,6 +4,33 @@ eyebrow: Troubleshooting
 description: Release history for okfsmith — what changed in each version, what's coming next, and upgrade notes. Follows Keep a Changelog and Semantic Versioning.
 ---
 
+## [0.37.1] — 2026-11-23 {#v0-37-1}
+
+### Fixed {#v0-37-1-fixed}
+
+- **Dedup manifest race under concurrent ingest (security audit F1,
+  CWE-362):** `record_ingested` did an unlocked load → mutate →
+  `write_text` on `<bundle>/.okfsmith/manifest.json`, so two ingests
+  into the same bundle running at once — the dashboard's 4-worker job
+  pool, or a CLI ingest racing the dashboard — could lose each other's
+  records (last write wins), and overlapping writes could tear the
+  JSON, which `load_manifest` then silently degraded to empty: all
+  dedup state for the bundle gone, and already-ingested files no
+  longer recognized on re-ingest. The manifest read-modify-write now
+  runs under a per-bundle lock (an in-process per-path lock plus an
+  `O_CREAT | O_EXCL` lock file reclaimed with the sync lock's
+  live-PID staleness discipline) and the write is atomic (temp file +
+  `os.replace`). `unrecord_digest` takes the same lock, so a
+  record/unrecord pair cannot lose updates either. Pinned by threaded
+  regression tests in `tests/test_parsers.py` (barrier-released
+  parallel rounds: no lost records, manifest always valid; both fail
+  on the pre-fix code).
+- **Dashboard `_sync_worker` published "done" before refreshing the
+  registry:** the exact ordering 0.27.1 reversed in `_ingest_worker` —
+  a client polling the sync job to `done` could immediately read the
+  pre-refresh registry snapshot. `registry.refresh()` now runs before
+  `job.finish(...)`, matching the ingest worker.
+
 ## [0.37.0] — 2026-11-23 {#v0-37-0}
 
 ### Added {#v0-37-0-added}
