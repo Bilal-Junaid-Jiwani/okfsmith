@@ -4,6 +4,30 @@ eyebrow: Troubleshooting
 description: Release history for okfsmith — what changed in each version, what's coming next, and upgrade notes. Follows Keep a Changelog and Semantic Versioning.
 ---
 
+## [0.37.2] — 2026-11-24 {#v0-37-2}
+
+### Added {#v0-37-2-added}
+
+- **MCP `index` gains `as_of` temporal replay:** `index` was the last
+  MCP read tool without one — an agent asking what the bundle believed
+  on a past date got the present's answers on every entry, so a
+  superseded policy read exactly like live knowledge. The new optional
+  `as_of` (ISO-8601 date or datetime, last in the signature so historic
+  positional calls keep working) replays each entry's temporal status
+  at that instant instead of now — a non-current concept carries its
+  status on its entry line (`_(superseded by `policy-v2`)_` /
+  `_(expired)_` / `_(not yet valid)_`), and the replay instant is
+  labeled (`_Replayed as of …._`) like the other read tools. Entries
+  are annotated at now when no `as_of` is given, matching `list` and
+  `diff`; entries whose link target is not a concept in the bundle,
+  and every non-entry line, pass through unchanged, so a hand-written
+  index is never rewritten, only annotated. A blank `as_of` is ignored
+  (evaluates at now, as before); an unparseable one returns a clean
+  error, never an exception — the same wording the other tools already
+  return. Pinned by tests in `tests/test_mcp_expansion.py` (past/future
+  replay, datetime form, invalid and blank values, non-entry
+  pass-through, and a paging round trip carrying the replay label).
+
 ## [0.37.1] — 2026-11-23 {#v0-37-1}
 
 ### Fixed {#v0-37-1-fixed}

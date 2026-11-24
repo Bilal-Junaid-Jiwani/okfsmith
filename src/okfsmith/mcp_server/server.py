@@ -226,6 +226,65 @@ def _text_chunks(text: str, lines_per_chunk: int = _TEXT_CHUNK_LINES) -> list[st
     ]
 
 
+#: An index entry line: a ``*`` or ``-`` bullet whose link target is a
+#: concept id (``* [Title](concept-id)`` as ``ensure_index`` writes them,
+#: or ``- [Title](concept-id)`` as hand-written indexes usually do),
+#: optionally followed by `` - description`` text.
+_INDEX_ENTRY_RE = re.compile(r"^(\s*[*-]\s+\[[^\]]*\]\()([^)\s]+)(\).*)$")
+
+
+def _annotate_index_text(
+    text: str,
+    by_id: dict[str, Concept],
+    note_for: Any,
+) -> str:
+    """Annotate index entry lines with temporal notes.
+
+    A line matching :data:`_INDEX_ENTRY_RE` whose link target resolves
+    to a known concept (a trailing ``.md`` is tolerated) gains
+    `` _(note)_`` at the end of the line when *note_for* returns one.
+    Every other line — headings, frontmatter, prose, links to unknown
+    ids — passes through unchanged, so a hand-written index is never
+    rewritten, only annotated. Never raises: a bad line is returned
+    as-is rather than dropping the whole index.
+    """
+    out: list[str] = []
+    for line in text.splitlines():
+        match = _INDEX_ENTRY_RE.match(line)
+        if match is None:
+            out.append(line)
+            continue
+        target = match.group(2)
+        concept = by_id.get(target) or by_id.get(target.removesuffix(".md"))
+        note = note_for(concept) if concept is not None else None
+        out.append(line + f" _({note})_" if note else line)
+    annotated = "\n".join(out)
+    if text.endswith("\n"):
+        annotated += "\n"
+    return annotated
+
+
+def _insert_replay_note(text: str, note: str) -> str:
+    """Insert *note* as its own line after the first ``#`` heading.
+
+    Falls back to prepending it when the text has no heading, so the
+    replay label is visible in the fast-path whole text as well as in
+    the paged flow. A blank line separates the note from the heading.
+    """
+    lines = text.splitlines()
+    for i, line in enumerate(lines):
+        if line.startswith("#"):
+            lines.insert(i + 1, "")
+            lines.insert(i + 2, note)
+            break
+    else:
+        lines = [note, ""] + lines
+    rendered = "\n".join(lines)
+    if text.endswith("\n"):
+        rendered += "\n"
+    return rendered
+
+
 def _concept_sha256(concept: Concept) -> str:
     """Hex SHA-256 of the concept's markdown body; never raises."""
     try:
@@ -1433,6 +1492,7 @@ class BundleTools:
         max_chunks: int = 50,
         max_tokens: int | None = None,
         continuation_token: str | None = None,
+        as_of: str | None = None,
     ) -> str:
         """Return the bundle's root index.md — the map of the whole knowledge base.
 
@@ -1442,14 +1502,30 @@ class BundleTools:
         `get` to read a concept in full. Each index entry's concept id can
         be passed to `get`, `neighbors`, or `list` for deeper exploration.
 
+        `as_of` (ISO-8601 date or datetime, last in the signature so
+        historic positional calls keep working) replays validity and
+        supersession at that instant, like the other read tools' `as_of`:
+        a non-current concept carries its temporal status on its entry
+        line (`_(superseded by `policy-v2`)_` / `_(expired)_` /
+        `_(not yet valid)_`), evaluated at the replay instant when one is
+        given and at now otherwise, so the index never reads history as
+        live knowledge — e.g. ask what the bundle believed before a policy
+        was superseded and the replacement reads `_(not yet valid)_`
+        while the original reads current. The replay instant is labeled
+        (`_Replayed as of …._`). A blank `as_of` is ignored (evaluates at
+        now, as before); an unparseable one returns a clean error, never
+        an exception — the same wording the other tools already return.
+        Entries whose link target is not a concept in this bundle, and
+        every non-entry line, pass through unchanged.
+
         Evidence budgets: `max_chunks` caps the 50-line text chunks returned
         (default 50, hard cap 50), `max_tokens` is an approximate output
         budget (`None`/negative = unbounded; `0` = no content, marker only),
         and `continuation_token` pages through long indexes — budgets cut at
         chunk boundaries, never mid-line.
 
-        Returns the raw index.md text; if the bundle has no index.md, says
-        so and suggests `list` instead.
+        Returns the raw index.md text (annotated as above); if the bundle
+        has no index.md, says so and suggests `list` instead.
         """
         self._ensure_fresh_bundle()
         if not self.bundle.index_text:
@@ -1457,10 +1533,33 @@ class BundleTools:
                 "This bundle has no root index.md. Use the `list` tool to see "
                 "all concepts, or `search` to find one by keyword."
             )
+        moment: datetime | None = None
+        if as_of is not None and str(as_of).strip():
+            moment = _temporal.parse_temporal(as_of)
+            if moment is None:
+                return (
+                    f"Error: `as_of` {as_of!r} is not an ISO-8601 date "
+                    "or datetime — pass e.g. `2025-06-01` or "
+                    "`2025-06-01T12:00:00Z`."
+                )
+        # Temporal status is evaluated at the replay instant when as_of
+        # is given, never at now (0.37.2) — the index was the last MCP
+        # read tool without one.
+        now = moment if moment is not None else _temporal.utcnow()
+        by_id = {c.id: c for c in self.bundle.iter_concepts()}
+        text = _annotate_index_text(
+            self.bundle.index_text, by_id, lambda c: self._temporal_note(c, now)
+        )
+        if moment is not None:
+            # Honest replay label: the instant the temporal statuses were
+            # evaluated at, matching the CLI's JSON envelope `as_of`.
+            text = _insert_replay_note(
+                text, f"_Replayed as of {moment.isoformat()}._"
+            )
         return self._render_paged(
             title="Bundle index",
-            whole=self.bundle.index_text,
-            sections=[(None, _text_chunks(self.bundle.index_text))],
+            whole=text,
+            sections=[(None, _text_chunks(text))],
             max_chunks=max_chunks,
             chunk_default=50,
             max_tokens=max_tokens,

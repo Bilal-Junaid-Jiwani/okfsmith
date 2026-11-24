@@ -549,6 +549,150 @@ class TestDiffAsOf:
         assert "Replayed as of 2026-10-01" in out
 
 
+class TestIndexAsOf:
+    """MCP ``index`` temporal replay (``as_of``).
+
+    Until now the MCP ``index`` tool — the last read tool without it —
+    returned the raw index.md text: an agent asking what the bundle
+    believed on a past date got the present's answers on every entry,
+    so a superseded policy read exactly like live knowledge. Same
+    bundle shape as ``TestDiffAsOf``: ``policy-v1`` superseded by
+    ``policy-v2`` (``valid_from`` 2026-10-20), ``edit`` with a
+    ``valid_until`` of 2026-11-01, and ``keep`` current — plus a
+    hand-written index with a dash-style entry, a link to an unknown
+    id, and a prose line, to prove non-entries pass through untouched.
+    """
+
+    @staticmethod
+    def _bundle(tmp_path: Path) -> Bundle:
+        return _write_bundle(
+            tmp_path / "kb",
+            {
+                "index.md": (
+                    "# Test index\n\n"
+                    "* [Refund Policy v1](policy-v1) - The old refund policy.\n"
+                    "* [Refund Policy v2](policy-v2) - The new refund policy.\n"
+                    "* [Edit](edit) - Changed body.\n"
+                    "- [Keep](keep) - Brand new.\n"
+                    "* [Ghost](ghost) - Not a concept.\n"
+                    "\n"
+                    "Prose stays prose.\n"
+                ),
+                "policy-v1.md": _concept_doc(
+                    "Refund Policy v1", "The old refund policy.\n"
+                ),
+                "policy-v2.md": _concept_doc(
+                    "Refund Policy v2",
+                    "The new refund policy.\n",
+                    'supersedes: ["policy-v1"]\nvalid_from: "2026-10-20"\n',
+                ),
+                "edit.md": _concept_doc(
+                    "Edit",
+                    "Changed body.\n",
+                    'valid_until: "2026-11-01"\n',
+                ),
+                "keep.md": _concept_doc("Keep", "Brand new.\n"),
+            },
+        )
+
+    @staticmethod
+    def _row(out: str, concept_id: str) -> str:
+        return next(
+            line for line in out.splitlines() if f"]({concept_id})" in line
+        )
+
+    def test_default_annotates_at_now(self, tmp_path: Path) -> None:
+        tools = BundleTools(self._bundle(tmp_path))
+        out = tools.index()
+        assert "superseded by `policy-v2`" in self._row(out, "policy-v1")
+        assert "_(expired)_" in self._row(out, "edit")
+        # The replacement and the untouched concept read current.
+        assert "superseded" not in self._row(out, "policy-v2")
+        assert "not yet valid" not in self._row(out, "policy-v2")
+        assert "expired" not in self._row(out, "keep")
+        assert "Replayed as of" not in out
+
+    def test_as_of_replays_past_state(self, tmp_path: Path) -> None:
+        tools = BundleTools(self._bundle(tmp_path))
+        # Before policy-v2's valid_from, the old policy was current and
+        # the replacement was not yet valid; the edit was still in window.
+        out = tools.index(as_of="2026-10-01")
+        assert "not yet valid" in self._row(out, "policy-v2")
+        assert "superseded" not in self._row(out, "policy-v1")
+        assert "expired" not in self._row(out, "edit")
+        assert "Replayed as of 2026-10-01" in out
+
+    def test_as_of_future_keeps_supersession(self, tmp_path: Path) -> None:
+        tools = BundleTools(self._bundle(tmp_path))
+        out = tools.index(as_of="2027-01-01")
+        assert "superseded by `policy-v2`" in self._row(out, "policy-v1")
+        assert "_(expired)_" in self._row(out, "edit")
+        assert "Replayed as of 2027-01-01" in out
+
+    def test_as_of_accepts_datetime(self, tmp_path: Path) -> None:
+        tools = BundleTools(self._bundle(tmp_path))
+        out = tools.index(as_of="2026-10-01T12:00:00Z")
+        assert "not yet valid" in self._row(out, "policy-v2")
+        assert "superseded" not in self._row(out, "policy-v1")
+        assert "Replayed as of 2026-10-01" in out
+
+    def test_as_of_invalid_value_returns_error_not_exception(
+        self, tmp_path: Path
+    ) -> None:
+        tools = BundleTools(self._bundle(tmp_path))
+        out = tools.index(as_of="not-a-date")
+        assert out.startswith("Error:")
+        assert "ISO-8601" in out
+
+    def test_as_of_blank_is_ignored(self, tmp_path: Path) -> None:
+        tools = BundleTools(self._bundle(tmp_path))
+        out = tools.index(as_of="  ")
+        assert "superseded by `policy-v2`" in self._row(out, "policy-v1")
+        assert "Replayed as of" not in out
+
+    def test_non_entry_lines_pass_through(self, tmp_path: Path) -> None:
+        tools = BundleTools(self._bundle(tmp_path))
+        out = tools.index()
+        # Unknown id: no note appended, line otherwise unchanged.
+        assert "* [Ghost](ghost) - Not a concept." in out
+        assert "Prose stays prose." in out
+        # Dash-style entries annotate the same way as star-style ones.
+        assert self._row(out, "keep").startswith("- [Keep](keep)")
+
+    def test_as_of_is_last_parameter(self) -> None:
+        # Historic positional calls index(max_chunks, max_tokens,
+        # continuation_token) keep working unchanged.
+        assert list(inspect.signature(BundleTools.index).parameters)[-1] == (
+            "as_of"
+        )
+
+    def test_replay_note_survives_paging(self, tmp_path: Path) -> None:
+        entries = "".join(
+            f"* [C{i:02d}](c{i:02d}) - Body {i}.\n" for i in range(60)
+        )
+        bundle = _write_bundle(
+            tmp_path / "kb",
+            {
+                "index.md": "# Big index\n\n" + entries,
+                **{
+                    f"c{i:02d}.md": _concept_doc(f"C{i:02d}", f"body {i}\n")
+                    for i in range(60)
+                },
+            },
+        )
+        tools = BundleTools(bundle)
+        first = tools.index(max_chunks=1, as_of="2026-10-01")
+        assert "Replayed as of 2026-10-01" in first
+        assert "…[truncated," in first
+        token = _continuation_token(first)
+        assert token is not None
+        resumed = tools.index(
+            max_chunks=1, as_of="2026-10-01", continuation_token=token
+        )
+        assert "c59" in resumed
+        assert "…[truncated" not in resumed
+
+
 # ---------------------------------------------------------------------------
 # evidence budgets: max_chunks / max_tokens / continuation_token
 # ---------------------------------------------------------------------------

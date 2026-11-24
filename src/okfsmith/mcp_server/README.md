@@ -18,7 +18,7 @@ pip install "okfsmith[mcp]"
 
 | Tool | What it does |
 |---|---|
-| `index()` | Root `index.md` — the map of the whole knowledge base (start here) |
+| `index()` | Root `index.md` — the map of the whole knowledge base (start here); each entry carries the concept's temporal status, evaluated at the optional `as_of` replay instant when one is given, labeled in the output |
 | `list(filter_type="", limit=50, tier_filter="")` | Concept inventory: id, type, trust tier, title; optional type filter and trust-tier filter (`unverified` / `machine-confirmed` / `human-reviewed`); a non-current concept carries its temporal status on its row (e.g. `_(superseded by `policy-v2`)_`) |
 | `search(query, limit=10)` | Keyword search over id / title / description / tags / body, ranked by field; a non-current hit carries its temporal status on its row, evaluated at the `as_of` replay instant when one is given |
 | `get(concept_id)` | Full concept: YAML frontmatter + markdown body; a non-current concept carries a note line under the document (e.g. `_Note: **policy-v1** is superseded by `policy-v2`._`), evaluated at the `as_of` replay instant when one is given |
