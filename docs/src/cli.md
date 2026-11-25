@@ -611,6 +611,9 @@ hint: Install it with: pip install "okfsmith[mcp]" (or pipx: pipx install "okfsm
 | Flag | What it does |
 |---|---|
 | `--transport <stdio\|sse\|streamable-http>` | Transport (default `stdio`). |
+| `--read-only` | Explicitly select read-only mode: only the nine read tools are registered (the default, stated on the record). Cannot be combined with `--allow-writes`. |
+| `--allow-writes` | Register the four governed write-back tools (`preview_write_concept`, `write_concept`, `update_concept`, `audit_log`). |
+| `--allow-trust-downgrade` | Permit `update_concept` to honor an agent-passed `downgrade_trust=true` on human-reviewed concepts. Without this flag, trust downgrades are rejected even when writes are allowed. |
 
 The server exposes thirteen **MCP tools** — nine read tools (`index`, `list`, `search`, `get`, `neighbors`, `traverse`, `provenance`, `diff`, `validate`) plus four governed write-back tools (`preview_write_concept`, `write_concept`, `update_concept`, `audit_log`). These are tools for connected agents; `search` is also a CLI command (`okfsmith search`), while `get` remains MCP-only (the CLI analogue is `read`). Client config examples for Claude Code/Desktop, Cursor, Copilot, and Gemini are on [MCP server](mcp.html).
 

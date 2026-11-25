@@ -4,6 +4,20 @@ eyebrow: Troubleshooting
 description: Release history for okfsmith — what changed in each version, what's coming next, and upgrade notes. Follows Keep a Changelog and Semantic Versioning.
 ---
 
+## [0.38.0] — 2026-11-25 {#v0-38-0}
+
+### Added {#v0-38-0-added}
+
+- **MCP server gains an explicit `--read-only` flag:** `okfsmith mcp
+  ./kb --read-only` selects read-only mode explicitly — only the nine
+  read tools are registered — so the mode is pinned in the launch
+  command instead of relying on the default. Combined with
+  `--allow-writes` it is a clean `error [conflicting-flags]`, never a
+  traceback, and the same contradiction raises `ValueError` from
+  `build_server` / `serve`. The stale `docs/src/mcp.md` line claiming
+  the flag was "not currently implemented" is corrected, and the `mcp`
+  flag table in `docs/src/cli.md` lists the new flag.
+
 ## [0.37.2] — 2026-11-24 {#v0-37-2}
 
 ### Added {#v0-37-2-added}

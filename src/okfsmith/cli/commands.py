@@ -1922,6 +1922,12 @@ def mcp(
         help="Register the write-back tools (preview_write_concept, "
         "write_concept, update_concept, audit_log). Default is read-only.",
     ),
+    read_only: bool = typer.Option(
+        False,
+        "--read-only",
+        help="Explicitly select read-only mode: only the nine read tools "
+        "are registered. Cannot be combined with --allow-writes.",
+    ),
     allow_trust_downgrade: bool = typer.Option(
         False,
         "--allow-trust-downgrade",
@@ -1949,9 +1955,11 @@ def mcp(
 ) -> None:
     """Serve the bundle over MCP (Model Context Protocol).
 
-    The server is read-only by default. Pass --allow-writes to enable the
-    write-back tools, and --allow-trust-downgrade to additionally permit
-    trust downgrades of human-reviewed concepts.
+    The server is read-only by default. Pass --read-only to select
+    read-only mode explicitly, --allow-writes to enable the write-back
+    tools instead, and --allow-trust-downgrade to additionally permit
+    trust downgrades of human-reviewed concepts. --read-only and
+    --allow-writes cannot be combined.
 
     Network transports (sse, streamable-http) require bearer auth: every
     HTTP request must carry `Authorization: Bearer <token>`. The token
@@ -1961,6 +1969,7 @@ def mcp(
     \b
     Examples:
         okfsmith mcp ./kb
+        okfsmith mcp ./kb --read-only
         okfsmith mcp ./kb --allow-writes
         okfsmith mcp ./kb --transport streamable-http
         uvx --with "okfsmith[mcp]" okfsmith mcp ./kb
@@ -1969,8 +1978,15 @@ def mcp(
         _require_bundle_dir(bundle)
     except CliError as exc:
         _handle_cli_error(exc, False)
+    if allow_writes and read_only:
+        fail(
+            "conflicting-flags",
+            "--read-only cannot be combined with --allow-writes.",
+            "Use --read-only for the nine read tools only, or "
+            "--allow-writes to enable the write-back tools.",
+        )
     # serve(bundle_path, transport, *, allow_writes, allow_trust_downgrade,
-    #       auth_token, host, port) -> None
+    #       read_only, auth_token, host, port) -> None
     serve = _lazy_attr("okfsmith.mcp_server", "serve")
     try:
         serve(
@@ -1978,6 +1994,7 @@ def mcp(
             transport,
             allow_writes=allow_writes,
             allow_trust_downgrade=allow_trust_downgrade,
+            read_only=read_only,
             auth_token=auth_token,
             host=host,
             port=port,

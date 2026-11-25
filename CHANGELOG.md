@@ -5,6 +5,28 @@ follow SemVer.
 
 ## [Unreleased]
 
+## [0.38.0] - 2026-11-25
+
+### Added
+
+- **MCP server gains an explicit `--read-only` flag:** the server was
+  already read-only by default (the write-back tools only appear with
+  `--allow-writes`), but the docs told users the only way to get a
+  strictly read-only server was to mount the bundle read-only at the
+  filesystem level, and promised a future `--read-only` flag that did
+  not exist. `okfsmith mcp ./kb --read-only` now selects read-only
+  mode explicitly — the server registers only the nine read tools
+  (`index`, `list`, `search`, `get`, `neighbors`, `traverse`,
+  `provenance`, `diff`, `validate`) — so the mode is pinned in the
+  launch command instead of relying on the default. Combining it with
+  `--allow-writes` is a clean `error [conflicting-flags]`, never a
+  traceback, and the same contradiction raises `ValueError` from
+  `build_server` / `serve` for API callers. Pinned by tests in
+  `tests/test_cli.py` (flag forwarding, clean conflict error) and
+  `tests/test_mcp.py` (nine-tool registration, `ValueError` on the
+  contradictory combination); `docs/src/mcp.md` and the `mcp` flag
+  table in `docs/src/cli.md` are corrected to match.
+
 ## [0.37.2] - 2026-11-24
 
 ### Added

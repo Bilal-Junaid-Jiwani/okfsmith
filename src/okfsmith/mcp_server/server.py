@@ -3771,6 +3771,7 @@ def build_server(
     *,
     allow_writes: bool = False,
     allow_trust_downgrade: bool = False,
+    read_only: bool = False,
 ):
     """Build (but do not start) the MCP server for the bundle at *bundle_path*.
 
@@ -3794,7 +3795,18 @@ def build_server(
     agent-passed ``downgrade_trust=true`` unless
     ``allow_trust_downgrade=True``: trust downgrades of human-reviewed
     concepts are operator-gated, never agent-controlled.
+
+    Pass ``read_only=True`` to select read-only mode explicitly — the same
+    nine-tool server the default builds, stated on the record so a client
+    config or launch script pins the mode instead of relying on the
+    default. ``read_only=True`` together with ``allow_writes=True`` is a
+    contradiction and raises :class:`ValueError`.
     """
+    if allow_writes and read_only:
+        raise ValueError(
+            "--read-only conflicts with allow_writes=True: a server cannot "
+            "be both read-only and write-enabled"
+        )
     if str(bundle_path).strip() == "":
         raise ValueError("bundle_path must not be empty")
     root = Path(bundle_path)
@@ -3908,6 +3920,7 @@ def serve(
     *,
     allow_writes: bool = False,
     allow_trust_downgrade: bool = False,
+    read_only: bool = False,
     auth_token: str | None = None,
     host: str = "127.0.0.1",
     port: int = 8000,
@@ -3919,7 +3932,9 @@ def serve(
     ``"streamable-http"`` may be passed through.
 
     The server is read-only by default; see :func:`build_server` for the
-    ``allow_writes`` / ``allow_trust_downgrade`` security flags.
+    ``allow_writes`` / ``allow_trust_downgrade`` / ``read_only`` security
+    flags. ``read_only=True`` selects read-only mode explicitly; combined
+    with ``allow_writes=True`` it raises :class:`ValueError`.
 
     Network transports (``"sse"``, ``"streamable-http"``) require bearer
     auth: the token is taken from ``auth_token`` (``--auth-token``), then
@@ -3931,6 +3946,7 @@ def serve(
         bundle_path,
         allow_writes=allow_writes,
         allow_trust_downgrade=allow_trust_downgrade,
+        read_only=read_only,
     )
     name = transport.value if isinstance(transport, Enum) else str(transport)
     if name in _NETWORK_TRANSPORTS:

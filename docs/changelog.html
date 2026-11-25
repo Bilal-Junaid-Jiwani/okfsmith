@@ -97,6 +97,11 @@
       <details class="toc-mobile">
         <summary>On this page</summary>
         <ul class="toc-list">
+<li><a href="#v0-38-0">[0.38.0] — 2026-11-25</a>
+<ul class="toc-sub">
+<li><a href="#v0-38-0-added">Added</a></li>
+</ul>
+</li>
 <li><a href="#v0-37-2">[0.37.2] — 2026-11-24</a>
 <ul class="toc-sub">
 <li><a href="#v0-37-2-added">Added</a></li>
@@ -491,7 +496,13 @@
         </button>
       </div>
       <div class="prose">
-        <h2 id="v0-37-2">[0.37.2] — 2026-11-24</h2>
+        <h2 id="v0-38-0">[0.38.0] — 2026-11-25</h2>
+<h3 id="v0-38-0-added">Added</h3>
+<ul>
+<li><strong>MCP server gains an explicit <code>--read-only</code> flag:</strong> <code>okfsmith mcp ./kb --read-only</code> selects read-only mode explicitly — only the nine read tools are registered — so the mode is pinned in the launch command instead of relying on the default. Combined with <code>--allow-writes</code> it is a clean <code>error [conflicting-flags]</code>, never a traceback, and the same contradiction raises <code>ValueError</code> from <code>build_server</code> / <code>serve</code>. The stale <code>docs/src/mcp.md</code> line claiming the flag was "not currently implemented" is corrected, and the <code>mcp</code> flag table in <code>docs/src/cli.md</code> lists the new flag.
+</li>
+</ul>
+<h2 id="v0-37-2">[0.37.2] — 2026-11-24</h2>
 <h3 id="v0-37-2-added">Added</h3>
 <ul>
 <li><strong>MCP <code>index</code> gains <code>as_of</code> temporal replay:</strong> <code>index</code> was the last MCP read tool without one — an agent asking what the bundle believed on a past date got the present's answers on every entry, so a superseded policy read exactly like live knowledge. The new optional <code>as_of</code> (ISO-8601 date or datetime, last in the signature so historic positional calls keep working) replays each entry's temporal status at that instant instead of now — a non-current concept carries its status on its entry line (<code>_(superseded by </code>policy-v2<code>)_</code> / <code>_(expired)_</code> / <code>_(not yet valid)_</code>), and the replay instant is labeled (<code>_Replayed as of …._</code>) like the other read tools. Entries are annotated at now when no <code>as_of</code> is given, matching <code>list</code> and <code>diff</code>; entries whose link target is not a concept in the bundle, and every non-entry line, pass through unchanged, so a hand-written index is never rewritten, only annotated. A blank <code>as_of</code> is ignored (evaluates at now, as before); an unparseable one returns a clean error, never an exception — the same wording the other tools already return. Pinned by tests in <code>tests/test_mcp_expansion.py</code> (past/future replay, datetime form, invalid and blank values, non-entry pass-through, and a paging round trip carrying the replay label).
@@ -1193,6 +1204,11 @@
     <aside class="toc" aria-label="On this page">
       <p class="toc-title">On this page</p>
       <ul class="toc-list">
+<li><a href="#v0-38-0">[0.38.0] — 2026-11-25</a>
+<ul class="toc-sub">
+<li><a href="#v0-38-0-added">Added</a></li>
+</ul>
+</li>
 <li><a href="#v0-37-2">[0.37.2] — 2026-11-24</a>
 <ul class="toc-sub">
 <li><a href="#v0-37-2-added">Added</a></li>

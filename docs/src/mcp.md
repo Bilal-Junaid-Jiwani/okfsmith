@@ -88,10 +88,13 @@ without being able to quietly rewrite it:
 - **Atomic.** Creates claim the destination atomically (exactly one
   concurrent writer wins); a refused duplicate writes no audit entry.
 
-If you want a strictly read-only server today, do not hand the agent a
-writable bundle directory: serve a copy, or mount the bundle read-only at
-the filesystem level. A future `--read-only` server flag is not currently
-implemented.
+If you want a strictly read-only server, pass `--read-only` — it selects
+read-only mode explicitly, so the server registers only the nine read
+tools and the choice is pinned in the launch command instead of relying
+on the default. `--read-only` cannot be combined with `--allow-writes`:
+the two together are a clean `error [conflicting-flags]`, never a
+traceback. The server is read-only by default even without the flag;
+`--read-only` exists to state the mode on the record.
 
 A typical agent session looks like this:
 

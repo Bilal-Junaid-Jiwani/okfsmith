@@ -178,6 +178,32 @@ def test_build_server_registers_tools() -> None:
         assert tool.description and len(tool.description.split()) > 10, tool.name
 
 
+def test_build_server_read_only_flag_registers_nine_tools() -> None:
+    import asyncio
+
+    # --read-only selects the same nine-tool server explicitly, so a
+    # client config can pin the mode instead of relying on the default.
+    server = build_server(FIXTURE_BUNDLE, read_only=True)
+    registered = asyncio.run(server._list_tools())
+    tool_names = {t.name for t in registered}
+    assert tool_names == {
+        "index",
+        "list",
+        "search",
+        "get",
+        "neighbors",
+        "traverse",
+        "provenance",
+        "diff",
+        "validate",
+    }
+
+
+def test_build_server_read_only_conflicts_with_allow_writes() -> None:
+    with pytest.raises(ValueError, match="conflicts with allow_writes"):
+        build_server(FIXTURE_BUNDLE, allow_writes=True, read_only=True)
+
+
 def test_build_server_missing_bundle() -> None:
     with pytest.raises(FileNotFoundError):
         build_server(FIXTURE_BUNDLE / "does-not-exist")

@@ -723,6 +723,7 @@ def test_mcp_with_stub_server(stub_mcp, tmp_path):
     assert stub_mcp.calls == [
         (str(FIXTURES / "valid"), "stdio",
          {"allow_writes": False, "allow_trust_downgrade": False,
+          "read_only": False,
           "auth_token": None, "host": "127.0.0.1", "port": 8000})
     ]
 
@@ -738,8 +739,34 @@ def test_mcp_flags_forward_to_serve(stub_mcp, tmp_path):
     assert stub_mcp.calls == [
         (str(FIXTURES / "valid"), "stdio",
          {"allow_writes": True, "allow_trust_downgrade": True,
+          "read_only": False,
           "auth_token": "sekret", "host": "0.0.0.0", "port": 9999})
     ]
+
+
+def test_mcp_read_only_forwarded_to_serve(stub_mcp, tmp_path):
+    result = runner.invoke(
+        app, ["mcp", str(FIXTURES / "valid"), "--read-only"]
+    )
+    assert result.exit_code == 0, result.output
+    assert stub_mcp.calls == [
+        (str(FIXTURES / "valid"), "stdio",
+         {"allow_writes": False, "allow_trust_downgrade": False,
+          "read_only": True,
+          "auth_token": None, "host": "127.0.0.1", "port": 8000})
+    ]
+
+
+def test_mcp_read_only_conflicts_with_allow_writes(stub_mcp, tmp_path):
+    result = runner.invoke(
+        app,
+        ["mcp", str(FIXTURES / "valid"), "--read-only", "--allow-writes"],
+    )
+    assert result.exit_code == 1, result.output
+    assert "conflicting-flags" in result.output
+    assert "--read-only cannot be combined with --allow-writes" in result.output
+    assert "Traceback" not in result.output
+    assert stub_mcp.calls == []
 
 
 def test_mcp_missing_bundle():

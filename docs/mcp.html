@@ -157,7 +157,7 @@ okfsmith mcp ./kb --transport streamable-http  # streamable HTTP
 <li><strong>Atomic.</strong> Creates claim the destination atomically (exactly one concurrent writer wins); a refused duplicate writes no audit entry.
 </li>
 </ul>
-<p>If you want a strictly read-only server today, do not hand the agent a writable bundle directory: serve a copy, or mount the bundle read-only at the filesystem level. A future <code>--read-only</code> server flag is not currently implemented.</p>
+<p>If you want a strictly read-only server, pass <code>--read-only</code> — it selects read-only mode explicitly, so the server registers only the nine read tools and the choice is pinned in the launch command instead of relying on the default. <code>--read-only</code> cannot be combined with <code>--allow-writes</code>: the two together are a clean <code>error [conflicting-flags]</code>, never a traceback. The server is read-only by default even without the flag; <code>--read-only</code> exists to state the mode on the record.</p>
 <p>A typical agent session looks like this:</p>
 <ol>
 <li><code>index</code> — "what's in this bundle?"
