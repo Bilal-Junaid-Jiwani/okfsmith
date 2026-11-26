@@ -60,7 +60,7 @@ def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _replay_at(as_of: str | None) -> datetime:
+def _replay_at(as_of: str | None, *, source: str = "Query") -> datetime:
     """Replay instant for a dashboard ``?as_of=`` query parameter.
 
     Blank (or absent) means "now", exactly like the CLI's ``--as-of``
@@ -70,7 +70,9 @@ def _replay_at(as_of: str | None) -> datetime:
     instant instead of silently returning the present. Shared by
     ``/search`` and the three bundle read endpoints (concepts listing,
     concept detail, graph), which used to evaluate temporal status only
-    at now.
+    at now — and by the ``POST /validate/runs`` and ``POST /eval/runs``
+    bodies, which pass ``source="Body"`` so the error names the JSON
+    field instead of a query parameter.
     """
     from okfsmith.core import temporal as _temporal
 
@@ -80,7 +82,7 @@ def _replay_at(as_of: str | None) -> datetime:
     if moment is None:
         raise err(
             "bad-as-of",
-            f"Query 'as_of' {as_of!r} is not an ISO-8601 date or datetime.",
+            f"{source} 'as_of' {as_of!r} is not an ISO-8601 date or datetime.",
             "Pass e.g. ?as_of=2025-06-01 or ?as_of=2025-06-01T12:00:00Z.",
             400,
         )
@@ -1518,11 +1520,17 @@ def create_app(workspace: Path, token: str) -> FastAPI:
 
     _RULE_CODES = [f"E00{i}" for i in range(1, 5)] + [f"W{i:03d}" for i in range(1, 21)]
 
-    def _validate_worker(job: _jobs.Job, root: Path) -> None:
+    def _validate_worker(
+        job: _jobs.Job, root: Path, as_of: datetime | None = None
+    ) -> None:
         from okfsmith.validate import check as _validate_check
 
         bundle = Bundle.load(root)
-        report = _validate_check(bundle=bundle)
+        # ``as_of`` replays the clock-dependent warnings (W006 staleness,
+        # W020 future ``last_verified``) at that instant — the dashboard
+        # analogue of ``okfsmith validate --as-of``; without it the run
+        # evaluates at now, exactly as before.
+        report = _validate_check(bundle=bundle, as_of=as_of)
         by_rule: dict[str, dict[str, Any]] = {
             code: {"rule": code, "status": "pass", "messages": [], "concepts": []}
             for code in _RULE_CODES
@@ -1559,6 +1567,7 @@ def create_app(workspace: Path, token: str) -> FastAPI:
             "summary": {"pass": n_pass, "fail": n_fail, "warn": n_warn},
             "rules": rules,
             "conformant": report.is_conformant,
+            "as_of": as_of.isoformat() if as_of is not None else None,
         }
         job.finish("done", detail=(f"{n_fail} failing, {n_warn} warning, "
                                    f"{n_pass} passing rule(s)"))
@@ -1573,8 +1582,13 @@ def create_app(workspace: Path, token: str) -> FastAPI:
         if not bundle_id:
             raise err("bad-request", "'bundle_id' is required.", None, 400)
         _, root = _load_bundle_or_404(bundle_id)
+        # Optional replay instant (the dashboard analogue of
+        # ``okfsmith validate --as-of``): validated up front so a bad
+        # value is a 400 instead of a failed background job, and resolved
+        # to now when absent so the run always reports the instant used.
+        replay_at = _replay_at((body or {}).get("as_of"), source="Body")
         job = _submit_job(
-            "validate", bundle_id, lambda j: _validate_worker(j, root)
+            "validate", bundle_id, lambda j: _validate_worker(j, root, replay_at)
         )
         return {"run_id": job.job_id}
 
@@ -1600,6 +1614,7 @@ def create_app(workspace: Path, token: str) -> FastAPI:
             "bundle_id": job.bundle_id,
             "status": job.status,
             "finished_at": job.finished_at,
+            "as_of": report.get("as_of"),
             "summary": {
                 "pass": summary.get("pass", 0),
                 "fail": summary.get("fail", 0),
@@ -1616,13 +1631,21 @@ def create_app(workspace: Path, token: str) -> FastAPI:
         s = scores.get(name)
         return round(s.value, 4) if s is not None else 0.0
 
-    def _eval_worker(job: _jobs.Job, root: Path, fail_under: float) -> None:
+    def _eval_worker(
+        job: _jobs.Job,
+        root: Path,
+        fail_under: float,
+        as_of: datetime | None = None,
+    ) -> None:
         from okfsmith import eval as _eval
 
         try:
             bundle = Bundle.load(root)
+            # ``as_of`` replays retrieval at that instant — the dashboard
+            # analogue of ``okfsmith eval --as-of``; without it the run
+            # evaluates at now, exactly as before.
             report = _eval.run_eval(
-                bundle, root, no_llm=True, fail_under=fail_under
+                bundle, root, no_llm=True, fail_under=fail_under, as_of=as_of
             )
         except _eval.EvalError as exc:
             msg = f"{exc.code}: {exc}"
@@ -1664,6 +1687,7 @@ def create_app(workspace: Path, token: str) -> FastAPI:
             "triad": triad,
             "questions": questions,
             "overall": round(report.overall(), 2),
+            "as_of": as_of.isoformat() if as_of is not None else None,
         }
         job.finish("done", detail=f"overall {report.overall():.1f}, CI gate {verdict}")
 
@@ -1697,8 +1721,13 @@ def create_app(workspace: Path, token: str) -> FastAPI:
             raise err("bad-request", "'fail_under' must be a number 0-100.", None, 400) from None
         if not 0.0 <= fail_under <= 100.0:
             raise err("bad-request", "'fail_under' must be between 0 and 100.", None, 400)
+        # Optional replay instant (the dashboard analogue of
+        # ``okfsmith eval --as-of``): validated up front so a bad value
+        # is a 400 instead of a failed background job, and resolved to
+        # now when absent so the run always reports the instant used.
+        replay_at = _replay_at((body or {}).get("as_of"), source="Body")
         job = _submit_job(
-            "eval", bundle_id, lambda j: _eval_worker(j, root, fail_under)
+            "eval", bundle_id, lambda j: _eval_worker(j, root, fail_under, replay_at)
         )
         return {"run_id": job.job_id}
 
@@ -1709,6 +1738,7 @@ def create_app(workspace: Path, token: str) -> FastAPI:
             "bundle_id": job.bundle_id,
             "status": job.status,
             "started_at": job.started_at,
+            "as_of": report.get("as_of"),
             "ci_gate": report.get("ci_gate"),
             "triad": report.get("triad"),
         }

@@ -450,6 +450,29 @@ def _write_search_temporal_pair(bundle_dir: Path) -> None:
         },
         "The new refund policy allows returns within 30 days of purchase.",
     )
+def _write_stale_concept(bundle_dir: Path) -> None:
+    """Concept whose ``stale_after`` (2026-01-01) has passed at now but
+    not at a 2025 replay — mirroring the CLI ``validate --as-of`` fixture
+    in ``tests/test_cli_asof_replay.py``. Its W006 warning is the
+    observable proof a dashboard validate run replayed the clock.
+    """
+    bundle = Bundle(bundle_dir)
+    bundle.write_concept(
+        "old-memo",
+        {
+            "title": "Old Memo",
+            "type": "note",
+            "stale_after": "2026-01-01T00:00:00+00:00",
+        },
+        "A memo that went stale at the start of 2026.",
+    )
+
+
+def _rule_entry(run: dict, code: str) -> dict:
+    """The per-rule entry for *code* in a validate-run payload."""
+    matches = [rule for rule in run["rules"] if rule["rule"] == code]
+    assert matches, f"rule {code!r} missing from {run['rules']}"
+    return matches[0]
 
 
 # ------------------------------------------------------------------- search --
@@ -998,6 +1021,51 @@ class TestValidate:
             tallied[rule["status"]] += 1
         assert summary == tallied
 
+    def test_as_of_invalid_value_is_400(self, client):
+        c, headers = client
+        bid = _bundle_id(c, headers)
+        r = c.post(
+            "/api/v1/validate/runs",
+            json={"bundle_id": bid, "as_of": "not-a-date"},
+            headers=headers,
+        )
+        assert r.status_code == 400
+        _error_shape(r.json())
+        assert r.json()["error"] == "bad-as-of"
+
+    def test_as_of_replays_stale_warning(self, client, workspace):
+        _write_stale_concept(workspace / "kb")
+        c, headers = client
+        bid = _bundle_id(c, headers)
+
+        # No replay: the run evaluates at now, so the memo is stale and
+        # the envelope reports the instant used.
+        r = c.post("/api/v1/validate/runs", json={"bundle_id": bid}, headers=headers)
+        assert r.status_code == 202
+        run = _wait_for(
+            lambda: c.get(f"/api/v1/validate/runs/{r.json()['run_id']}", headers=headers).json()
+        )
+        assert run["status"] == "done"
+        assert run["as_of"], "a run without as_of still reports the instant used"
+        stale = _rule_entry(run, "W006")
+        assert stale["status"] == "warn"
+        assert "stale" in stale["message"]
+
+        # Replayed to June 2025, before stale_after, the same memo is
+        # fresh — the dashboard analogue of ``validate --as-of``.
+        r = c.post(
+            "/api/v1/validate/runs",
+            json={"bundle_id": bid, "as_of": "2025-06-01"},
+            headers=headers,
+        )
+        assert r.status_code == 202
+        run = _wait_for(
+            lambda: c.get(f"/api/v1/validate/runs/{r.json()['run_id']}", headers=headers).json()
+        )
+        assert run["status"] == "done"
+        assert run["as_of"] == "2025-06-01T00:00:00+00:00"
+        assert _rule_entry(run, "W006")["status"] == "pass"
+
 
 # --------------------------------------------------------------------- eval --
 class TestEval:
@@ -1030,6 +1098,41 @@ class TestEval:
         assert run["questions"], "questions must come from the real golden set"
         runs = c.get("/api/v1/eval/runs", headers=headers).json()["runs"]
         assert any(entry["run_id"] == run["run_id"] for entry in runs)
+    def test_as_of_invalid_value_is_400(self, client, workspace):
+        c, headers = client
+        bid = _bundle_id(c, headers)
+        result = runner.invoke(cli_app, ["eval", str(workspace / "kb"), "--init-sample"])
+        assert result.exit_code == 0, result.output
+        r = c.post(
+            "/api/v1/eval/runs",
+            json={"bundle_id": bid, "as_of": "not-a-date"},
+            headers=headers,
+        )
+        assert r.status_code == 400
+        _error_shape(r.json())
+        assert r.json()["error"] == "bad-as-of"
+
+    def test_as_of_is_reported_on_run(self, client, workspace):
+        c, headers = client
+        bid = _bundle_id(c, headers)
+        # Real golden set via the real CLI sample writer.
+        result = runner.invoke(cli_app, ["eval", str(workspace / "kb"), "--init-sample"])
+        assert result.exit_code == 0, result.output
+        r = c.post(
+            "/api/v1/eval/runs",
+            json={"bundle_id": bid, "as_of": "2025-06-01"},
+            headers=headers,
+        )
+        assert r.status_code == 202
+        run = _wait_for(
+            lambda: c.get(f"/api/v1/eval/runs/{r.json()['run_id']}", headers=headers).json(),
+            timeout=120.0,
+        )
+        assert run["status"] == "done"
+        assert run["as_of"] == "2025-06-01T00:00:00+00:00"
+        runs = c.get("/api/v1/eval/runs", headers=headers).json()["runs"]
+        listed = [e for e in runs if e["run_id"] == run["run_id"]]
+        assert listed and listed[0]["as_of"] == "2025-06-01T00:00:00+00:00"
 
 
 # ------------------------------------------------------------------- doctor --

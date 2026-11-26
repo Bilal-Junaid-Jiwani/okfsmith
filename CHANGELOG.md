@@ -5,6 +5,29 @@ follow SemVer.
 
 ## [Unreleased]
 
+## [0.39.0] - 2026-11-26
+
+### Added
+
+- **Dashboard validate and eval runs gain `as_of` temporal replay:**
+  `POST /api/v1/validate/runs` and `POST /api/v1/eval/runs` accept an
+  optional `as_of` (ISO-8601 date or datetime) in the JSON body — the
+  dashboard analogue of `okfsmith validate --as-of` and `okfsmith eval
+  --as-of`. Until now a dashboard run always evaluated at now: a
+  validate run filed its clock-dependent warnings (W006 staleness, W020
+  future `last_verified`) against the present even when the question was
+  "was this bundle conformant on 2025-06-01", and an eval run always
+  retrieved at now. A validate run now replays W006/W020 at the given
+  instant and an eval run replays retrieval at it; every run reports
+  the instant used as `as_of` in its payload (resolved to now when the
+  field is absent), and an unparseable value is a `400 bad-as-of`
+  before any job is queued — the same code the read endpoints already
+  use. Pinned by tests in `tests/test_dashboard_api.py` (bad `as_of`
+  is a 400 on both endpoints; a stale concept warns W006 at now and
+  passes replayed to 2025-06-01; an eval run echoes the requested
+  instant); `docs/src/temporality.md` records the new fields in the
+  dashboard row.
+
 ## [0.38.0] - 2026-11-25
 
 ### Added

@@ -4,6 +4,19 @@ eyebrow: Troubleshooting
 description: Release history for okfsmith — what changed in each version, what's coming next, and upgrade notes. Follows Keep a Changelog and Semantic Versioning.
 ---
 
+## [0.39.0] — 2026-11-26 {#v0-39-0}
+
+### Added {#v0-39-0-added}
+
+- **Dashboard validate and eval runs gain `as_of` temporal replay:**
+  `POST /api/v1/validate/runs` and `POST /api/v1/eval/runs` accept an
+  optional `as_of` (ISO-8601 date or datetime) in the JSON body — the
+  dashboard analogue of `validate --as-of` / `eval --as-of`. A validate
+  run replays the clock-dependent warnings (W006 staleness, W020 future
+  `last_verified`) at that instant and an eval run replays retrieval at
+  it; each run reports the instant used as `as_of`, and an unparseable
+  value is a `400 bad-as-of` before any job is queued.
+
 ## [0.38.0] — 2026-11-25 {#v0-38-0}
 
 ### Added {#v0-38-0-added}
