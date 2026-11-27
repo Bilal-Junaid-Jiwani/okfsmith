@@ -5,6 +5,37 @@ follow SemVer.
 
 ## [Unreleased]
 
+## [0.40.0] - 2026-11-27
+
+### Added
+
+- **MCP server serves the bundled `okfsmith-build` skill over Skills over
+  MCP:** Anthropic's Skills over MCP (public beta, 24 November 2026;
+  SEP-2640, `io.modelcontextprotocol/skills`) lets a server publish Agent
+  Skills next to its tools, and okfsmith already shipped the skill — it
+  just wasn't reachable from the server. `okfsmith mcp ./kb` now declares
+  the extension in `server/discover` and answers `skills/list` /
+  `skills/get`, with every skill file readable via `resources/read` at
+  `skill://okfsmith-build/...` URIs, each entry carrying the verbatim
+  frontmatter and a complete manifest of SHA-256 digests and sizes — so a
+  client that implements the extension (Claude Code >= 2.1.331, protocol
+  2026-07-28 or later) discovers the init-ingest-validate-serve playbook
+  at connect time instead of needing it copied into its own skill
+  directory; older clients see the `skill://` files as ordinary
+  resources. The skill moved into the package
+  (`src/okfsmith/skills/okfsmith-build/`) so the wheel ships it, and the
+  MCP extra now requires `fastmcp>=4.2` (the version with the native
+  skills provider); an older FastMCP, a missing skill directory, or an
+  invalid bundled skill only logs a warning — the server still starts.
+  An installed package's byte-compiled `__pycache__` is not served as
+  skill content, so the published manifest is identical in every install.
+  Pinned by tests in `tests/test_mcp_skills.py` (extension declared in
+  `server/discover`, listing manifest digests/sizes verified against the
+  files on disk, `skills/get` round trip and unknown-URI error, resource
+  reads byte-identical, served in read-only and write modes, graceful
+  degradation without the skill); `docs/src/mcp.md` documents the
+  extension and `docs/src/skill.md` records the new location.
+
 ## [0.39.0] - 2026-11-26
 
 ### Added

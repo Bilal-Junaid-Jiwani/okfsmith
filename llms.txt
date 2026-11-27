@@ -14,7 +14,7 @@
 - [LLM & no-LLM](docs/llm.md): --no-llm drafts; Ollama default; OKFSMITH_MODEL / OPENAI_API_KEY env vars; llm-unavailable behavior
 - [Validation](docs/validation.md): OKF §11 rules E001–E004 (errors), W001–W015 (warnings), --strict, JSON report schema
 - [MCP](docs/mcp.md): `okfsmith mcp BUNDLE` transports (stdio/sse/streamable-http); tools (index/list/search/get/neighbors/traverse/provenance/diff); client configs for Claude/Cursor/VS Code/Gemini
-- [Skill pack](docs/skill.md): skills/okfsmith-build/SKILL.md — scope and non-goals
+- [Skill pack](docs/skill.md): src/okfsmith/skills/okfsmith-build/SKILL.md — scope and non-goals
 - [Troubleshooting](docs/troubleshooting.md): slice-not-installed, llm-unavailable, not-a-bundle, E001/W001/W002 fixes
 - [FAQ](docs/faq.md): OKF, offline guarantees, license, no-lock-in
 - [Architecture overview](docs/OVERVIEW.md): eight-stage pipeline map

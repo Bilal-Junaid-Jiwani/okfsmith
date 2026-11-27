@@ -36,10 +36,10 @@ capability. `okfsmith-build` covers:
 
 ## Where it lives
 
-In the okfsmith repo at `skills/okfsmith-build/`:
+In the okfsmith package at `src/okfsmith/skills/okfsmith-build/`:
 
 ```
-skills/okfsmith-build/
+src/okfsmith/skills/okfsmith-build/
 ├── SKILL.md                  # the skill: workflow, decision table, gotchas
 ├── references/
 │   ├── okf-v02-cheatsheet.md # condensed v0.2 frontmatter/index/log/linking rules
@@ -48,6 +48,15 @@ skills/okfsmith-build/
 └── scripts/
     └── validate.py           # stdlib-only OKF §11 validator
 ```
+
+> [!NOTE]
+> **No copy needed for MCP clients that speak Skills over MCP** — the
+> `okfsmith mcp` server publishes this skill itself via the
+> `io.modelcontextprotocol/skills` extension (`skills/list` /
+> `skills/get`, files at `skill://okfsmith-build/...`), so a client
+> that implements the extension (Claude Code >= 2.1.331) discovers it
+> at connect time. See [Skills over MCP](mcp.html#skills-over-mcp).
+> Copying below is for agents that don't.
 
 `scripts/validate.py` is the standout: a **stdlib-only validator** that works
 even without okfsmith installed (uses `okfsmith.validate.check` when the
@@ -100,7 +109,7 @@ knowledge format`.
 How the skill gets into an agent depends on the agent. For Claude Code, skills
 live in `~/.claude/skills/` (personal) or `<project>/.claude/skills/`
 (project); for other agents, see their skill/plugin docs. Copy or symlink the
-whole `skills/okfsmith-build/` directory — the skill is self-contained, and
+whole `src/okfsmith/skills/okfsmith-build/` directory — the skill is self-contained, and
 `references/` is loaded one level deep on demand. Nothing needs to be
 installed on PyPI for the skill itself; the agent needs `okfsmith`
 (`pip install okfsmith`) for the `init`/`ingest`/`validate`/`mcp` commands.

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "okfsmith"
-version = "0.39.0"
+version = "0.40.0"
 description = "CLI that forges PDFs, markdown, and wikis into Open Knowledge Format (OKF) knowledge bundles"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -73,8 +73,12 @@ okfsmith = "okfsmith.cli.app:app"
 [project.optional-dependencies]
 # Floor >=3.2 is a SECURITY requirement: fastmcp<3.2 has published
 # advisories (PYSEC-2026-2474/2475/2476, GHSA-rcfx-77hg-w2wv) that fail
-# the pip-audit gate in CI.
-mcp = ["fastmcp>=3.2,<5"]
+# the pip-audit gate in CI. Floor >=4.2 is a FEATURE requirement: the MCP
+# server serves the bundled okfsmith-build skill over the Skills over MCP
+# extension via fastmcp.skills.provider (the old
+# fastmcp.server.providers.skills provider was deprecated in 4.2 and
+# removed in 4.3); older FastMCPs run the server without skills.
+mcp = ["fastmcp>=4.2,<5"]
 ocr = ["docling>=2.130,<3"]
 test = ["pytest>=8,<10"]
 # Office formats (MIT). Floor >=0.1.5 is a SECURITY requirement:
@@ -99,6 +103,14 @@ where = ["src"]
 # "frontend bundle has not been built yet" placeholder (seen on 0.5.1).
 [tool.setuptools.package-data]
 "okfsmith.dashboard" = ["static/*"]
+# The bundled okfsmith-build skill ships inside the wheel so an installed
+# MCP server serves it (Skills over MCP); without this, the wheel would
+# contain only .py files and the skill would be missing at runtime.
+"okfsmith" = [
+    "skills/okfsmith-build/SKILL.md",
+    "skills/okfsmith-build/references/*",
+    "skills/okfsmith-build/scripts/*",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

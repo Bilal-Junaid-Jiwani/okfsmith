@@ -4,6 +4,23 @@ eyebrow: Troubleshooting
 description: Release history for okfsmith — what changed in each version, what's coming next, and upgrade notes. Follows Keep a Changelog and Semantic Versioning.
 ---
 
+## [0.40.0] — 2026-11-27 {#v0-40-0}
+
+### Added {#v0-40-0-added}
+
+- **MCP server serves the bundled `okfsmith-build` skill over Skills over
+  MCP:** `okfsmith mcp ./kb` declares the `io.modelcontextprotocol/skills`
+  extension (SEP-2640, public beta 24 November 2026) in `server/discover`
+  and answers `skills/list` / `skills/get`, with every skill file readable
+  via `resources/read` at `skill://okfsmith-build/...` URIs and a complete
+  manifest of SHA-256 digests and sizes — so a client that implements the
+  extension (Claude Code >= 2.1.331, protocol 2026-07-28 or later)
+  discovers the init-ingest-validate-serve playbook at connect time. The
+  skill moved into the package (`src/okfsmith/skills/okfsmith-build/`) so
+  the wheel ships it, and the MCP extra now requires `fastmcp>=4.2`; an
+  older FastMCP, a missing skill directory, or an invalid bundled skill
+  only logs a warning — the server still starts.
+
 ## [0.39.0] — 2026-11-26 {#v0-39-0}
 
 ### Added {#v0-39-0-added}

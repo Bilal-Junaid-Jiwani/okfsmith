@@ -16,7 +16,7 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
-SKILL_DIR = ROOT / "skills" / "okfsmith-build"
+SKILL_DIR = ROOT / "src" / "okfsmith" / "skills" / "okfsmith-build"
 SKILL_MD = SKILL_DIR / "SKILL.md"
 VALIDATE_PY = SKILL_DIR / "scripts" / "validate.py"
 FIXTURES = ROOT / ".contract" / "fixtures"

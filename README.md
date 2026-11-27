@@ -77,8 +77,9 @@ knowledge usually lives, and that's what okfsmith ingests first:
   reads as live.
 - **One-command MCP server.** `okfsmith mcp ./kb` over stdio, SSE, or
   streamable HTTP.
-- **Skill pack.** `skills/okfsmith-build/SKILL.md` teaches agents the
-  init → ingest → validate → serve loop.
+- **Skill pack.** `src/okfsmith/skills/okfsmith-build/SKILL.md` teaches agents the
+  init → ingest → validate → serve loop — and the MCP server serves it to
+  clients over Skills over MCP, so no copy is needed there.
 
 ## CLI reference
 

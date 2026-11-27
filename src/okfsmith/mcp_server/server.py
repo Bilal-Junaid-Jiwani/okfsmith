@@ -53,6 +53,7 @@ from okfsmith.core.spec import (
     trust_tier,
     utc_now_iso,
 )
+from okfsmith.mcp_server.skills import attach_bundled_skills
 
 #: Regex for markdown links ``[text](target)``; footnote refs ``[^x]`` are
 #: excluded by requiring the char before ``[`` to not be ``^``.
@@ -3801,6 +3802,17 @@ def build_server(
     config or launch script pins the mode instead of relying on the
     default. ``read_only=True`` together with ``allow_writes=True`` is a
     contradiction and raises :class:`ValueError`.
+
+    Skills over MCP (SEP-2640, ``io.modelcontextprotocol/skills``): the
+    server also publishes the bundled ``okfsmith-build`` skill — the
+    init-ingest-validate-serve playbook that ships with the package — via
+    ``skills/list`` / ``skills/get`` and ``skill://`` resources, in every
+    mode (the skill files are read-only content). A client that implements
+    the extension (Claude Code >= 2.1.331, protocol 2026-07-28 or later)
+    discovers it at connect time; older clients see the ``skill://``
+    resources as ordinary resources. Serving the skill never blocks
+    startup: a missing skill directory, a FastMCP older than 4.2, or an
+    invalid bundled skill only logs a warning.
     """
     if allow_writes and read_only:
         raise ValueError(
@@ -3828,6 +3840,10 @@ def build_server(
     if allow_writes:
         for name in _WRITE_TOOL_NAMES:
             server.tool(getattr(tools, name))
+    # Skills over MCP (SEP-2640): publish the bundled okfsmith-build
+    # skill. Served in every mode; never blocks startup (see
+    # okfsmith.mcp_server.skills.attach_bundled_skills).
+    attach_bundled_skills(server)
     return server
 
 

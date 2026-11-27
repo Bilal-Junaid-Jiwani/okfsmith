@@ -30,7 +30,6 @@ import re
 import sys
 from pathlib import Path
 
-
 # ---------------------------------------------------------------------------
 # Optional full engine: okfsmith.validate.check (if the package is installed)
 # ---------------------------------------------------------------------------

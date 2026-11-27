@@ -105,6 +105,38 @@ A typical agent session looks like this:
 5. `traverse` with `billing/retries`, `depth=2` — the wider neighborhood
 6. `provenance` with `billing/retries` — where each claim came from
 
+## Skills over MCP
+
+The server also publishes the bundled **okfsmith-build** skill — the
+init → ingest → validate → serve playbook that ships with the package —
+over **Skills over MCP** (Anthropic public beta, 24 November 2026;
+SEP-2640, extension `io.modelcontextprotocol/skills`). A skill is the
+workflow for using the server, where a tool is one operation: the skill
+says which tools to call, in what order, and what to do when one fails.
+
+- The server declares the extension in `server/discover` and answers
+  `skills/list` (the skill with its verbatim frontmatter and a complete
+  manifest of every file with SHA-256 digest and size) and `skills/get`
+  (one skill by its `SKILL.md` URI).
+- Every skill file is readable with the ordinary `resources/read` at
+  `skill://okfsmith-build/SKILL.md`, plus `references/` (cheatsheet,
+  parsing tiers, MCP recipes) and `scripts/validate.py` under the same
+  prefix.
+- The skill is served in **every mode** — read-only default,
+  `--read-only`, and `--allow-writes` — because the files are read-only
+  content. It needs `fastmcp>=4.2` (the `mcp` extra's floor); an older
+  FastMCP, a missing skill directory, or an invalid bundled skill only
+  logs a warning — the server still starts.
+
+A client needs the extension too: Claude Code >= 2.1.331 on protocol
+2026-07-28 or later discovers the skill at connect time and loads it on
+demand, so no copy of the skill into the client's own skill directory is
+needed. Clients without the extension see the `skill://` files as
+ordinary resources. The skill itself lives in the package at
+`src/okfsmith/skills/okfsmith-build/` (see [Agent skill
+pack](skill.html)); copying it into an agent's skill directory is still
+the path for agents that don't speak Skills over MCP.
+
 ## Evidence budgets
 
 The read tools accept three evidence-budget parameters so agents get bounded
