@@ -28,6 +28,7 @@ okfsmith validate BUNDLE [--format text|json] [--strict]
 okfsmith list BUNDLE [--format text|json] [--tier unverified|machine-confirmed|human-reviewed]
 okfsmith read BUNDLE CONCEPT_ID [--format text|json]
 okfsmith graph BUNDLE [--format text|json|mermaid|html] [--output FILE]
+okfsmith diff BUNDLE [--against OTHER] [--as-of DATE] [--format text|json]
 okfsmith mcp BUNDLE [--transport stdio|sse|streamable-http]
 okfsmith doctor
 ```

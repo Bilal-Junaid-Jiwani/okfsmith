@@ -1904,6 +1904,204 @@ def _print_graph_text(bundle: Bundle, data: dict) -> None:
         typer.echo("  (none)")
 
 
+def _diff_temporal_note(
+    temporal_status: str | None, superseded_by: str | None
+) -> str:
+    """MCP-style temporal suffix for a diff row (``""`` when current).
+
+    Mirrors the MCP ``diff`` tool's row notes so the two surfaces agree on
+    the same comparison: a non-current concept never reads as live.
+    """
+    if temporal_status == "superseded":
+        return f" _(superseded by `{superseded_by}`)_"
+    if temporal_status == "expired":
+        return " _(expired)_"
+    if temporal_status == "not_yet_valid":
+        return " _(not yet valid)_"
+    return ""
+
+
+# ---------------------------------------------------------------------------
+# diff
+# ---------------------------------------------------------------------------
+
+
+@app.command(rich_help_panel=PANEL_KNOWLEDGE)
+@_cli
+def diff(
+    bundle: Path = typer.Argument(..., help="Bundle directory to diff."),
+    against: Path | None = typer.Option(
+        None,
+        "--against",
+        help="Bundle directory to compare against (previous state). "
+        "Without it, diffs against the sync-state.json snapshot recorded "
+        "by the last sync.",
+    ),
+    as_of: str | None = typer.Option(
+        None,
+        "--as-of",
+        help="Replay the diff at a past/future instant (ISO-8601 date or "
+        "datetime): validity windows and supersession chains are evaluated "
+        "at that instant instead of now.",
+    ),
+    output_format: ValidateFormat = typer.Option(
+        ValidateFormat.text, "--format", help="Output format: text or json."
+    ),
+) -> None:
+    """Diff a bundle against another bundle or its sync snapshot.
+
+    Added = concepts only in this bundle, removed = concepts only in the
+    other state, changed = same id with a different body (or title).
+    The MCP ``diff`` tool renders this same comparison; the CLI adds a
+    machine-readable ``--format json`` form. Non-current concepts carry
+    their temporal status on the row, evaluated at ``--as-of`` when given.
+
+    \\b
+    Examples:
+        okfsmith diff ./kb --against ./kb-backup
+        okfsmith diff ./kb
+        okfsmith diff ./kb --against ./kb-old --as-of 2025-06-01
+        okfsmith diff ./kb --format json
+    """
+    from okfsmith.core import diff as _diffmod
+
+    as_json = output_format == "json"
+    moment = _parse_as_of(as_of)
+    try:
+        _require_bundle_dir(bundle)
+    except CliError as exc:
+        _handle_cli_error(exc, as_json)
+    bundle_path = bundle
+    bundle = _load_bundle_for_read(bundle_path)
+    if against is not None:
+        if not against.is_dir():
+            raise CliError(
+                "bad-against",
+                f"`against` is not a directory: {against!r}.",
+                "Pass a bundle directory to compare against.",
+            )
+        scan_error = _diffmod.validate_against_dir(against)
+        if scan_error is not None:
+            raise CliError(
+                "bad-against",
+                scan_error,
+                "Pass a bundle directory, not a filesystem root.",
+            )
+        other = _load_bundle_for_read(against)
+        result = _diffmod.diff_bundles(bundle, other, as_of=moment)
+    else:
+        try:
+            result = _diffmod.diff_against_sync_state(bundle, as_of=moment)
+        except _diffmod.DiffError as exc:
+            raise CliError(exc.code, exc.message, exc.hint) from None
+    moment = result.as_of
+    assert moment is not None  # core always resolves as_of to an instant
+    if as_json:
+        payload: dict[str, Any] = {
+            "mode": result.mode,
+            "against": str(against) if against is not None else None,
+            "as_of": moment.isoformat(),
+            "added": [
+                {
+                    "id": row.id,
+                    "title": row.title,
+                    "sha256": row.sha256,
+                    "temporal_status": row.temporal_status,
+                    "superseded_by": row.superseded_by,
+                }
+                for row in result.added
+            ],
+            "removed": [
+                {
+                    "id": row.id,
+                    "title": row.title,
+                    "sha256": row.sha256,
+                    "temporal_status": row.temporal_status,
+                    "superseded_by": row.superseded_by,
+                }
+                for row in result.removed
+            ],
+            "changed": [
+                {
+                    "id": row.id,
+                    "title": row.title,
+                    "old_sha256": row.old_sha256,
+                    "new_sha256": row.new_sha256,
+                    "source": row.source,
+                    "temporal_status": row.temporal_status,
+                    "superseded_by": row.superseded_by,
+                }
+                for row in result.changed
+            ],
+            "counts": result.counts(),
+        }
+        if result.mode == "sync-state":
+            payload["source_records"] = result.source_records
+            payload["untrusted"] = result.untrusted
+        _dump_json(payload)
+        return
+    # Text rendering mirrors the MCP `diff` tool's markdown shape so the
+    # two surfaces agree on the same comparison, row for row.
+    notes = []
+    if against is not None:
+        notes.append(f"_Comparing the current bundle against `{against}`._")
+    else:
+        notes.append(
+            "_Comparing against the `sync-state.json` snapshot "
+            f"({result.source_records} source record(s))._"
+        )
+    if as_of is not None:
+        # Honest replay label: the instant the temporal statuses were
+        # evaluated at, matching the CLI's JSON envelope `as_of`.
+        notes.append(f"_Replayed as of {moment.isoformat()}._")
+    if result.untrusted:
+        plural = "entries" if result.untrusted != 1 else "entry"
+        notes.append(
+            f"_Skipped {result.untrusted} untrusted manifest {plural}: "
+            "source path outside the bundle root (not hashed)._"
+        )
+    added_rows = [
+        f"- **{row.id}** — {row.title} — "
+        f"sha256 `{row.sha256[:12]}…`"
+        f"{_diff_temporal_note(row.temporal_status, row.superseded_by)}"
+        for row in result.added
+    ]
+    removed_rows = [
+        (
+            f"- **{row.id}** — {row.title} — "
+            f"sha256 `{row.sha256[:12]}…`"
+            f"{_diff_temporal_note(row.temporal_status, row.superseded_by)}"
+        )
+        if row.title is not None
+        else f"- **{row.id}** — _removed from the bundle (title/sha unavailable)_"
+        for row in result.removed
+    ]
+    changed_rows = []
+    for row in result.changed:
+        if row.source is not None:
+            changed_rows.append(
+                f"- **{row.id}** — {row.title} — "
+                f"source `{row.source}` changed "
+                f"(`{row.old_sha256[:12]}…` → `{row.new_sha256[:12]}…`)"
+                f"{_diff_temporal_note(row.temporal_status, row.superseded_by)}"
+            )
+        else:
+            changed_rows.append(
+                f"- **{row.id}** — {row.title} — "
+                f"`{row.old_sha256[:12]}…` → `{row.new_sha256[:12]}…`"
+                f"{_diff_temporal_note(row.temporal_status, row.superseded_by)}"
+            )
+    lines = ["# Bundle diff", "", *notes, ""]
+    for header, rows in (
+        (f"## Added ({len(result.added)})", added_rows),
+        (f"## Removed ({len(result.removed)})", removed_rows),
+        (f"## Changed ({len(result.changed)})", changed_rows),
+    ):
+        lines.append(header)
+        lines.extend(rows or ["_none_"])
+    typer.echo("\n".join(lines))
+
+
 # ---------------------------------------------------------------------------
 # mcp
 # ---------------------------------------------------------------------------

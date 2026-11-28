@@ -1,7 +1,7 @@
 ---
 title: CLI reference
 eyebrow: CLI reference
-description: Every okfsmith command on one page — init, ingest, sync, list, read, validate, graph, doctor, chat, mcp — with real syntax, flags, and runnable examples.
+description: Every okfsmith command on one page — init, ingest, sync, list, read, validate, graph, diff, doctor, chat, mcp — with real syntax, flags, and runnable examples.
 ---
 
 ## CLI reference
@@ -23,7 +23,7 @@ These work on every command, including with no subcommand:
 |---|---|
 | `--help` | Show help for the CLI or a specific command (`okfsmith ingest --help`). |
 | `--version` | Print the version (e.g. `0.3.0`) and exit. |
-| `--format json` | Where supported (`list`, `read`, `validate`, `graph`, `sync`): emit machine-readable JSON instead of rich text. |
+| `--format json` | Where supported (`list`, `read`, `validate`, `graph`, `sync`, `diff`): emit machine-readable JSON instead of rich text. |
 | `--no-llm` | Where supported (`ingest`, `sync`, `chat`): run fully deterministic, no LLM involved. |
 | `--install-completion` | Install shell completion for the current shell. |
 | `--show-completion` | Print the completion script instead of installing it. |
@@ -479,6 +479,54 @@ Dead links (0):
 
 ---
 
+## okfsmith diff
+
+Diff a bundle against another bundle or its sync snapshot — added, removed, and changed concepts with body SHA-256. The same comparison the MCP `diff` tool renders; the CLI adds a machine-readable JSON form.
+
+```bash
+okfsmith diff [OPTIONS] {bundle}
+```
+
+```bash
+# Against a backup bundle (previous state)
+okfsmith diff ./kb --against ./kb-backup
+
+# Against the sync-state.json snapshot from the last sync
+okfsmith diff ./kb
+
+# Replay the diff as it stood on 2025-06-01
+okfsmith diff ./kb --against ./kb-old --as-of 2025-06-01
+
+# Machine-readable form for scripts / CI
+okfsmith diff ./kb --format json
+```
+
+Real output (from a verified run — a bundle with one added concept `b` and one changed concept `a`):
+
+```text
+# Bundle diff
+
+_Comparing the current bundle against `./kb-backup`._
+
+## Added (1)
+- **b** — Beta — sha256 `c7a85acaccab…`
+## Removed (0)
+_none_
+## Changed (1)
+- **a** — Alpha — `4cd3ba4834a5…` → `784ede47b184…`
+```
+
+### Common options {#diff-options}
+| Flag | What it does |
+|---|---|
+| `--against <bundle>` | Bundle directory to compare against (previous state). Without it, diffs against the `sync-state.json` snapshot recorded by the last `sync` — added/removed come from the snapshot's recorded concept ids, and "changed" marks concepts whose recorded source file's SHA-256 differs. |
+| `--as-of <date\|datetime>` | Replay the diff at a past/future instant: validity windows and supersession chains are evaluated then, not now. Non-current concepts carry their temporal status on the row (`_(superseded by `policy-v2`)_` / `_(expired)_` / `_(not yet valid)_`); JSON adds `as_of`. |
+| `--format <text\|json>` | Output format (default `text`). JSON carries `mode`, `against`, `as_of`, the three sections with `temporal_status` / `superseded_by` per row, and `counts`. |
+
+Without `--against` and without a usable snapshot, `diff` exits 1 with a clean `error [no-snapshot]` (run `okfsmith sync` first, or pass `--against`). Sync-state manifest paths outside the bundle root are untrusted: they are never hashed or echoed, only counted (`untrusted` in JSON, a note in text) — the same rule the MCP `diff` tool applies.
+
+---
+
 ## okfsmith doctor
 
 Check the environment: dependencies, extras, Ollama, writability.
@@ -615,7 +663,7 @@ hint: Install it with: pip install "okfsmith[mcp]" (or pipx: pipx install "okfsm
 | `--allow-writes` | Register the four governed write-back tools (`preview_write_concept`, `write_concept`, `update_concept`, `audit_log`). |
 | `--allow-trust-downgrade` | Permit `update_concept` to honor an agent-passed `downgrade_trust=true` on human-reviewed concepts. Without this flag, trust downgrades are rejected even when writes are allowed. |
 
-The server exposes thirteen **MCP tools** — nine read tools (`index`, `list`, `search`, `get`, `neighbors`, `traverse`, `provenance`, `diff`, `validate`) plus four governed write-back tools (`preview_write_concept`, `write_concept`, `update_concept`, `audit_log`). These are tools for connected agents; `search` is also a CLI command (`okfsmith search`), while `get` remains MCP-only (the CLI analogue is `read`). Client config examples for Claude Code/Desktop, Cursor, Copilot, and Gemini are on [MCP server](mcp.html).
+The server exposes thirteen **MCP tools** — nine read tools (`index`, `list`, `search`, `get`, `neighbors`, `traverse`, `provenance`, `diff`, `validate`) plus four governed write-back tools (`preview_write_concept`, `write_concept`, `update_concept`, `audit_log`). These are tools for connected agents; `search` and `diff` are also CLI commands (`okfsmith search`, [`okfsmith diff`](cli.html#okfsmith-diff)), while `get` remains MCP-only (the CLI analogue is `read`). Client config examples for Claude Code/Desktop, Cursor, Copilot, and Gemini are on [MCP server](mcp.html).
 
 ---
 

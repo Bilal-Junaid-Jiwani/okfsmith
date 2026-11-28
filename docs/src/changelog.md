@@ -4,6 +4,27 @@ eyebrow: Troubleshooting
 description: Release history for okfsmith — what changed in each version, what's coming next, and upgrade notes. Follows Keep a Changelog and Semantic Versioning.
 ---
 
+## [0.41.0] — 2026-11-28 {#v0-41-0}
+
+### Added {#v0-41-0-added}
+
+- **`okfsmith diff` CLI command:** the added/removed/changed comparison
+  existed only as an MCP tool — a terminal user had no way to ask "what
+  changed since the last sync?" without an MCP client. `okfsmith diff
+  ./kb --against ./kb-backup` diffs against another bundle directory and
+  `okfsmith diff ./kb` diffs against the `sync-state.json` snapshot from
+  the last sync; `--format json` adds a machine-readable form for scripts
+  and CI. The computation lives in the new pure-core module
+  `okfsmith.core.diff` (no FastMCP, no Typer) so the CLI and the MCP tool
+  agree on what "changed" means: same body-SHA-256/title comparison,
+  same temporal notes on non-current rows, same trust rules for
+  sync-state manifest paths (outside-root paths are never hashed or
+  echoed, only counted). Without `--against` and without a usable
+  snapshot it exits 1 with a clean `error [no-snapshot]` and a hint,
+  never a traceback. Pinned by tests in `tests/test_cli_diff.py`;
+  `docs/src/cli.md` documents the command, the README CLI table and
+  `llms.txt` list it.
+
 ## [0.40.0] — 2026-11-27 {#v0-40-0}
 
 ### Added {#v0-40-0-added}
