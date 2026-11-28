@@ -5,6 +5,26 @@ follow SemVer.
 
 ## [Unreleased]
 
+## [0.41.2] - 2026-11-28
+
+### Fixed
+
+- **CI red on the 0.41.1 release: `test_cli_diff_help` failed on every
+  matrix job.** The test asserted the literal flags `--against` /
+  `--as-of` / `--format` in the raw `okfsmith diff --help` output, but
+  Typer forces rich color on whenever `GITHUB_ACTIONS` is set
+  (`typer.rich_utils.FORCE_TERMINAL`), and its `OptionHighlighter`
+  styles `--against` as two spans (`-` + `-against`), so the literal
+  flag never occurs in the colored output. Locally `GITHUB_ACTIONS` is
+  unset, so the test passed here while failing on every CI job — the
+  0.41.1 fix (website/man-page version pins) addressed only the other
+  failure from the 0.41.0 run. The test now strips ANSI codes before
+  matching, the pattern `test_cli.py` and
+  `test_offline_review_fixes.py` already use for colored help/error
+  output, and a new `test_cli_diff_help_forced_color` regression test
+  pins the colored path in-process by forcing
+  `typer.rich_utils.FORCE_TERMINAL`.
+
 ## [0.41.1] - 2026-11-28
 
 ### Fixed

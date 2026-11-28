@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -348,6 +349,30 @@ def test_cli_diff_as_of_labels_replay(tmp_path: Path) -> None:
 def test_cli_diff_help(tmp_path: Path) -> None:
     result = runner.invoke(app, ["diff", "--help"], env=WIDE)
     assert result.exit_code == 0, result.output
-    assert "--against" in result.output
-    assert "--as-of" in result.output
-    assert "--format" in result.output
+    # Strip ANSI first: Typer's rich help highlights option names, and
+    # its OptionHighlighter styles `--against` as two spans (`-` +
+    # `-against`), so the literal flag never occurs in the raw output
+    # when color is on. Same pattern as test_cli.py (color is forced on
+    # by GITHUB_ACTIONS, so CI always renders colored help).
+    text = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
+    assert "--against" in text
+    assert "--as-of" in text
+    assert "--format" in text
+
+
+def test_cli_diff_help_forced_color(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Regression (0.41.1): ``--help`` must list the options when color
+    is forced on, as Typer does on CI (``GITHUB_ACTIONS`` sets
+    ``typer.rich_utils.FORCE_TERMINAL``). The unstripped assertion in
+    ``test_cli_diff_help`` failed on every CI job because the colored
+    render splits ``--against`` across two ANSI spans; this test pins
+    the colored path by forcing the terminal on in-process.
+    """
+    monkeypatch.setattr("typer.rich_utils.FORCE_TERMINAL", True)
+    result = runner.invoke(app, ["diff", "--help"], env=WIDE)
+    assert result.exit_code == 0, result.output
+    assert "\x1b[" in result.output, "expected colored help output"
+    text = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
+    assert "--against" in text
+    assert "--as-of" in text
+    assert "--format" in text

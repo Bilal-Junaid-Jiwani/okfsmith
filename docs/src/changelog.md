@@ -4,6 +4,20 @@ eyebrow: Troubleshooting
 description: Release history for okfsmith — what changed in each version, what's coming next, and upgrade notes. Follows Keep a Changelog and Semantic Versioning.
 ---
 
+## [0.41.2] — 2026-11-28 {#v0-41-2}
+
+### Fixed {#v0-41-2-fixed}
+
+- **CI red on the 0.41.1 release: `test_cli_diff_help` failed on every
+  matrix job.** The test asserted the literal `--help` flags in the raw
+  output, but Typer forces rich color on whenever `GITHUB_ACTIONS` is
+  set, and its `OptionHighlighter` styles `--against` as two spans
+  (`-` + `-against`), so the literal flag never occurs in the colored
+  output. The test now strips ANSI codes before matching (the pattern
+  already used for colored help/error output elsewhere), and a new
+  `test_cli_diff_help_forced_color` regression test pins the colored
+  path in-process.
+
 ## [0.41.1] — 2026-11-28 {#v0-41-1}
 
 ### Fixed {#v0-41-1-fixed}
