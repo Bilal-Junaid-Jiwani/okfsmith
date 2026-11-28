@@ -1,4 +1,4 @@
-.TH OKFSMITH 1 "November 2026" "okfsmith 0.40.0" "User Commands"
+.TH OKFSMITH 1 "November 2026" "okfsmith 0.41.1" "User Commands"
 .SH NAME
 okfsmith \- forge messy documents into OKF v0.2 knowledge bundles
 .SH SYNOPSIS
@@ -98,6 +98,18 @@ Show concept links. The
 .B html
 format writes a self-contained offline viewer
 .RI ( viz.html ).
+.TP
+.B diff \fIBUNDLE\fR [\-\-against \fIBUNDLE\fR] [\-\-as\-of \fIDATE\fR] [\-\-format text|json]
+Show what changed: added, removed, and changed concepts with body
+SHA-256, against another bundle directory
+.RI ( \-\-against )
+or the sync-state snapshot from the last sync. Non-current concepts
+carry their temporal status on the row, evaluated at
+.B \-\-as\-of
+when given; without
+.B \-\-against
+and without a usable snapshot it exits 1 with a clean
+.I error [no-snapshot].
 .TP
 .B mcp \fIBUNDLE\fR [\-\-transport stdio|sse|streamable\-http]
 Serve the bundle to AI agents over MCP. Requires the

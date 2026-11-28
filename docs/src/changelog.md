@@ -4,6 +4,19 @@ eyebrow: Troubleshooting
 description: Release history for okfsmith — what changed in each version, what's coming next, and upgrade notes. Follows Keep a Changelog and Semantic Versioning.
 ---
 
+## [0.41.1] — 2026-11-28 {#v0-41-1}
+
+### Fixed {#v0-41-1-fixed}
+
+- **CI red on the 0.41.0 release: website and man page still stated
+  0.40.0.** The version bump updated `pyproject.toml`, the changelogs,
+  README, and docs, but not the two version pins the packaging tests
+  guard (`docs/site/index.html` "Latest release" + footer, and the
+  `man/okfsmith.1` `.TH` header), so the packaging tests failed on
+  every CI matrix job. Both now state 0.41.1, and the website's "KEPT
+  CURRENT" section gains a `okfsmith diff` entry while the man page
+  gains a `diff` command entry.
+
 ## [0.41.0] — 2026-11-28 {#v0-41-0}
 
 ### Added {#v0-41-0-added}

@@ -5,6 +5,21 @@ follow SemVer.
 
 ## [Unreleased]
 
+## [0.41.1] - 2026-11-28
+
+### Fixed
+
+- **CI red on the 0.41.0 release: website and man page still stated
+  0.40.0.** The version bump updated `pyproject.toml`, the changelogs,
+  README, and docs, but not the two version pins the packaging tests
+  guard (`docs/site/index.html` "Latest release" + footer, and the
+  `man/okfsmith.1` `.TH` header), so `test_website_states_current_release`
+  and `test_man_page_states_current_version` failed on every CI matrix
+  job. Both now state 0.41.1, and the website's "KEPT CURRENT" section
+  gains a `okfsmith diff` entry while the man page gains a `diff`
+  command entry — the public pages that should have moved with the
+  feature in 0.41.0.
+
 ## [0.41.0] - 2026-11-28
 
 ### Added
